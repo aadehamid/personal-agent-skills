@@ -1,0 +1,57 @@
+{
+  "skill_name": "clear-writing",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "My manager keeps asking why we picked MQTT instead of OPC UA for getting the SCADA tag data from the well sites up to the cloud data lake. She's not an engineer. Can you write me a short explanation I can send her? Save it as explanation.md",
+      "expected_output": "Short plain explanation, answer first, no jargon left undefined, no AI tells, persuade/explain register for a non-engineer.",
+      "files": [],
+      "assertions": [
+        "No em dashes in the deliverable",
+        "No AI-vocabulary words",
+        "Chat reply has no chatbot filler phrases",
+        "Explanation is short (<350 words)",
+        "Answer first: MQTT named in the first two sentences",
+        "Average sentence length <= 20 words",
+        "No bold 'Label:' lead-ins",
+        "No restating summary section (Bottom line / Summary)"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "can you unslop this linkedin post before i put it up? it's in inputs/linkedin_draft.md. keep it sounding like me, i'm an engineer not a marketer. save the result as post.md",
+      "expected_output": "Post with emoji, puffery, bold-label bullets, hashtags spam, generic ending removed; concrete and human; keeps 14 systems / 3 regions facts; no invented metrics.",
+      "files": [
+        "evals/inputs/linkedin_draft.md"
+      ],
+      "assertions": [
+        "No em dashes in the deliverable",
+        "No AI-vocabulary words",
+        "Chat reply has no chatbot filler phrases",
+        "No emoji",
+        "No bold-label inline-header bullets",
+        "At most 3 hashtags",
+        "Keeps facts: 14 systems and 3 regions",
+        "No generic closing line",
+        "No invented percentages"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "A senior tech wrote this troubleshooting note for the historian collector (inputs/runbook_note.md). Turn it into something our night-shift operators can actually follow at 3am. Save as runbook.md",
+      "expected_output": "Numbered imperative steps, conditions before actions, data-loss warning placed BEFORE the buffer-clear step with consequence, all paths/hostnames/times preserved.",
+      "files": [
+        "evals/inputs/runbook_note.md"
+      ],
+      "assertions": [
+        "No em dashes in the deliverable",
+        "No AI-vocabulary words",
+        "Chat reply has no chatbot filler phrases",
+        "Uses numbered steps (>=4)",
+        "Data-loss warning appears before the buffer-clear step",
+        "Preserves hostnames, paths and commands",
+        "Preserves 60-minute RTU window and 5-minute check"
+      ]
+    }
+  ]
+}
