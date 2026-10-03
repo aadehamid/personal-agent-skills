@@ -10,12 +10,22 @@
 #
 # Safe to re-run. It never replaces a real folder, only symlinks.
 #
-# Usage: ./scripts/link-skills.sh [--dry-run]
+# Usage: ./scripts/link-skills.sh [--dry-run] [--claude-md]
+#   --claude-md  also add config/claude-md-snippet.md to ~/.claude/CLAUDE.md,
+#                unless that file already contains it. Without this line in
+#                CLAUDE.md, Claude rarely loads the writing skill on its own.
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 shared="$HOME/.agents/skills"
 dry=false
-[ "${1:-}" = "--dry-run" ] && dry=true
+claude_md=false
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run) dry=true ;;
+    --claude-md) claude_md=true ;;
+    *) echo "unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
 
 run() { if $dry; then echo "would: $*"; else "$@"; fi; }
 
@@ -61,3 +71,17 @@ find "$repo/skills" -name SKILL.md -not -path '*/node_modules/*' | while read -r
   done <<< "$dirs"
   echo "linked $name"
 done
+
+if $claude_md; then
+  snippet="$repo/config/claude-md-snippet.md"
+  target="$HOME/.claude/CLAUDE.md"
+  marker="load the clear-writing skill first"
+  if [ -f "$target" ] && grep -qF "$marker" "$target"; then
+    echo "CLAUDE.md already has the snippet"
+  elif $dry; then
+    echo "would: append $snippet to $target"
+  else
+    { [ -s "$target" ] && echo; cat "$snippet"; } >> "$target"
+    echo "added the snippet to $target"
+  fi
+fi

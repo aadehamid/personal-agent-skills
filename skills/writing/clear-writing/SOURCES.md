@@ -2,7 +2,15 @@
 
 This file lists every source clear-writing was built from: what we took, what we left out, and the exact version we used. It also says how to check each source for updates. Agents do not read this file.
 
-The `upstream/` folder holds a snapshot of each source as we used it, so an update check is a `diff`. The snapshots are third-party text, so they stay on your machine: git ignores `upstream/`, and the public repo has only the links, versions, and hashes below. If you clone the repo on a new machine, rebuild the snapshots from the pinned versions before you run a check.
+The `upstream/` folder holds a snapshot of each source as we used it, so an update check is a `diff`. The snapshots are third-party text, so they stay on your machine: git ignores `upstream/`, and the public repo has only the links, versions, and hashes below. If you clone the repo on a new machine, rebuild the snapshots from the pinned versions before you run a check:
+
+```bash
+mkdir -p upstream
+gh api "repos/cursor/plugins/contents/pstack/skills/unslop/SKILL.md?ref=70b2dc8b4b85" --jq .content \
+  | base64 -d > upstream/cursor-unslop-SKILL.md
+```
+
+For the two X posts, ask Claude to save each post's text from its link into `upstream/karpathy-post.md` and `upstream/kunchen-post.md`. The Anthropic unslop has no public URL. To rebuild it, turn it on in claude.ai for a moment and copy it from `~/.claude/skills/synced/*/unslop/SKILL.md`.
 
 Last full review: 2026-10-03. Suggested cadence: every three months, or when one of the authors posts about a change.
 

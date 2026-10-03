@@ -1,0 +1,82 @@
+[
+  {
+    "query": "the README in ~/Dropbox/1_PROJECTS/scada-harmonization reads like chatgpt wrote it. lots of 'seamless' and 'robust' and bold headers everywhere. can you make it plainer without losing any of the setup steps",
+    "should_trigger": true
+  },
+  {
+    "query": "write a status update for my manager on the EPM model work this week. done: reconciled the EPM files from Downloads into the repo, 3 sheets still mismatched on the capex tab, waiting on finance. keep it short she hates fluff",
+    "should_trigger": true
+  },
+  {
+    "query": "can you tighten this before i send it to the field ops supervisor: 'Hi Dave, I wanted to reach out to touch base regarding the potential possibility of scheduling some time to discuss the RTU firmware rollout plan going forward'",
+    "should_trigger": true
+  },
+  {
+    "query": "rewrite docs/historian-runbook.md in simplified technical english (STE) so the night shift operators can follow it without calling me at 3am",
+    "should_trigger": true
+  },
+  {
+    "query": "explain how RTU store-and-forward works in a way our CFO would get. it's going in a note for the board pack, one or two paragraphs max",
+    "should_trigger": true
+  },
+  {
+    "query": "this PR description is 600 words of buzzwords for a 40 line change. cut it down to what a reviewer actually needs, the diff is in the current branch",
+    "should_trigger": true
+  },
+  {
+    "query": "calibrate my writing rules again, i've got a few more weeks of sessions now",
+    "should_trigger": true
+  },
+  {
+    "query": "unslop: 'In today's rapidly evolving energy landscape, Pearland Petroleum stands as a testament to innovation, seamlessly blending tradition with cutting-edge technology.'",
+    "should_trigger": true
+  },
+  {
+    "query": "draft a linkedin post about wrapping up the IT/OT data integration architecture at work. 14 sites, MQTT to the lake, took 9 months. i'm an engineer so dont make it sound like a press release",
+    "should_trigger": true
+  },
+  {
+    "query": "my cover letter for the data engineering lead role sounds robotic, can you make it sound like a real person wrote it? pasting it below\n\nDear Hiring Manager, I am writing to express my keen interest in the Data Engineering Lead position. With a proven track record of leveraging data to drive impactful outcomes...",
+    "should_trigger": true
+  },
+  {
+    "query": "write a python script that strips em dashes and curly quotes from every .md file in docs/ and replaces them with plain ascii",
+    "should_trigger": false
+  },
+  {
+    "query": "translate this H2S safety bulletin into spanish for the pearland field crew, keep the warnings formatting exactly the same",
+    "should_trigger": false
+  },
+  {
+    "query": "make a diagram of the scada to data lake architecture: RTUs -> edge gateway -> MQTT broker (sparkplug b) -> AWS IoT Core -> S3 lake",
+    "should_trigger": false
+  },
+  {
+    "query": "build me an interactive html page with animations that shows how OPC UA subscriptions and monitored items work",
+    "should_trigger": false
+  },
+  {
+    "query": "what is ASD-STE100 actually? who maintains it and is the spec free to download?",
+    "should_trigger": false
+  },
+  {
+    "query": "count how many times 'leverage' and 'utilize' appear across the markdown files in this repo and list which files",
+    "should_trigger": false
+  },
+  {
+    "query": "set up a pre-commit hook that runs the vale prose linter on markdown files in this repo",
+    "should_trigger": false
+  },
+  {
+    "query": "write unit tests for scripts/sample_transcripts.py, especially the sidechain and tool_result filtering",
+    "should_trigger": false
+  },
+  {
+    "query": "the slides in Q3_ops_review.pptx are way too cluttered. fewer bullets per slide, bigger charts, consistent fonts",
+    "should_trigger": false
+  },
+  {
+    "query": "fix the typos in my last commit message and amend it: 'fxied teh null chekc in parser'",
+    "should_trigger": false
+  }
+]

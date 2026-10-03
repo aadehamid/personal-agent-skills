@@ -16,6 +16,7 @@ This README is for people. Agents do not read it. They read `SKILL.md` and the f
 | `scripts/sample_transcripts.py` | agent, calibrate mode only | Samples recent Claude Code sessions from `~/.claude/projects/` and prints only your prompts and Claude's prose. It skips tool calls, thinking, subagents, and the live session. |
 | `evals/evals.json` | you, when testing | The three test prompts (manager explainer, LinkedIn post, 3am runbook) and the checks for each one. |
 | `evals/inputs/` | you, when testing | The input files the test prompts use. |
+| `evals/trigger-eval.json` | you, when tuning | The 20 prompts (10 should trigger, 10 near-misses) used to tune the frontmatter description. |
 | `evals/grade.py` | you, when testing | Scores test outputs against the checks: em dashes, AI vocabulary, emoji, warning order, preserved facts, and so on. Writes `grading.json` for each run. |
 | `SOURCES.md` | you | Every source this skill was built from: what we took, what we left out, the version used, and how to check for updates. Has a review log. |
 | `upstream/` | you, local only | Snapshots of each source as we used it, so an update check is a `diff`. Git ignores this folder because it holds third-party text. |
@@ -35,7 +36,15 @@ python3 evals/grade.py ../../../workspaces/clear-writing/iteration-N
 
 **Check the sources for updates.** Follow "How to run a review" in `SOURCES.md`, or ask Claude to "review the clear-writing sources for updates".
 
-**Tune when it triggers.** Use skill-creator's description optimizer with `workspaces/clear-writing/trigger-eval.json`. Run it with `env -u ANTHROPIC_API_KEY`, and unlink `~/.claude/skills/clear-writing` during the run so the test counts the right skill.
+**Tune when it triggers.** Use skill-creator's description optimizer with `evals/trigger-eval.json`. Run it with `env -u ANTHROPIC_API_KEY`, and unlink `~/.claude/skills/clear-writing` during the run so the test counts the right skill.
+
+## Status
+
+Last updated 2026-10-03.
+
+- **Calibration is thin.** `calibration.md` came from only 3 sessions, so most rules are marked tentative. Run calibrate mode again on a machine with more sessions: pull first, say "calibrate my writing rules", review the diff, then commit and push. Calibrate mode merges with the existing file, so the results from each machine add up.
+- **CLAUDE.md summary is on hold.** After the next calibration, decide whether to add a three-to-five-line summary of the calibrated rules to `~/.claude/CLAUDE.md`. This is separate from the one-line pointer that `link-skills.sh --claude-md` installs.
+- **Triggering.** The description was tuned on 2026-10-03 (held-out score 5/8, up from 4/8). The CLAUDE.md pointer does most of the work. Retune only if the skill starts to trigger on the wrong requests.
 
 ## Sources
 

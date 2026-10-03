@@ -13,12 +13,13 @@ My own skills for Claude Code and other agents. Each skill is a folder with a `S
 ```
 skills/<category>/<skill-name>/
   SKILL.md        required. The only file agents load by default.
-  README.md       required. For people: what each file does. Agents never read it.
+  README.md       required. For people: what each file does, plus a Status section with open items. Agents never read it.
   SOURCES.md      required if the skill draws on outside work: what was taken, versions, how to check for updates.
   upstream/       local-only snapshots of those sources (gitignored), so an update check is a diff.
   references/     docs the skill reads when needed
   scripts/        code the skill runs
   evals/          test prompts, inputs, and grader
+config/           snippets to install outside the repo, such as the CLAUDE.md line
 workspaces/       eval run outputs (not tracked)
 ```
 
@@ -29,8 +30,12 @@ Category names are short and lowercase: `writing`, `coding`, `data`, `ops`, `res
 ```bash
 git clone https://github.com/aadehamid/personal-agent-skills.git
 cd personal-agent-skills
-./scripts/link-skills.sh
+./scripts/link-skills.sh --claude-md
 ```
+
+`--claude-md` adds `config/claude-md-snippet.md` to `~/.claude/CLAUDE.md`. That line tells Claude to load clear-writing whenever it writes prose. Without it, Claude rarely loads the skill on its own. The script does not add the line twice.
+
+To pick up work on another machine, also read the "Status" section in each skill's README. It lists the open items. To check sources for updates, first rebuild the local `upstream/` snapshots as described in that skill's `SOURCES.md`.
 
 The script symlinks each skill into `~/.agents/skills/`, then into the skills folder of every agent on the machine. It finds agent folders by looking for existing links into `~/.agents/skills`, which is how `npx skills add -g` installs skills. `~/.claude/skills` is always included. Re-run it after you add a skill or install a new agent. Use `--dry-run` to see what it would change.
 
