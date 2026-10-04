@@ -1,0 +1,41 @@
+{
+  "skill_name": "knowledge-ingest",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I've got about 40 markdown files sitting in ~/kb/cuda/Raw/ that I fetched last week — NVIDIA architecture blogs, some Stanford lecture transcripts, the CUDA programming guide. None of them have been turned into anything yet. Can you start working through them into the wiki? There's a ledger somewhere tracking what's done.",
+      "expected_output": "Orients from the ledger first, picks one coherent cluster of 8-12 sources rather than all 40, reads them before writing, produces pages whose claims trace to the sources, runs the mechanical check, and does not declare the batch complete without an independent review.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "picking back up on the ingest from yesterday — where did we leave off and what's next?",
+      "expected_output": "Recomputes counts rather than trusting the ledger's written numbers, reports remaining work per bundle, and proposes the next cluster without starting to write pages unprompted.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Before I trust this vault I want to know if the pages actually match their sources. Can you check it over? It's at ~/kb/ml-foundations and it's never been reviewed by anything other than the agent that wrote it.",
+      "expected_output": "Distinguishes the mechanical check from fidelity, states plainly that a clean structural run says nothing about whether claims are in their sources, and routes to an independent reviewer rather than self-reviewing.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "can you summarise this paper for me? it's the FlashAttention one, i just want the gist in a few bullets before my meeting",
+      "expected_output": "Does NOT trigger. One-off summarisation of a single document with no bundle, no provenance chain and no ingest involved.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "I have a list of 200 urls in urls.txt — can you fetch them all and convert them to markdown? some are pdfs and a bunch are youtube links",
+      "expected_output": "Does NOT trigger. This is the fetch/convert pipeline that runs before ingest, not the ingest itself.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "what does my knowledge base say about KV cache eviction? i remember reading something about H2O and StreamingLLM in there",
+      "expected_output": "Does NOT trigger. A query against an existing bundle, not an ingest.",
+      "files": []
+    }
+  ]
+}

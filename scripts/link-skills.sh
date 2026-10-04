@@ -10,19 +10,24 @@
 #
 # Safe to re-run. It never replaces a real folder, only symlinks.
 #
-# Usage: ./scripts/link-skills.sh [--dry-run] [--claude-md]
+# Usage: ./scripts/link-skills.sh [--dry-run] [--claude-md] [--tools]
 #   --claude-md  also add config/claude-md-snippet.md to ~/.claude/CLAUDE.md,
 #                unless that file already contains it. Without this line in
 #                CLAUDE.md, Claude rarely loads the writing skill on its own.
+#   --tools      also install each skill's command-line tool: any skill with a
+#                cli/pyproject.toml is installed with `uv tool install --editable`,
+#                so edits to the repo take effect without a reinstall. Needs uv.
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 shared="$HOME/.agents/skills"
 dry=false
 claude_md=false
+tools=false
 for arg in "$@"; do
   case "$arg" in
     --dry-run) dry=true ;;
     --claude-md) claude_md=true ;;
+    --tools) tools=true ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -57,7 +62,10 @@ mkdir -p "$shared" "$HOME/.claude/skills"
 dirs="$(agent_dirs)"
 echo "agent folders: $(echo "$dirs" | wc -l | tr -d ' ')"
 
-find "$repo/skills" -name SKILL.md -not -path '*/node_modules/*' | while read -r f; do
+# Skip dependency folders: a Python venv can hold packages that ship their own
+# SKILL.md (typer does), and those must not be linked as skills.
+find "$repo/skills" -name SKILL.md -not -path '*/node_modules/*' -not -path '*/.venv/*' \
+  -not -path '*/site-packages/*' | while read -r f; do
   dir="$(dirname "$f")"
   name="$(basename "$dir")"
   # The shared copy points at this repo. Agent folders point at the shared copy.
@@ -83,5 +91,18 @@ if $claude_md; then
   else
     { [ -s "$target" ] && echo; cat "$snippet"; } >> "$target"
     echo "added the snippet to $target"
+  fi
+fi
+
+if $tools; then
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "skip tools: uv is not installed (https://docs.astral.sh/uv/)" >&2
+  else
+    find "$repo/skills" -path '*/cli/pyproject.toml' -not -path '*/node_modules/*' \
+      -not -path '*/.venv/*' -not -path '*/site-packages/*' | while read -r py; do
+      cli="$(dirname "$py")"
+      run uv tool install --editable --force "$cli"
+      echo "installed tool from ${cli#$repo/}"
+    done
   fi
 fi

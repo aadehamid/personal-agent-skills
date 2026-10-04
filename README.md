@@ -8,6 +8,7 @@ My own skills for Claude Code and other agents. Each skill is a folder with a `S
 |---|---|---|
 | writing | [clear-writing](skills/writing/clear-writing/SKILL.md) | Writes and edits plain, clear prose for people. Uses a subset of ASD-STE100, an anti-AI-tell pattern list, a re-pitch mode for messages that did not land, and a calibrate mode that tunes the rules from past sessions. |
 | writing | [wait-what](skills/writing/wait-what/SKILL.md) | Type `/wait-what` when Claude's last message did not make sense. Runs clear-writing's re-pitch mode. |
+| research | [knowledge-ingest](skills/research/knowledge-ingest/SKILL.md) | Turns saved sources into a linked knowledge base (Obsidian vault or wiki), one article or a backlog of hundreds, and resumes where the last session stopped. Every claim must trace to a source; a mechanical gate (the `kb` CLI) and an independent review catch what the author misses. |
 
 Installed from elsewhere, not stored here:
 
@@ -25,6 +26,7 @@ skills/<category>/<skill-name>/
   upstream/       local-only snapshots of those sources (gitignored), so an update check is a diff.
   references/     docs the skill reads when needed
   scripts/        code the skill runs
+  cli/            a command-line tool the skill uses (Python package with pyproject.toml), installed by --tools
   evals/          test prompts, inputs, and grader
 config/           snippets to install outside the repo, such as the CLAUDE.md line
 workspaces/       eval run outputs (not tracked)
@@ -37,9 +39,11 @@ Category names are short and lowercase: `writing`, `coding`, `data`, `ops`, `res
 ```bash
 git clone https://github.com/aadehamid/personal-agent-skills.git
 cd personal-agent-skills
-./scripts/link-skills.sh --claude-md
+./scripts/link-skills.sh --claude-md --tools
 npx skills add mattpocock/skills --skill writing-for-agents -g
 ```
+
+`--tools` installs each skill's command-line tool with `uv tool install --editable` (needs [uv](https://docs.astral.sh/uv/)). Today that is `kb`, the validation CLI for knowledge-ingest. A skill that needs per-project setup says so in the "Set up on a machine" section of its README.
 
 `--claude-md` adds `config/claude-md-snippet.md` to `~/.claude/CLAUDE.md`. That line tells Claude to load clear-writing whenever it writes prose. Without it, Claude rarely loads the skill on its own. The script does not add the line twice.
 
