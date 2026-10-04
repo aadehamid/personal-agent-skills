@@ -52,6 +52,24 @@
         "Preserves hostnames, paths and commands",
         "Preserves 60-minute RTU window and 5-minute check"
       ]
+    },
+    {
+      "id": 4,
+      "prompt": "Read the conversation in evals/inputs/repitch_context.md. You are Claude in that conversation, and the user just replied 'wait what? i don't follow'. Write your next reply. Save it as reply.md",
+      "expected_output": "Re-pitch: one or two sentences of context first, the point in short sentences, internal labels (target mode, HOLD gate, UNS, drift-allow, uns-gen) replaced or defined, arrows spelled out, shorter than the original, ends with the one decision the user must make.",
+      "files": [
+        "evals/inputs/repitch_context.md"
+      ],
+      "assertions": [
+        "Reply is at most 20% longer than the original message",
+        "Average sentence length <= 20 words",
+        "Internal labels from the original are replaced with plain words",
+        "No arrows or symbol-speak",
+        "Ends with the decision the user must make (a question)",
+        "No em dashes or spaced en dashes in the deliverable",
+        "No AI-vocabulary words",
+        "Chat reply has no chatbot filler phrases"
+      ]
     }
   ]
 }

@@ -6,7 +6,14 @@ My own skills for Claude Code and other agents. Each skill is a folder with a `S
 
 | Category | Skill | What it does |
 |---|---|---|
-| writing | [clear-writing](skills/writing/clear-writing/SKILL.md) | Writes and edits plain, clear prose. Uses a subset of ASD-STE100, the unslop anti-AI-tell rules, and a calibrate mode that tunes the rules from past sessions. |
+| writing | [clear-writing](skills/writing/clear-writing/SKILL.md) | Writes and edits plain, clear prose for people. Uses a subset of ASD-STE100, an anti-AI-tell pattern list, a re-pitch mode for messages that did not land, and a calibrate mode that tunes the rules from past sessions. |
+| writing | [wait-what](skills/writing/wait-what/SKILL.md) | Type `/wait-what` when Claude's last message did not make sense. Runs clear-writing's re-pitch mode. |
+
+Installed from elsewhere, not stored here:
+
+| Skill | Install | What it does |
+|---|---|---|
+| writing-for-agents | `npx skills add mattpocock/skills --skill writing-for-agents -g` | Writing documents an agent reads: skills, CLAUDE.md, AGENTS.md. Clear-writing hands those to it. |
 
 ## Layout
 
@@ -31,6 +38,7 @@ Category names are short and lowercase: `writing`, `coding`, `data`, `ops`, `res
 git clone https://github.com/aadehamid/personal-agent-skills.git
 cd personal-agent-skills
 ./scripts/link-skills.sh --claude-md
+npx skills add mattpocock/skills --skill writing-for-agents -g
 ```
 
 `--claude-md` adds `config/claude-md-snippet.md` to `~/.claude/CLAUDE.md`. That line tells Claude to load clear-writing whenever it writes prose. Without it, Claude rarely loads the skill on its own. The script does not add the line twice.

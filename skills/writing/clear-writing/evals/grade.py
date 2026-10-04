@@ -66,7 +66,7 @@ def g_runbook(o):
     steps = re.findall(r"^\s*\d+\.\s", main, re.M)
     r.append(("Uses numbered steps (>=4)", len(steps) >= 4, f"{len(steps)} numbered lines"))
     low = main.lower()
-    w = [m.start() for m in re.finditer(r"(lost permanently|permanently lost|cannot be recovered|can't be recovered|data loss|lose data|lost for good|deletes|is lost|are lost)", low)]
+    w = [m.start() for m in re.finditer(r"(lost permanently|permanently lost|permanently loses|permanently deletes|lost for good|cannot be recovered|can't be recovered|data loss|lose data|lost for good|deletes|is lost|are lost)", low)]
     # The clear step is a numbered line that deletes/clears files in the buffer folder.
     c = [m.start() for m in re.finditer(r"^\s*\d+\.\s[^\n]*(delete|clear|remove)[^\n]*buffer", low, re.M)]
     ok = bool(w and c and min(w) < min(c))
@@ -77,7 +77,27 @@ def g_runbook(o):
     r.append(("Preserves 60-minute RTU window and 5-minute check", ("60" in main or "hour" in low) and "5 min" in low, ""))
     return r
 
-GRADERS = {"mqtt-vs-opcua-explainer": g_explainer, "unslop-linkedin-post": g_post, "historian-runbook": g_runbook}
+ORIGINAL_REPITCH_WORDS = 125  # word count of the previous message in repitch_context.md
+
+def g_repitch(o):
+    main = read(f"{o}/reply.md")
+    r = common(main, read(f"{o}/response.md") or main)
+    wc = len(main.split())
+    # Plain words take more room than jargon, so allow up to 20% over the original.
+    r.append(("Reply is at most 20% longer than the original message", 0 < wc <= ORIGINAL_REPITCH_WORDS * 1.2, f"{wc} words vs {ORIGINAL_REPITCH_WORDS}"))
+    a = avg_len(main)
+    r.append(("Average sentence length <= 20 words", a <= 20, f"avg {a:.1f}"))
+    low = main.lower()
+    labels = ["target mode", "`target`", "hold gate", "drift-allow", "uns-gen", "re-alias", "w/ "]
+    left = [l for l in labels if l in low]
+    r.append(("Internal labels from the original are replaced with plain words", not left, f"still present: {left}"))
+    arrows = re.findall("[\u2192\u21d2]|->|=>", main)
+    r.append(("No arrows or symbol-speak", not arrows, f"found: {arrows}"))
+    last = [s for s in sentences(main) if s.strip()][-1:] or [""]
+    r.append(("Ends with the decision the user must make (a question)", last[0].strip().endswith("?"), f"last: {last[0][:120]}"))
+    return r
+
+GRADERS = {"mqtt-vs-opcua-explainer": g_explainer, "unslop-linkedin-post": g_post, "historian-runbook": g_runbook, "wait-what-repitch": g_repitch}
 
 it = sys.argv[1]
 for ev, fn in GRADERS.items():
