@@ -763,3 +763,28 @@ def test_uncited_ok_requires_a_reason(tmp_path, vault):
                                                               "uncited_ok": {"foo.md": "  "}}]}))
     res = CliRunner().invoke(app, ["--config", str(cfg), "coverage", "--json"])
     assert res.exit_code == 2
+
+
+# ------------------------------------------------ portable paths (2026-10-04)
+
+def test_vault_root_and_env_override(tmp_path, monkeypatch):
+    proj, home_vaults, other = tmp_path / "proj", tmp_path / "home" / "KM", tmp_path / "elsewhere"
+    for root in (home_vaults, other):
+        (root / "V" / "Raw").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("KB_VAULT_ROOT", raising=False)
+    cfg_file = write(proj / "knowledge-ingest.config.json",
+                     json.dumps({"vault_root": "~/KM", "bundles": [{"name": "V", "path": "V"}]}))
+    assert config.load(str(cfg_file)).bundles[0].path == home_vaults / "V"
+    monkeypatch.setenv("KB_VAULT_ROOT", str(other))
+    assert config.load(str(cfg_file)).bundles[0].path == other / "V"
+
+
+def test_paths_expand_env_vars_and_reject_undefined(tmp_path, monkeypatch):
+    (tmp_path / "x" / "V" / "Raw").mkdir(parents=True)
+    monkeypatch.setenv("MY_VAULTS", str(tmp_path / "x"))
+    good = write(tmp_path / "a.json", json.dumps({"bundles": [{"name": "V", "path": "$MY_VAULTS/V"}]}))
+    assert config.load(str(good)).bundles[0].path == tmp_path / "x" / "V"
+    bad = write(tmp_path / "b.json", json.dumps({"bundles": [{"name": "V", "path": "$NOT_SET_ANYWHERE/V"}]}))
+    with pytest.raises(config.ConfigError):
+        config.load(str(bad))

@@ -31,6 +31,7 @@ class Config:
     bundles: list[Bundle]
     validator: Path | None = None
     sync_simulator: str | None = None
+    vault_root: Path | None = None
 
     def bundle(self, ref: str) -> Bundle:
         """A bundle by config name (case-insensitive) or by filesystem path."""
@@ -88,12 +89,31 @@ def load(explicit: str | None = None) -> Config:
             raise ConfigError(f"config {real}: `{key}` must be a string")
         return v or None
 
+    def expand(v: str) -> Path:
+        """`~` and `$VARS` expand, so a config never needs a machine-specific home path."""
+        expanded = os.path.expandvars(v)
+        if "$" in expanded:
+            raise ConfigError(f"config {real}: undefined environment variable in {v!r}")
+        return Path(expanded).expanduser()
+
     def rel(v: str | None) -> Path | None:
         """Relative paths resolve from the config file's folder, never the caller's CWD."""
         if not v:
             return None
-        p = Path(v).expanduser()
+        p = expand(v)
         return p if p.is_absolute() else root / p
+
+    # Where the vaults live. $KB_VAULT_ROOT wins, then the config's `vault_root`.
+    # Relative bundle paths are resolved against it, so moving every vault to a new
+    # folder (or a new machine with another username) means changing one value.
+    vr = os.environ.get("KB_VAULT_ROOT") or opt_str("vault_root")
+    vault_root = rel(vr) if vr else None
+
+    def bundle_path(v: str) -> Path:
+        p = expand(v)
+        if p.is_absolute():
+            return p
+        return (vault_root / p) if vault_root else (root / p)
 
     bundles = []
     for i, b in enumerate(data.get("bundles", [])):
@@ -110,8 +130,9 @@ def load(explicit: str | None = None) -> Config:
                                                for k, v in ok.items()):
             raise ConfigError(f"config {real}: bundles[{i}].uncited_ok must map filename -> a non-empty "
                               f"reason; an exemption without a recorded reason is not allowed")
-        bundles.append(Bundle(name=b["name"], path=rel(b["path"]), shape=b.get("shape") or "concept",
+        bundles.append(Bundle(name=b["name"], path=bundle_path(b["path"]), shape=b.get("shape") or "concept",
                               sources=b.get("sources"), uncited_ok=dict(ok)))
     return Config(path=real, root=root, bundles=bundles,
                   validator=rel(opt_str("validator")),
-                  sync_simulator=opt_str("sync_simulator"))
+                  sync_simulator=opt_str("sync_simulator"),
+                  vault_root=vault_root)
