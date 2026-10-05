@@ -23,10 +23,10 @@ def run(b: Bundle) -> Report:
     if problems:
         return r
     raws = V.raw_files(b.path)
-    texts = [V.read(p) for p in V.pages(b.path)]
+    cited = set().union(*(V.cited_raw_files(b.path, p) for p in V.pages(b.path))) if raws else set()
     uncited, accepted = [], []
     for raw in raws:
-        if any(V.cites(raw.name, t) for t in texts):
+        if raw.name in cited:
             if raw.name in b.uncited_ok:
                 r.warn(f"{raw.name} is listed in uncited_ok but is now cited; remove the entry")
             continue

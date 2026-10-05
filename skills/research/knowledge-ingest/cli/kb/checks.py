@@ -97,7 +97,9 @@ def check_wiki_refs(r: Report, b: Bundle) -> None:
     entries, repeated entries) are reported once, with the full list under
     `details` in --json, so they do not bury real failures.
     """
-    texts = {p.relative_to(b.path).as_posix(): V.read(p) for p in V.pages(b.path, include_reserved=True)}
+    paths = {p.relative_to(b.path).as_posix(): p for p in V.pages(b.path, include_reserved=True)}
+    texts = {rel: V.read(p) for rel, p in paths.items()}
+    cited = {rel: V.cited_raw_files(b.path, paths[rel], t) for rel, t in texts.items()}
     listed = consistent = 0
     repeated, malformed = [], []
     for raw in V.raw_files(b.path):
@@ -116,11 +118,11 @@ def check_wiki_refs(r: Report, b: Bundle) -> None:
             if page != ref:
                 malformed.append(f"{raw.name}: {ref!r} should be {page!r}")
             resolved.append(page)
-            if V.cites(raw.name, texts[page]):
+            if raw.name in cited[page]:
                 consistent += 1
             elif page.startswith("Learning Path/"):
                 via = [w for w in _stage_wiki_links(b.path, page, texts[page])
-                       if w in texts and not w.startswith("Learning Path/") and V.cites(raw.name, texts[w])]
+                       if w in texts and not w.startswith("Learning Path/") and raw.name in cited[w]]
                 if via:
                     consistent += 1
                 else:
@@ -130,7 +132,7 @@ def check_wiki_refs(r: Report, b: Bundle) -> None:
                 r.fail(f"wiki_refs not reciprocated: {raw.name} lists {page}, which does not cite it")
         if len(set(resolved)) < len(resolved):
             repeated.append(raw.name)
-        citers = [rel for rel, t in texts.items() if not V.is_reserved(rel) and V.cites(raw.name, t)]
+        citers = [rel for rel in texts if not V.is_reserved(rel) and raw.name in cited[rel]]
         missing = [c for c in citers if c not in resolved]
         if missing:
             r.fail(f"{raw.name} is cited by {missing} but they are not in its wiki_refs")
@@ -207,14 +209,14 @@ def check_index(r: Report, b: Bundle) -> None:
     if not idx.exists():
         r.fail("Wiki/index.md is missing")
         return
-    text = V.read(idx)
+    listed = {Path(os.path.normpath(idx.parent / t)).resolve() for t in V.md_link_targets(V.read(idx))}
     orphans = 0
     for p in (b.path / "Wiki").rglob("*.md"):
         if p.name in ("index.md", "log.md", "overview.md"):
             continue
-        if p.stem not in text and urllib.parse.quote(p.stem) not in text:
+        if p.resolve() not in listed:  # a link to this exact page, not a substring of a name
             orphans += 1
-            r.fail(f"page not listed in Wiki/index.md: {p.relative_to(b.path)}")
+            r.fail(f"page not linked from Wiki/index.md: {p.relative_to(b.path).as_posix()}")
     r.ok(f"index coverage checked, {orphans} orphan(s)")
 
 

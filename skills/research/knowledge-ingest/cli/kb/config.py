@@ -106,8 +106,10 @@ def load(explicit: str | None = None) -> Config:
             if b.get(key) is not None and not isinstance(b[key], str):
                 raise ConfigError(f"config {real}: bundles[{i}].{key} must be a string")
         ok = b.get("uncited_ok", {})
-        if not isinstance(ok, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in ok.items()):
-            raise ConfigError(f"config {real}: bundles[{i}].uncited_ok must map filename -> reason (strings)")
+        if not isinstance(ok, dict) or not all(isinstance(k, str) and isinstance(v, str) and v.strip()
+                                               for k, v in ok.items()):
+            raise ConfigError(f"config {real}: bundles[{i}].uncited_ok must map filename -> a non-empty "
+                              f"reason; an exemption without a recorded reason is not allowed")
         bundles.append(Bundle(name=b["name"], path=rel(b["path"]), shape=b.get("shape") or "concept",
                               sources=b.get("sources"), uncited_ok=dict(ok)))
     return Config(path=real, root=root, bundles=bundles,

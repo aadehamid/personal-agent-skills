@@ -76,8 +76,14 @@ def run(cfg: Config, drops: list[str]) -> Report:
         raise ConfigError(f"sync simulator did not return JSON: {e}") from e
     r = Report("sync-sim", f"{len(drops)} file(s) treated as deleted" if drops else "current vault state")
     r.footer = False
+    requested = {_key(d) for d in drops}
     for m in res.get("dropped_missing", []):
-        r.warn(f"--drop file does not exist (already deleted?): {m}")
+        if _key(m) in requested:
+            # a requested drop that does not exist is a typo or a stale path: the preflight
+            # did not test what you meant to delete
+            r.fail(f"--drop path does not exist, so nothing real was simulated for it: {m}")
+        else:
+            r.warn(f"simulator reported a missing drop path: {m}")
     for w in res["writes"]:
         line = f"{w['kind']}: {w['dest']}"
         if w["recreates_dropped"]:

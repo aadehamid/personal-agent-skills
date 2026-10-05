@@ -91,7 +91,7 @@ command is read-only and takes `--json`; exit 0 clean, 1 failures, 2 usage error
 |---|---|
 | `kb check <bundle> --since <date>` | schema validator, links, wiki_refs both ways, trust stamps, Learning Path markers, index, log |
 | `kb quotes <page>...` | every quotation verbatim in the page's own `sources`; case or apostrophe drift is a failure |
-| `kb coverage` | Raw files no page cites. A citation is a link or `resource:` ending in `Raw/<file>`, `[source: <file>]`, or a `Raw/<file>` path; bare prose mentions do not count. Deliberate exceptions live in the config's `uncited_ok` |
+| `kb coverage` | Raw files no page cites. A citation is a link or `sources[].resource` that resolves to the file in this vault's `Raw/`, or the `[source: <file>]` marker; bare mentions and examples in code do not count. Deliberate exceptions live in the config's `uncited_ok` |
 | `kb dupes` | Raw files that are the same source |
 | `kb citers <bundle> <raw>` / `kb sync-sim --drop <raw>` | before moving or deleting anything |
 

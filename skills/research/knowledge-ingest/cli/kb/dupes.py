@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
+from urllib.parse import urlparse
 
 from . import vault as V
 from .config import Bundle
@@ -33,6 +34,10 @@ def _urls(b: Bundle, r: Report) -> dict[Path, str]:
             continue
         if not u:
             r.fail(f"{raw.name}: no `url`, so it cannot be checked for duplicates")
+            continue
+        parsed = urlparse(u)
+        if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+            r.fail(f"{raw.name}: `url` is not an http(s) URL ({u!r}), so its identity is unknown")
             continue
         out[raw] = u
     return out

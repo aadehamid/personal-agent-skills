@@ -43,11 +43,6 @@ _HTML_TAGS = ("a|abbr|article|aside|audio|b|blockquote|br|caption|center|cite|co
               "summary|sup|svg|table|tbody|td|tfoot|th|thead|tr|u|ul|var|video")
 _TAG = re.compile(rf"</?(?:{_HTML_TAGS})\b[^<>\n]*/?>", re.I)
 _AUTOLINK = re.compile(r"<((?:https?|mailto):[^>\s]+)>")
-_HIDDEN = re.compile(r"<!--.*?-->|<(script|style|template|noscript)\b[^>]*>.*?</\1\s*>"
-                     r"|<(\w+)\b[^>]*\b(?:hidden|aria-hidden=[\"']true[\"']"
-                     r"|style=[\"'][^\"']*(?:display\s*:\s*none|visibility\s*:\s*hidden)[^\"']*[\"'])"
-                     r"[^>]*>.*?</\2\s*>",
-                     re.S | re.I)
 _PROTECT = "\ue000"  # private-use marker: keeps an escaped character away from emphasis parsing
 _ESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|~>])")
 # \ue000 marks an escaped character (see _PROTECT): it can never open or close emphasis.
@@ -71,7 +66,7 @@ def visible(text: str) -> str:
     dropped with its content; autolinks keep their URL.
     """
     t = _ESCAPE.sub(lambda m: _PROTECT + m.group(1), text)
-    t = _HIDDEN.sub("", t)
+    t = V.strip_hidden_html(re.sub(r"<!--.*?(?:-->|\Z)", "", t, flags=re.S))
     t = _IMAGE.sub("", t)
     t = _LINK.sub(lambda m: m.group(1), t)
     t = _AUTOLINK.sub(lambda m: m.group(1), t)
@@ -111,18 +106,24 @@ def _in_order(fragments: list[str], hay: str) -> bool:
 
 
 def page_sources(page: Path) -> list[Path]:
-    fm, _ = V.frontmatter(page)
-    if not fm:
+    """Permitted evidence: the page's `sources` frontmatter, parsed as YAML. Each item
+    must be an object with a string `resource` (or, legacy, a string path). Anything
+    else raises VaultError rather than being guessed at."""
+    data = V.fm_data(V.frontmatter(page)[0])
+    items = data.get("sources")
+    if items is None:
         return []
-    block = re.search(r"^sources:(.*?)(?=^\S)", fm + "\nend:", re.M | re.S)
-    if not block:
-        return []
-    vals = re.findall(r"resource:\s*(.+)", block.group(1))
-    if not vals:  # legacy list form: sources: [a.md, b.md] or "- a.md" items
-        vals = re.findall(r"([^\s\[\],'\"]+\.md)", block.group(1))
+    if not isinstance(items, list):
+        raise V.VaultError(f"`sources` must be a list, got {type(items).__name__}")
     out = []
-    for v in vals:
-        p = (page.parent / v.strip().strip('"').strip("'")).resolve()
+    for i, it in enumerate(items):
+        if isinstance(it, dict) and isinstance(it.get("resource"), str):
+            res = it["resource"]
+        elif isinstance(it, str):
+            res = it
+        else:
+            raise V.VaultError(f"`sources[{i}]` needs a string `resource`, got {it!r}")
+        p = (page.parent / res.strip()).resolve()
         if p not in out:
             out.append(p)
     return out
@@ -194,11 +195,12 @@ def extract(body: str, line_offset: int = 0) -> tuple[list[Quote], list[str]]:
                                 f"its quotations could not be checked")
             else:
                 quotes += [Quote(q, where(q), "inline") for q in spans]
-            if flat.count("“") != flat.count("”"):
-                problems.append(f"line {first}: curly quote marks in this paragraph do not pair; "
-                                f"its curly quotations could not be checked")
+            cspans, cbad = _curly_quotes(flat)
+            if cbad:
+                problems.append(f"line {first}: curly quote marks in this paragraph are unpaired, "
+                                f"reversed or nested; its curly quotations could not be checked")
             else:
-                quotes += [Quote(q, where(q), "inline") for q in re.findall(r"“([^”]+)”", flat)]
+                quotes += [Quote(q, where(q), "inline") for q in cspans]
             para = []
     return quotes, problems
 
@@ -221,6 +223,23 @@ def _straight_quotes(text: str) -> tuple[list[str], bool]:
     return [s for s in spans if s.strip()], start is not None
 
 
+def _curly_quotes(text: str) -> tuple[list[str], bool]:
+    """Curly-quoted spans with state: “ must open and ” must close, never nested.
+    Returns (spans, bad). A reversed ”x“ or nested “a “b” c” is bad, never skipped."""
+    spans, start = [], None
+    for i, ch in enumerate(text):
+        if ch == "“":
+            if start is not None:
+                return [], True
+            start = i + 1
+        elif ch == "”":
+            if start is None:
+                return [], True
+            spans.append(text[start:i])
+            start = None
+    return [s for s in spans if s.strip()], start is not None
+
+
 def classify(quote: str, sources: list[tuple[str, str]]) -> str:
     """verified | drift | missing | short, against [(visible_text, folded_text)] per source."""
     frags = [f for f in (visible(x) for x in _ELLIPSIS.split(quote)) if f]
@@ -238,7 +257,11 @@ def classify(quote: str, sources: list[tuple[str, str]]) -> str:
 def run(page: Path, sources: list[Path] | None, ignore: list[str]) -> Report:
     r = Report("quotes", str(page))
     r.footer = False
-    srcs = sources if sources else page_sources(page)
+    try:
+        srcs = sources if sources else page_sources(page)
+    except V.VaultError as e:
+        r.fail(f"cannot read the page's sources: {e}")
+        return r
     if not srcs:
         r.fail("no permitted sources: the page declares no `sources` resources; pass --source")
         return r
@@ -247,6 +270,9 @@ def run(page: Path, sources: list[Path] | None, ignore: list[str]) -> Report:
             r.fail(f"declared source does not exist: {s}")
     texts = []
     for s in srcs:
+        if s.exists() and V.undecodable(s):
+            r.fail(f"permitted source is not valid UTF-8, so it cannot be trusted as evidence: {s}")
+            continue
         if s.exists():
             body = visible(V.split_frontmatter(V.read(s))[1])
             texts.append((body, _fold(body)))

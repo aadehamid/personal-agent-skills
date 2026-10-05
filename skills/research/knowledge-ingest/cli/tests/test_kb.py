@@ -315,14 +315,18 @@ def test_mention_regex_rejects_backup_suffix_but_allows_sentence_period():
     assert rx.search("see foo.md.")
 
 
-def test_cite_regex_accepts_only_citation_forms():
+def test_only_citation_forms_count(vault):
     # Codex re-review: bare mentions (`cp foo.md /tmp`, "obsolete foo.md") certified coverage.
-    rx = V.cite_regex("foo.md")
-    for bare in ["cp foo.md /tmp", "obsolete foo.md", "foo.md..bak", "see foo.md."]:
-        assert not rx.search(bare), bare
-    for cite in ["resource: ../../Raw/foo.md", "[x](../../Raw/foo.md)", "[x](../../Raw/foo.md#sec)",
-                 "[x](<../../Raw/foo.md>)", "`[source: foo.md]`", "per Raw/foo.md."]:
-        assert rx.search(cite), cite
+    raw(vault, "foo.md", "https://a")
+    for i, bare in enumerate(["cp foo.md /tmp", "obsolete foo.md", "foo.md..bak", "see foo.md.", "per Raw/foo.md."]):
+        pg = page(vault, f"Wiki/summaries/bare{i}.md", bare)
+        assert "foo.md" not in V.cited_raw_files(vault, pg), bare
+    for i, cite in enumerate(["[x](../../Raw/foo.md)", "[x](../../Raw/foo.md#sec)", "[x](<../../Raw/foo.md>)",
+                              "`[source: foo.md]`", "[x](../../Raw/foo.md 'title')"]):
+        pg = page(vault, f"Wiki/summaries/cite{i}.md", cite)
+        assert "foo.md" in V.cited_raw_files(vault, pg), cite
+    fm = page(vault, "Wiki/summaries/fm.md", "body", sources=["../../Raw/foo.md"])
+    assert "foo.md" in V.cited_raw_files(vault, fm)
 
 
 def test_raw_files_include_uppercase_extension(vault):
@@ -398,11 +402,19 @@ def test_malformed_config_is_exit_2(tmp_path, vault):
     assert res.exit_code == 2 and json.loads(res.stdout)["status"] == "error"
 
 
+def _fake_sim(tmp_path, vault, output: dict) -> Path:
+    """A simulator that prints `output` from a file, so shell quoting can never be the
+    reason a test passes (an earlier version broke its own quoting and exited 2)."""
+    out = write(tmp_path / "sim.json", json.dumps(output))
+    sim = write(tmp_path / "sim.py", f"import sys\nsys.stdout.write(open({str(out)!r}).read())\n")
+    return write(tmp_path / "c.json", json.dumps({"bundles": [{"name": "Test", "path": str(vault)}],
+                                                  "sync_simulator": f"python3 {sim}"}))
+
+
 def test_sync_sim_rejects_malformed_simulator_output(tmp_path, vault):
-    cfg = write(tmp_path / "c.json", json.dumps({"bundles": [{"name": "Test", "path": str(vault)}],
-                                                 "sync_simulator": "python3 -c 'print(\"{}\")'"}))
-    res = CliRunner().invoke(app, ["--config", str(cfg), "sync-sim", "--json"])
-    assert res.exit_code == 2
+    res = CliRunner().invoke(app, ["--config", str(_fake_sim(tmp_path, vault, {})), "sync-sim", "--json"])
+    body = json.loads(res.stdout)
+    assert res.exit_code == 2 and "integer `checked`" in body["error"]
 
 
 def test_dupes_reports_unnormalizable_url(vault, monkeypatch):
@@ -586,12 +598,13 @@ def test_cli_rejects_invalid_since(tmp_path, vault):
         assert res.exit_code == 2, bad
 
 
-def test_cite_regex_needs_the_raw_target_and_live_context():
-    assert not V.cites("foo.md", "[self](foo.md)")
-    assert not V.cites("foo.md", "[w](../Wiki/foo.md)")
-    assert not V.cites("foo.md", "```\nresource: ../../Raw/foo.md\n```")
-    assert not V.cites("foo.md", "<!-- [x](../../Raw/foo.md) -->")
-    assert V.cites("foo.md", "[x](../../Raw/foo.md)")
+def test_citation_needs_the_raw_target_and_live_context(vault):
+    raw(vault, "foo.md", "https://a")
+    for i, body in enumerate(["[self](foo.md)", "[w](../Wiki/foo.md)",
+                              "```\nresource: ../../Raw/foo.md\n```", "<!-- [x](../../Raw/foo.md) -->"]):
+        pg = page(vault, f"Wiki/summaries/n{i}.md", body)
+        assert "foo.md" not in V.cited_raw_files(vault, pg), body
+    assert "foo.md" in V.cited_raw_files(vault, page(vault, "Wiki/summaries/y.md", "[x](../../Raw/foo.md)"))
 
 
 def test_config_relative_bundle_path_resolves_from_config_dir(tmp_path, monkeypatch):
@@ -651,11 +664,13 @@ def test_dupes_missing_or_empty_url_fails(vault):
 
 
 def test_sync_sim_must_prove_requested_drop(tmp_path, vault):
-    out = json.dumps({"checked": 0, "writes": [], "dropped": []})
-    cfg = write(tmp_path / "c.json", json.dumps({"bundles": [{"name": "Test", "path": str(vault)}],
-                                                 "sync_simulator": f"python3 -c 'print({out!r})'"}))
-    res = CliRunner().invoke(app, ["--config", str(cfg), "sync-sim", "--drop", str(vault / "Raw" / "x.md"), "--json"])
-    assert res.exit_code == 2 and json.loads(res.stdout)["status"] == "error"
+    d = str(vault / "Raw" / "x.md")
+    for output, needle in [({"checked": 0, "writes": [], "dropped": [d]}, "checked 0"),
+                           ({"checked": 3, "writes": [], "dropped": []}, "did not apply")]:
+        res = CliRunner().invoke(app, ["--config", str(_fake_sim(tmp_path, vault, output)),
+                                       "sync-sim", "--drop", d, "--json"])
+        body = json.loads(res.stdout)
+        assert res.exit_code == 2 and body["status"] == "error" and needle in body["error"], body
 
 
 def test_sync_sim_missing_executable_is_config_error(tmp_path, vault):
@@ -670,3 +685,81 @@ def test_json_envelope_records_config_and_note(tmp_path, vault):
     out = json.loads(CliRunner().invoke(app, ["--config", str(cfg), "coverage", "--json"]).stdout)
     assert out["config"] == str(cfg.resolve()) and "independent review" in out["note"]
     assert out["reports"][0]["bundle_path"] == str(vault)
+
+
+# ------------------------------------------- Codex post-publish review 2026-10-04
+
+def test_citations_resolve_targets_and_ignore_dead_context(vault):
+    page_dir = vault / "Wiki" / "summaries"
+    raw(vault, "foo.md", "https://a")
+    cases = {
+        "code": "`[x](../../Raw/foo.md)`",
+        "indented_fence": "   ```\n[x](../../Raw/foo.md)\n   ```",
+        "unclosed_fence": "```\n[x](../../Raw/foo.md)",
+        "strike": "~~[x](../../Raw/foo.md)~~",
+        "hidden": '<div hidden><div>x</div>[x](../../Raw/foo.md)</div>',
+        "other_vault": "[x](../../../Other/Raw/foo.md)",
+    }
+    for name, body in cases.items():
+        pg = page(vault, f"Wiki/summaries/{name}.md", body)
+        assert "foo.md" not in V.cited_raw_files(vault, pg), name
+    good = page(vault, "Wiki/summaries/good.md", "[x](../../Raw/foo.md) and `[source: foo.md]`")
+    assert "foo.md" in V.cited_raw_files(vault, good)
+
+
+def test_index_coverage_is_exact_not_substring(vault):
+    page(vault, "Wiki/concepts/Model.md", "x")
+    page(vault, "Wiki/concepts/Models.md", "x")
+    write(vault / "Wiki" / "index.md", "# Index\n\n- [Models](concepts/Models.md)\n")
+    r = checks.Report("check")
+    checks.check_index(r, bundle(vault))
+    assert any("Model.md" in f for f in r.failures) and not any("Models.md" in f for f in r.failures)
+
+
+def test_quotes_nested_hidden_html_not_evidence(vault):
+    src = _src(vault, "n.md", '<div style="display:none"><div>secret one</div> secret two here</div> visible')
+    p = page(vault, "Wiki/summaries/n.md", '"secret two here"', sources=[src])
+    assert quotes.run(p, None, []).data["counts"]["missing"] == 1
+
+
+def test_quotes_reversed_or_nested_curly_quotes_fail(vault):
+    for body in ["”invented guarantee here“", "“outer “inner” unchecked tail”"]:
+        p = qpage(vault, body)
+        r = quotes.run(p, None, [])
+        assert r.exit_code == 1 and any("curly" in f for f in r.failures), body
+
+
+def test_quotes_sources_frontmatter_must_be_typed(vault):
+    write(vault / "Wiki" / "summaries" / "m.md",
+          "---\ntype: summary\nsources:\n  metadata:\n    resource: ../../Raw/x.md\n---\n\"some quoted words\"\n")
+    r = quotes.run(vault / "Wiki" / "summaries" / "m.md", None, [])
+    assert r.exit_code == 1 and any("sources" in f for f in r.failures)
+
+
+def test_quotes_undecodable_source_fails(vault):
+    (vault / "Raw" / "bad.md").write_bytes(b"---\nurl: u\n---\nreal words here \xff\n")
+    p = page(vault, "Wiki/summaries/b.md", '"real words here"', sources=["../../Raw/bad.md"])
+    assert quotes.run(p, None, []).exit_code == 1
+
+
+def test_sync_sim_requested_drop_reported_missing_fails(tmp_path, vault):
+    d = str(vault / "Raw" / "typo.md")
+    cfg = _fake_sim(tmp_path, vault, {"checked": 1, "dropped": [d], "dropped_missing": [d], "writes": []})
+    res = CliRunner().invoke(app, ["--config", str(cfg), "sync-sim", "--drop", d, "--json"])
+    body = json.loads(res.stdout)
+    assert res.exit_code == 1 and body["status"] == "fail"
+    assert any("does not exist" in f for f in body["reports"][0]["failures"])
+
+
+def test_dupes_non_http_identity_fails(vault):
+    for i, u in enumerate(["N/A", "not a url", "ftp://example.test/x"]):
+        write(vault / "Raw" / f"u{i}.md", f"---\nurl: {u}\n---\nx\n")
+    (r,) = dupes.run([bundle(vault)])
+    assert len([f for f in r.failures if "not an http(s) URL" in f]) == 3
+
+
+def test_uncited_ok_requires_a_reason(tmp_path, vault):
+    cfg = write(tmp_path / "c.json", json.dumps({"bundles": [{"name": "T", "path": str(vault),
+                                                              "uncited_ok": {"foo.md": "  "}}]}))
+    res = CliRunner().invoke(app, ["--config", str(cfg), "coverage", "--json"])
+    assert res.exit_code == 2

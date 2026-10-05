@@ -1,6 +1,7 @@
 """Reading bundles: frontmatter, pages, Raw sources, links, and exact citation matching."""
 from __future__ import annotations
 
+import os
 import re
 import urllib.parse
 from pathlib import Path
@@ -136,14 +137,63 @@ def bundle_problems(vault: Path) -> list[str]:
 
 # ---------------------------------------------------------------- markdown text
 
-_FENCE = re.compile(r"^(```|~~~).*?^\1[^\n]*$", re.S | re.M)
-_COMMENT = re.compile(r"<!--.*?-->", re.S)
+_COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.S)
+_STRIKE = re.compile(r"~~(?=\S)(.+?)(?<=\S)~~", re.S)
+_FENCE_OPEN = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_HIDDEN_OPEN = re.compile(
+    r"<(script|style|template|noscript)\b[^>]*>"
+    r"|<([a-zA-Z][a-zA-Z0-9-]*)\b[^>]*\b(?:hidden|aria-hidden=[\"']true[\"']"
+    r"|style=[\"'][^\"']*(?:display\s*:\s*none|visibility\s*:\s*hidden)[^\"']*[\"'])[^>]*>", re.I)
+
+
+def strip_fences(text: str) -> str:
+    """Remove fenced code blocks: up to 3 spaces of indent, ``` or ~~~, closed by the same
+    character at least as long. An unclosed fence runs to the end, as in CommonMark."""
+    out, fence = [], None
+    for line in text.splitlines(keepends=True):
+        if fence is None:
+            m = _FENCE_OPEN.match(line)
+            if m:
+                fence = m.group(1)
+                continue
+            out.append(line)
+        else:
+            if re.match(r"^ {0,3}" + re.escape(fence[0]) + "{" + str(len(fence)) + r",}\s*$", line):
+                fence = None
+    return "".join(out)
+
+
+def strip_hidden_html(text: str) -> str:
+    """Remove hidden HTML subtrees (script/style/template/noscript, `hidden`,
+    aria-hidden, display:none, visibility:hidden), counting nested same-name tags so
+    text after an inner close tag is not leaked. An unclosed one runs to the end."""
+    while True:
+        m = _HIDDEN_OPEN.search(text)
+        if not m:
+            return text
+        tag = (m.group(1) or m.group(2)).lower()
+        depth, pos = 1, m.end()
+        tok = re.compile(rf"<(/?){re.escape(tag)}\b[^>]*?(/?)>", re.I)
+        end = len(text)
+        for t in tok.finditer(text, pos):
+            if t.group(1):
+                depth -= 1
+            elif not t.group(2):
+                depth += 1
+            if depth == 0:
+                end = t.end()
+                break
+        text = text[:m.start()] + text[end:]
 
 
 def citable_text(text: str) -> str:
-    """Text where a citation can appear: fenced code blocks and HTML comments removed,
-    so an example inside them never counts as citing anything."""
-    return _COMMENT.sub("", _FENCE.sub("", text))
+    """Text where a citation can appear: HTML comments, fenced code (indented and
+    unclosed fences too), hidden HTML and strikethrough removed. An example or a
+    struck-out reference never counts as citing anything."""
+    t = _COMMENT.sub("", text)
+    t = strip_fences(t)
+    t = strip_hidden_html(t)
+    return _STRIKE.sub("", t)
 
 
 _SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
@@ -158,7 +208,7 @@ def md_link_targets(text: str) -> list[str]:
     any #fragment or ?query removed. Code (fenced and inline), HTML comments and
     escaped brackets are skipped; any URL scheme (http, HTTPS, mailto, ...) is external."""
     t = citable_text(text)
-    t = re.sub(r"`[^`\n]*`", "", t)
+    t = re.sub(r"`[^`\n]*`", "", t)  # links inside inline code are examples
     out = []
     for rx in (_INLINE_LINK, _REF_DEF):
         for m in rx.finditer(t):
@@ -189,39 +239,64 @@ def mention_regex(filename: str) -> re.Pattern:
 
 
 def cite_regex(filename: str) -> re.Pattern:
-    """A citation of exactly this Raw file, in one of the forms pages actually use.
-
-    The target must be the Raw file itself: a `resource:` value or link destination
-    whose path ends in `Raw/<file>`, the `[source: <file>]` marker, or a `Raw/<file>`
-    path in prose. A link to `Wiki/foo.md` or a bare `foo.md` does not cite
-    `Raw/foo.md`. Search `citable_text()`, not raw page text, so examples in code
-    blocks and comments never count. Measured on the live corpus (2026-10-04):
-    every real citation uses one of these forms.
-    """
+    """Line-level hint used only to label lines in `kb citers` output. Whether a page
+    cites a file is decided by `cited_raw_files()`, which resolves targets."""
     n = _names(filename)
     return re.compile(
         rf"(?:resource:[ \t]*[\"']?(?:[^\s\"']*/)?Raw/(?:{n})[\"']?[ \t]*$"
         rf"|\]\(<?(?:[^)>\n]*/)?Raw/(?:{n})(?:[#?][^)>\n]*)?>?(?:\s+[\"'(][^\n)]*)?\)"
-        rf"|\[source:[ \t]*(?:{n})\]"
-        rf"|(?<![\w/.-])Raw/(?:{n})(?![\w-]|\.\w))", re.M)
+        rf"|\[source:[ \t]*(?:{n})\])", re.M)
 
 
-def cites(filename: str, text: str) -> bool:
-    return bool(cite_regex(filename).search(citable_text(text)))
+_SOURCE_MARKER = re.compile(r"\[source:[ \t]*([^\]\n]+?\.md)[ \t]*\]", re.I)
+
+
+def cited_raw_files(vault: Path, page: Path, text: str | None = None) -> set[str]:
+    """Names of this vault's Raw files that a page cites.
+
+    A citation is a target that resolves, from the page's own folder, to a file
+    directly in THIS vault's Raw/: a frontmatter `sources[].resource` (parsed as YAML)
+    or a markdown link in live text. The `[source: <file>.md]` marker also counts,
+    including inside inline code, which is how catalog pages write it. Nothing inside
+    comments, fenced code, hidden HTML or strikethrough counts, nor does a bare mention
+    or a link into another vault. Measured on the live corpus (2026-10-04): identical
+    results to the earlier pattern-based rule, with the false positives removed.
+    """
+    text = read(page) if text is None else text
+    raw_dir = (vault / "Raw").resolve()
+    fm, body = split_frontmatter(text)
+    targets = []
+    try:
+        for s in fm_data(fm).get("sources") or []:
+            if isinstance(s, dict) and isinstance(s.get("resource"), str):
+                targets.append(s["resource"])
+            elif isinstance(s, str):
+                targets.append(s)
+    except VaultError:
+        pass  # check_readable reports it
+    targets += md_link_targets(body)
+    out = set()
+    for t in targets:
+        q = Path(os.path.normpath(page.parent / urllib.parse.unquote(t)))
+        if q.parent.resolve() == raw_dir:
+            out.add(q.name)
+    out |= {m.strip() for m in _SOURCE_MARKER.findall(citable_text(body))}
+    return out
 
 
 def citing_lines(filename: str, page_list: list[Path], vault: Path) -> list[tuple[str, int, str, bool]]:
     """(page, line number, text, is_citation) for every line that mentions the file.
-    A line inside a fenced block or comment is reported but never counted as a citation."""
-    cite, mention = cite_regex(filename), mention_regex(filename)
+    A line counts as a citation only if its page truly cites the file
+    (`cited_raw_files`) and the line carries a citation form."""
+    hint, mention = cite_regex(filename), mention_regex(filename)
     hits = []
     for p in page_list:
         text = read(p)
-        live = citable_text(text)
+        page_cites = filename in cited_raw_files(vault, p, text)
         for i, line in enumerate(text.splitlines(), 1):
             if mention.search(line):
-                is_cite = bool(cite.search(line)) and line in live
-                hits.append((p.relative_to(vault).as_posix(), i, line.strip(), is_cite))
+                hits.append((p.relative_to(vault).as_posix(), i, line.strip(),
+                             page_cites and bool(hint.search(line))))
     return hits
 
 

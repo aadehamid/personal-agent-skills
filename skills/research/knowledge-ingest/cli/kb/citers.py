@@ -22,8 +22,8 @@ def run(b: Bundle, raw_ref: str) -> Report:
     r = Report("citers", f"{b.name}/Raw/{name}")
     r.footer = False
     hits = V.citing_lines(name, V.pages(b.path, include_reserved=True), b.path)
-    texts = {p.relative_to(b.path).as_posix(): V.read(p) for p in V.pages(b.path)}
-    pages = sorted(rel for rel, t in texts.items() if V.cites(name, t))
+    pages = sorted(p.relative_to(b.path).as_posix() for p in V.pages(b.path)
+                   if name in V.cited_raw_files(b.path, p))
     try:
         refs = V.wiki_refs(V.frontmatter(raw)[0])
     except V.VaultError as e:
