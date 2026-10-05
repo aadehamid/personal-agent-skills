@@ -68,7 +68,7 @@ class Report:
         typer.echo(f"\n{status}." + (f" {FOOTER}" if self.footer else ""))
 
 
-def emit_all(reports: list[Report], as_json: bool) -> int:
+def emit_all(reports: list[Report], as_json: bool, meta: dict[str, Any] | None = None) -> int:
     """Emit reports and return the combined exit code.
 
     JSON is always one envelope, `{"status": ..., "reports": [...]}`, however many
@@ -76,8 +76,8 @@ def emit_all(reports: list[Report], as_json: bool) -> int:
     """
     if as_json:
         status = "fail" if any(r.failures for r in reports) else "clean"
-        typer.echo(json.dumps({"status": status, "reports": [r.as_dict() for r in reports]},
-                              indent=2, default=str))
+        typer.echo(json.dumps({"status": status, **(meta or {}), "note": FOOTER,
+                               "reports": [r.as_dict() for r in reports]}, indent=2, default=str))
     else:
         for i, r in enumerate(reports):
             if i:

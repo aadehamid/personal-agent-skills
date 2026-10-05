@@ -15,7 +15,7 @@ import os
 import re
 import subprocess
 import sys
-import urllib.parse
+import urllib.parse  # noqa: F401  (index check)
 from pathlib import Path
 
 from . import vault as V
@@ -37,21 +37,35 @@ def check_validator(r: Report, b: Bundle, cfg: Config, override: Path | None = N
     (r.ok if p.returncode == 0 else r.fail)(f"validator: {out}")
 
 
+def check_readable(r: Report, b: Bundle) -> None:
+    """Every page and Raw file must be valid UTF-8 with parseable frontmatter.
+    A file kb cannot read faithfully is a failure, not something to skip."""
+    bad = 0
+    for p in V.pages(b.path, include_reserved=True) + V.raw_files(b.path):
+        rel = p.relative_to(b.path).as_posix()
+        if V.undecodable(p):
+            bad += 1
+            r.fail(f"not valid UTF-8: {rel}")
+            continue
+        try:
+            V.fm_data(V.frontmatter(p)[0])
+        except V.VaultError as e:
+            bad += 1
+            r.fail(f"{rel}: {e}")
+    r.ok(f"files readable ({bad} unreadable)")
+
+
 def check_links(r: Report, b: Bundle) -> None:
     checked = broken = 0
     for p in V.pages(b.path, include_reserved=True):
-        text = re.sub(r"`[^`]*`", "", V.read(p))
-        for m in re.finditer(r"\[[^\]]*\]\((?:<([^>\n]+)>|([^)\s]+))(?:\s+\"[^\"]*\")?\)", text):
-            href = re.split(r"[#?]", m.group(1) or m.group(2), maxsplit=1)[0]
-            if not href or href.startswith(("http://", "https://", "mailto:")):
-                continue
+        for href in V.md_link_targets(V.read(p)):
             if not href.lower().endswith(".md"):
                 continue
             checked += 1
-            target = os.path.normpath(os.path.join(p.parent, urllib.parse.unquote(href)))
+            target = os.path.normpath(os.path.join(p.parent, href))
             if not os.path.exists(target):
                 broken += 1
-                r.fail(f"broken link: {p.relative_to(b.path)} -> {href}")
+                r.fail(f"broken link: {p.relative_to(b.path).as_posix()} -> {href}")
     r.ok(f"{checked} internal links checked, {broken} broken")
 
 
@@ -63,11 +77,16 @@ def _resolve_ref(ref: str, texts: dict[str, str]) -> str | None:
     return None
 
 
-def _stage_wiki_links(stage_text: str) -> list[str]:
-    """Vault-relative Wiki pages a Learning Path stage links to."""
+def _stage_wiki_links(vault: Path, stage_rel: str, stage_text: str) -> list[str]:
+    """Vault-relative pages a Learning Path stage links to, resolved from the stage's folder."""
+    base = (vault / stage_rel).parent
     out = []
-    for href in re.findall(r"\]\(\.\./(Wiki/[^)#?\s]+\.md)", stage_text):
-        out.append(urllib.parse.unquote(href))
+    for href in V.md_link_targets(stage_text):
+        target = Path(os.path.normpath(base / href))
+        try:
+            out.append(target.relative_to(vault).as_posix())
+        except ValueError:
+            continue
     return out
 
 
@@ -84,10 +103,9 @@ def check_wiki_refs(r: Report, b: Bundle) -> None:
     for raw in V.raw_files(b.path):
         try:
             refs = V.wiki_refs(V.frontmatter(raw)[0])
-        except V.RefsError as e:
+        except V.VaultError as e:
             r.fail(f"{raw.name}: {e}")
             continue
-        rx = V.cite_regex(raw.name)
         resolved = []
         for ref in refs:
             listed += 1
@@ -98,10 +116,11 @@ def check_wiki_refs(r: Report, b: Bundle) -> None:
             if page != ref:
                 malformed.append(f"{raw.name}: {ref!r} should be {page!r}")
             resolved.append(page)
-            if rx.search(texts[page]):
+            if V.cites(raw.name, texts[page]):
                 consistent += 1
             elif page.startswith("Learning Path/"):
-                via = [w for w in _stage_wiki_links(texts[page]) if w in texts and rx.search(texts[w])]
+                via = [w for w in _stage_wiki_links(b.path, page, texts[page])
+                       if w in texts and not w.startswith("Learning Path/") and V.cites(raw.name, texts[w])]
                 if via:
                     consistent += 1
                 else:
@@ -111,7 +130,7 @@ def check_wiki_refs(r: Report, b: Bundle) -> None:
                 r.fail(f"wiki_refs not reciprocated: {raw.name} lists {page}, which does not cite it")
         if len(set(resolved)) < len(resolved):
             repeated.append(raw.name)
-        citers = [rel for rel, t in texts.items() if not V.is_reserved(rel) and rx.search(t)]
+        citers = [rel for rel, t in texts.items() if not V.is_reserved(rel) and V.cites(raw.name, t)]
         missing = [c for c in citers if c not in resolved]
         if missing:
             r.fail(f"{raw.name} is cited by {missing} but they are not in its wiki_refs")
@@ -137,7 +156,11 @@ def check_stamps(r: Report, b: Bundle, since: str | None) -> None:
         if fm is None:
             continue
         rel = p.relative_to(b.path)
-        updated = V.fm_value(fm, "updated")
+        try:
+            raw_updated = V.fm_data(fm).get("updated")
+        except V.VaultError:
+            continue  # reported by check_readable
+        updated = raw_updated.isoformat() if hasattr(raw_updated, "isoformat") else str(raw_updated or "")
         gen = re.search(r'generated:\s*\{[^}]*at:\s*"?([0-9T:\-Z]+)"?', fm)
         if since and updated and updated >= since and not gen:
             r.fail(f"missing `generated` stamp on a page updated since {since}: {rel}")
@@ -213,10 +236,14 @@ def check_log(r: Report, b: Bundle) -> None:
 
 def run(b: Bundle, cfg: Config, since: str | None, validator: Path | None = None) -> Report:
     r = Report("check", b.name)
-    if not b.path.is_dir():
-        r.fail(f"bundle path does not exist: {b.path}")
+    r.data["bundle_path"] = str(b.path)
+    problems = V.bundle_problems(b.path)
+    for msg in problems:
+        r.fail(msg)
+    if problems:
         return r
     check_validator(r, b, cfg, validator)
+    check_readable(r, b)
     check_links(r, b)
     check_wiki_refs(r, b)
     check_stamps(r, b, since)

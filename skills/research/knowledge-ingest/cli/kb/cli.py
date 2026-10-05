@@ -64,14 +64,33 @@ def _bundles(cfg: config.Config, refs: list[str] | None, default_all: bool) -> l
     raise _Fail("name at least one bundle (or use --all)")
 
 
-def _run(as_json: bool, build) -> None:
-    """Run a command body; map kb's own usage/config errors to exit 2 (JSON-safe)."""
+def _run(as_json: bool, build, ctx: typer.Context | None = None) -> None:
+    """Run a command body; map kb's own usage/config errors to exit 2 (JSON-safe).
+    JSON output records the config used and the arguments, so a result is auditable."""
+    import sys
     try:
         reports = build()
     except (_Fail, config.ConfigError) as e:
         emit_error(str(e), as_json)
         raise typer.Exit(2)
-    raise typer.Exit(emit_all(reports, as_json))
+    meta = {"args": sys.argv[1:]}
+    if ctx is not None:
+        try:
+            found = config.find_config(ctx.obj.get("config") if ctx.obj else None)
+            meta["config"] = str(found.resolve()) if found else None
+        except config.ConfigError:
+            meta["config"] = None
+    raise typer.Exit(emit_all(reports, as_json, meta))
+
+
+def _since(value: str | None) -> str | None:
+    if value is None:
+        return None
+    import datetime as dt
+    try:
+        return dt.date.fromisoformat(value).isoformat()
+    except ValueError:
+        raise _Fail(f"--since must be a real date in YYYY-MM-DD form, got {value!r}")
 
 
 def _version(v: bool) -> None:
@@ -117,9 +136,10 @@ def check(ctx: typer.Context,
           as_json: bool = JsonOpt) -> None:
     """Gate A: schema validator, links, wiki_refs reciprocity, stamps, Learning Path, index, log."""
     def build():
+        when = _since(since)
         cfg = _cfg(ctx)
-        return [checks.run(b, cfg, since, validator) for b in _bundles(cfg, bundle, default_all=all_)]
-    _run(as_json, build)
+        return [checks.run(b, cfg, when, validator) for b in _bundles(cfg, bundle, default_all=all_)]
+    _run(as_json, build, ctx)
 
 
 @app.command("coverage")
@@ -127,7 +147,7 @@ def coverage_cmd(ctx: typer.Context,
                  bundle: Optional[List[str]] = typer.Argument(None, help="Bundle(s); default all."),
                  as_json: bool = JsonOpt) -> None:
     """Raw sources that no page cites by exact filename (the unprocessed backlog)."""
-    _run(as_json, lambda: [coverage.run(b) for b in _bundles(_cfg(ctx), bundle, True)])
+    _run(as_json, lambda: [coverage.run(b) for b in _bundles(_cfg(ctx), bundle, True)], ctx)
 
 
 @app.command("dupes")
@@ -136,7 +156,7 @@ def dupes_cmd(ctx: typer.Context,
               cross: bool = typer.Option(False, "--cross", help="Also list URLs present in more than one bundle."),
               as_json: bool = JsonOpt) -> None:
     """Raw files sharing a URL (exact = FAIL, normalized-only = WARN)."""
-    _run(as_json, lambda: dupes.run(_bundles(_cfg(ctx), bundle, True), cross))
+    _run(as_json, lambda: dupes.run(_bundles(_cfg(ctx), bundle, True), cross), ctx)
 
 
 @app.command("quotes")
@@ -146,7 +166,12 @@ def quotes_cmd(pages: List[Path] = typer.Argument(..., help="Wiki page(s) to che
                as_json: bool = JsonOpt) -> None:
     """Every quotation verbatim in the permitted sources (verified / DRIFT / MISSING)."""
     srcs = [s.resolve() for s in source] if source else None
-    _run(as_json, lambda: [quotes.run(p.resolve(), srcs, ignore or []) for p in pages])
+
+    def build():
+        if any(not (i or "").strip() for i in (ignore or [])):
+            raise _Fail("--ignore needs non-empty text; an empty value would skip every quotation")
+        return [quotes.run(p.resolve(), srcs, ignore or []) for p in pages]
+    _run(as_json, build)
 
 
 @app.command("citers")
@@ -161,7 +186,7 @@ def citers_cmd(ctx: typer.Context,
             return [citers.run(cfg.bundle(bundle), raw)]
         except config.ConfigError as e:
             raise _Fail(str(e)) from e
-    _run(as_json, build)
+    _run(as_json, build, ctx)
 
 
 @app.command("sync-sim")
@@ -169,7 +194,7 @@ def sync_sim_cmd(ctx: typer.Context,
                  drop: Optional[List[Path]] = typer.Option(None, "--drop", help="Raw file to treat as deleted (repeatable)."),
                  as_json: bool = JsonOpt) -> None:
     """Run the project's sync simulator: would the sync recreate a deleted file, or write anything?"""
-    _run(as_json, lambda: [syncsim.run(_cfg(ctx), [str(d) for d in (drop or [])])])
+    _run(as_json, lambda: [syncsim.run(_cfg(ctx), [str(d) for d in (drop or [])])], ctx)
 
 
 def entry() -> None:

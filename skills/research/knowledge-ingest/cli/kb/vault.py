@@ -1,9 +1,11 @@
-"""Reading bundles: frontmatter, pages, Raw sources, and exact citation matching."""
+"""Reading bundles: frontmatter, pages, Raw sources, links, and exact citation matching."""
 from __future__ import annotations
 
 import re
 import urllib.parse
 from pathlib import Path
+
+import yaml
 
 # Exact vault-relative paths that mention files without citing them: the catalog,
 # the log, and the generated lint report. Matched by full path, not basename, so a
@@ -11,12 +13,29 @@ from pathlib import Path
 RESERVED_PATHS = {"Wiki/index.md", "Wiki/log.md", "Wiki/lint-report.md"}
 
 
+class VaultError(ValueError):
+    """A file kb cannot read faithfully: invalid UTF-8 or invalid YAML frontmatter."""
+
+
+class RefsError(VaultError):
+    """wiki_refs is present but not a list of strings."""
+
+
 def is_reserved(rel: str) -> bool:
     return rel in RESERVED_PATHS
 
 
 def read(path: Path) -> str:
-    return path.read_text(encoding="utf-8", errors="ignore")
+    """File text. Undecodable bytes become U+FFFD; `undecodable()` reports such files."""
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def undecodable(path: Path) -> bool:
+    try:
+        path.read_bytes().decode("utf-8")
+        return False
+    except UnicodeDecodeError:
+        return True
 
 
 def split_frontmatter(text: str) -> tuple[str | None, str]:
@@ -35,80 +54,56 @@ def frontmatter(path: Path) -> tuple[str | None, str]:
     return split_frontmatter(read(path))
 
 
-def fm_value(fm: str | None, key: str) -> str:
-    """A top-level scalar from frontmatter, with YAML quotes stripped."""
+def fm_data(fm: str | None) -> dict:
+    """Frontmatter parsed as YAML. Invalid YAML raises VaultError; never a silent guess."""
     if not fm:
+        return {}
+    try:
+        data = yaml.safe_load(fm)
+    except yaml.YAMLError as e:
+        raise VaultError(f"frontmatter is not valid YAML: {str(e).splitlines()[0]}") from e
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise VaultError("frontmatter is not a YAML mapping")
+    return data
+
+
+def fm_value(fm: str | None, key: str) -> str:
+    """A top-level string value from frontmatter ("" if absent). Non-strings raise VaultError."""
+    v = fm_data(fm).get(key)
+    if v is None:
         return ""
-    m = re.search(rf"^{re.escape(key)}:[ \t]*(.*)$", fm, re.M)
-    return m.group(1).strip().strip('"').strip("'") if m else ""
+    if not isinstance(v, str):
+        raise VaultError(f"frontmatter `{key}` must be a string, got {type(v).__name__}")
+    return v.strip()
 
 
 def norm_url(url: str) -> str:
-    """Exact identity: quotes, trailing slash and http/https differences only.
+    """Exact identity: trailing slash and http/https differences only.
 
     Deliberately conservative. A same-URL match under this rule is a duplicate;
     looser matches (tracking params, host moves) are reported separately.
     """
-    u = url.strip().strip('"').strip("'").rstrip("/")
-    if u.startswith("http://"):
+    u = url.strip().rstrip("/")
+    if u.lower().startswith("http://"):
         u = "https://" + u[len("http://"):]
     return u
 
 
-class RefsError(ValueError):
-    """wiki_refs is present but not a list of strings."""
-
-
-def _unquote(v: str) -> str:
-    v = v.strip()
-    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
-        return v[1:-1]
-    return re.sub(r"\s+#.*$", "", v).strip()  # unquoted values may carry a trailing comment
-
-
-_FLOW_ITEM = re.compile(r"""\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)'|([^,]+?))\s*(?:,|$)""")
-
-
-def _flow_list(inner: str) -> list[str]:
-    """Items of a YAML flow sequence, respecting quotes: ["A, B.md", c.md] is two items."""
-    out, pos = [], 0
-    inner = inner.strip()
-    while pos < len(inner):
-        m = _FLOW_ITEM.match(inner, pos)
-        if not m or m.end() == pos:
-            raise RefsError(f"cannot parse wiki_refs list: [{inner}]")
-        dq, sq, bare = m.groups()
-        val = dq if dq is not None else (sq.replace("''", "'") if sq is not None else bare.strip())
-        if val:
-            out.append(val)
-        pos = m.end()
-    return out
-
-
 def wiki_refs(fm: str | None) -> list[str]:
-    """The `wiki_refs` list: block form (`- item`) or flow form (`[a, "b, c.md"]`).
-
-    Page names contain spaces, so block items run to end of line, and a trailing
-    ` # comment` on an unquoted item is not part of the name. A scalar value
-    (`wiki_refs: Wiki/a.md`) is the wrong type and raises RefsError.
-    """
-    if not fm:
+    """The `wiki_refs` list, parsed as YAML. Absent or null is []; anything other
+    than a list of strings raises RefsError."""
+    data = fm_data(fm)
+    if "wiki_refs" not in data or data["wiki_refs"] is None:
         return []
-    m = re.search(r"^wiki_refs:[ \t]*(.*)$", fm, re.M)
-    if not m:
-        return []
-    inline = m.group(1).strip()
-    if inline.startswith("["):
-        body = re.sub(r"\]\s*(?:#.*)?$", "", inline[1:])
-        return _flow_list(body)
-    if re.sub(r"\s*#.*$", "", inline):
-        raise RefsError(f"wiki_refs must be a list, got a scalar: {inline!r}")
-    items = []
-    for ln in fm[m.end():].lstrip("\n").splitlines():
-        if not re.match(r"^[ \t]+-", ln):
-            break
-        items.append(_unquote(re.sub(r"^\s*-\s*", "", ln)))
-    return [i for i in items if i]
+    refs = data["wiki_refs"]
+    if not isinstance(refs, list):
+        raise RefsError(f"wiki_refs must be a list, got {type(refs).__name__}: {refs!r}")
+    bad = [r for r in refs if not isinstance(r, str)]
+    if bad:
+        raise RefsError(f"wiki_refs items must be strings, got {bad!r}")
+    return [r.strip() for r in refs if r.strip()]
 
 
 def raw_files(vault: Path) -> list[Path]:
@@ -119,16 +114,65 @@ def raw_files(vault: Path) -> list[Path]:
 
 
 def pages(vault: Path, *, include_reserved: bool = False) -> list[Path]:
-    """Wiki and Learning Path pages. index.md and log.md are excluded unless asked."""
+    """Wiki and Learning Path pages. Reserved paths are excluded unless asked."""
     out = []
     for sub in ("Wiki", "Learning Path"):
         d = vault / sub
         if d.is_dir():
-            out.extend(sorted(d.rglob("*.md")))
+            out.extend(sorted(p for p in d.rglob("*") if p.is_file() and p.suffix.lower() == ".md"))
     if not include_reserved:
         out = [p for p in out if not is_reserved(p.relative_to(vault).as_posix())]
     return out
 
+
+def bundle_problems(vault: Path) -> list[str]:
+    """Reasons a bundle cannot be checked at all. A missing folder must never read as clean."""
+    if not vault.is_dir():
+        return [f"bundle path does not exist: {vault}"]
+    if not (vault / "Raw").is_dir():
+        return [f"bundle has no Raw/ folder: {vault}"]
+    return []
+
+
+# ---------------------------------------------------------------- markdown text
+
+_FENCE = re.compile(r"^(```|~~~).*?^\1[^\n]*$", re.S | re.M)
+_COMMENT = re.compile(r"<!--.*?-->", re.S)
+
+
+def citable_text(text: str) -> str:
+    """Text where a citation can appear: fenced code blocks and HTML comments removed,
+    so an example inside them never counts as citing anything."""
+    return _COMMENT.sub("", _FENCE.sub("", text))
+
+
+_SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
+_DEST = r"(?:<([^<>\n]+)>|((?:[^\s()\\]|\\.|\((?:[^\s()\\]|\\.)*\))+))"
+_TITLE = r"""(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^()\n]*\)))?"""
+_INLINE_LINK = re.compile(r"(?<!\\)!?\[(?:[^\[\]\\]|\\.)*\]\(\s*" + _DEST + _TITLE + r"\s*\)")
+_REF_DEF = re.compile(r"^ {0,3}\[(?:[^\[\]\\]|\\.)+\]:\s*" + _DEST + _TITLE + r"\s*$", re.M)
+
+
+def md_link_targets(text: str) -> list[str]:
+    """Local link destinations (inline and reference definitions), decoded, with
+    any #fragment or ?query removed. Code (fenced and inline), HTML comments and
+    escaped brackets are skipped; any URL scheme (http, HTTPS, mailto, ...) is external."""
+    t = citable_text(text)
+    t = re.sub(r"`[^`\n]*`", "", t)
+    out = []
+    for rx in (_INLINE_LINK, _REF_DEF):
+        for m in rx.finditer(t):
+            dest = m.group(1) or m.group(2) or ""
+            dest = re.sub(r"\\(.)", r"\1", dest)
+            if not dest or dest.startswith("#") or _SCHEME.match(dest):
+                continue
+            dest = re.split(r"[#?]", dest, maxsplit=1)[0]
+            if dest:
+                out.append(urllib.parse.unquote(dest))
+    return out
+
+
+# ---------------------------------------------------------------- citations
 
 def _names(filename: str) -> str:
     names = {filename, urllib.parse.quote(filename)}
@@ -145,30 +189,39 @@ def mention_regex(filename: str) -> re.Pattern:
 
 
 def cite_regex(filename: str) -> re.Pattern:
-    """A citation of exactly this filename, in one of the forms pages actually use.
+    """A citation of exactly this Raw file, in one of the forms pages actually use.
 
-    A bare mention in prose (`cp foo.md /tmp`, "the old foo.md") is not a citation.
-    Accepted forms: a frontmatter `resource:` value, a markdown link target
-    (anchors and `<...>` destinations included), the `[source: foo.md]` marker,
-    and a `Raw/foo.md` path. Measured on the live corpus (2026-10-04): 883 of 884
-    cited sources use one of these; the exception was a "See also" prose mention.
+    The target must be the Raw file itself: a `resource:` value or link destination
+    whose path ends in `Raw/<file>`, the `[source: <file>]` marker, or a `Raw/<file>`
+    path in prose. A link to `Wiki/foo.md` or a bare `foo.md` does not cite
+    `Raw/foo.md`. Search `citable_text()`, not raw page text, so examples in code
+    blocks and comments never count. Measured on the live corpus (2026-10-04):
+    every real citation uses one of these forms.
     """
     n = _names(filename)
     return re.compile(
-        rf"(?:resource:[ \t]*[\"']?(?:[^\s\"']*/)?(?:{n})[\"']?[ \t]*$"
-        rf"|\]\(<?(?:[^)>\n]*/)?(?:{n})(?:[#?][^)>\n]*)?>?(?:\s+\"[^\"]*\")?\)"
+        rf"(?:resource:[ \t]*[\"']?(?:[^\s\"']*/)?Raw/(?:{n})[\"']?[ \t]*$"
+        rf"|\]\(<?(?:[^)>\n]*/)?Raw/(?:{n})(?:[#?][^)>\n]*)?>?(?:\s+[\"'(][^\n)]*)?\)"
         rf"|\[source:[ \t]*(?:{n})\]"
-        rf"|(?<![\w-])Raw/(?:{n})(?![\w-]|\.\w))", re.M)
+        rf"|(?<![\w/.-])Raw/(?:{n})(?![\w-]|\.\w))", re.M)
+
+
+def cites(filename: str, text: str) -> bool:
+    return bool(cite_regex(filename).search(citable_text(text)))
 
 
 def citing_lines(filename: str, page_list: list[Path], vault: Path) -> list[tuple[str, int, str, bool]]:
-    """(page, line number, text, is_citation) for every line that mentions the file."""
+    """(page, line number, text, is_citation) for every line that mentions the file.
+    A line inside a fenced block or comment is reported but never counted as a citation."""
     cite, mention = cite_regex(filename), mention_regex(filename)
     hits = []
     for p in page_list:
-        for i, line in enumerate(read(p).splitlines(), 1):
+        text = read(p)
+        live = citable_text(text)
+        for i, line in enumerate(text.splitlines(), 1):
             if mention.search(line):
-                hits.append((p.relative_to(vault).as_posix(), i, line.strip(), bool(cite.search(line))))
+                is_cite = bool(cite.search(line)) and line in live
+                hits.append((p.relative_to(vault).as_posix(), i, line.strip(), is_cite))
     return hits
 
 

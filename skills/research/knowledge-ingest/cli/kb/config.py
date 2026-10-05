@@ -82,20 +82,34 @@ def load(explicit: str | None = None) -> Config:
     if not isinstance(data, dict) or not isinstance(data.get("bundles", []), list):
         raise ConfigError(f"config {real} must be an object with a `bundles` list")
 
+    def opt_str(key: str) -> str | None:
+        v = data.get(key)
+        if v is not None and not isinstance(v, str):
+            raise ConfigError(f"config {real}: `{key}` must be a string")
+        return v or None
+
     def rel(v: str | None) -> Path | None:
+        """Relative paths resolve from the config file's folder, never the caller's CWD."""
         if not v:
             return None
         p = Path(v).expanduser()
         return p if p.is_absolute() else root / p
 
-    try:
-        bundles = [
-            Bundle(name=b["name"], path=Path(b["path"]).expanduser(), shape=b.get("shape", "concept"),
-                   sources=b.get("sources"), uncited_ok=dict(b.get("uncited_ok", {})))
-            for b in data.get("bundles", [])
-        ]
-    except (KeyError, TypeError, ValueError) as e:
-        raise ConfigError(f"config {real}: every bundle needs `name` and `path` ({e})") from e
+    bundles = []
+    for i, b in enumerate(data.get("bundles", [])):
+        if not isinstance(b, dict):
+            raise ConfigError(f"config {real}: bundles[{i}] must be an object")
+        for key in ("name", "path"):
+            if not isinstance(b.get(key), str) or not b[key].strip():
+                raise ConfigError(f"config {real}: bundles[{i}].{key} must be a non-empty string")
+        for key in ("shape", "sources"):
+            if b.get(key) is not None and not isinstance(b[key], str):
+                raise ConfigError(f"config {real}: bundles[{i}].{key} must be a string")
+        ok = b.get("uncited_ok", {})
+        if not isinstance(ok, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in ok.items()):
+            raise ConfigError(f"config {real}: bundles[{i}].uncited_ok must map filename -> reason (strings)")
+        bundles.append(Bundle(name=b["name"], path=rel(b["path"]), shape=b.get("shape") or "concept",
+                              sources=b.get("sources"), uncited_ok=dict(ok)))
     return Config(path=real, root=root, bundles=bundles,
-                  validator=rel(data.get("validator")),
-                  sync_simulator=data.get("sync_simulator"))
+                  validator=rel(opt_str("validator")),
+                  sync_simulator=opt_str("sync_simulator"))

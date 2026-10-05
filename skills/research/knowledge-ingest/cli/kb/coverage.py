@@ -15,19 +15,30 @@ from .report import Report
 
 def run(b: Bundle) -> Report:
     r = Report("coverage", b.name)
+    r.footer = False
+    r.data["bundle_path"] = str(b.path)
+    problems = V.bundle_problems(b.path)
+    for msg in problems:
+        r.fail(msg)
+    if problems:
+        return r
     raws = V.raw_files(b.path)
     texts = [V.read(p) for p in V.pages(b.path)]
     uncited, accepted = [], []
     for raw in raws:
-        rx = V.cite_regex(raw.name)
-        if any(rx.search(t) for t in texts):
+        if any(V.cites(raw.name, t) for t in texts):
             if raw.name in b.uncited_ok:
                 r.warn(f"{raw.name} is listed in uncited_ok but is now cited; remove the entry")
             continue
         fm, _ = V.frontmatter(raw)
+        try:
+            meta = V.fm_data(fm)
+        except V.VaultError as e:
+            r.fail(f"{raw.name}: {e}")
+            meta = {}
         row = {"file": raw.name, "words": V.word_count(raw),
-               "fetch_status": V.fm_value(fm, "fetch_status") or V.fm_value(fm, "status"),
-               "title": V.fm_value(fm, "title")}
+               "fetch_status": str(meta.get("fetch_status") or meta.get("status") or ""),
+               "title": str(meta.get("title") or "")}
         if raw.name in b.uncited_ok:
             accepted.append({**row, "reason": b.uncited_ok[raw.name]})
         else:
@@ -40,5 +51,4 @@ def run(b: Bundle) -> Report:
     r.ok(f"{len(raws) - len(uncited) - len(accepted)}/{len(raws)} Raw sources cited by a page"
          + (f"; {len(accepted)} uncited on purpose (uncited_ok)" if accepted else ""))
     r.data.update({"raw_total": len(raws), "uncited": uncited, "uncited_ok": accepted})
-    r.footer = False
     return r

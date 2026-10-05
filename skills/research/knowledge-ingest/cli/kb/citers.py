@@ -23,11 +23,10 @@ def run(b: Bundle, raw_ref: str) -> Report:
     r.footer = False
     hits = V.citing_lines(name, V.pages(b.path, include_reserved=True), b.path)
     texts = {p.relative_to(b.path).as_posix(): V.read(p) for p in V.pages(b.path)}
-    rx = V.cite_regex(name)
-    pages = sorted(rel for rel, t in texts.items() if rx.search(t))
+    pages = sorted(rel for rel, t in texts.items() if V.cites(name, t))
     try:
         refs = V.wiki_refs(V.frontmatter(raw)[0])
-    except V.RefsError as e:
+    except V.VaultError as e:
         refs = []
         r.fail(f"wiki_refs is malformed: {e}")
     for rel, line, text, is_cite in hits:

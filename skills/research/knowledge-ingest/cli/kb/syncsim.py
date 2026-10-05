@@ -5,9 +5,12 @@ names a `sync_simulator` command; kb runs it with `--drop <file>` per file and
 `--json`, and requires JSON of this shape (anything else is a config error, never
 a clean result):
 
-    {"checked": int, "writes": [{"dest": str, "kind": "create"|"refresh",
-                                 "recreates_dropped": bool, ...}],
+    {"checked": int, "dropped": [str], "writes": [{"dest": str, "kind": "create"|"refresh",
+                                                   "recreates_dropped": bool, ...}],
      "dropped_missing": [str]}           # optional
+
+`dropped` must echo every requested --drop path, and `checked` must be positive when
+anything was dropped: output that does not prove the requested work ran is rejected.
 
 The command runs with the config file's directory as its working directory.
 """
@@ -22,7 +25,12 @@ from .config import Config, ConfigError
 from .report import Report
 
 
-def _validate(res: object) -> dict:
+def _key(p: str) -> str:
+    q = Path(p).expanduser()
+    return str(q.parent.resolve() / q.name)
+
+
+def _validate(res: object, drops: list[str]) -> dict:
     if not isinstance(res, dict):
         raise ConfigError("sync simulator output must be a JSON object")
     if not isinstance(res.get("checked"), int) or isinstance(res.get("checked"), bool):
@@ -36,8 +44,18 @@ def _validate(res: object) -> dict:
                 and isinstance(w.get("recreates_dropped"), bool)):
             raise ConfigError(f"sync simulator `writes[{i}]` needs str `dest`, "
                               f"`kind` create|refresh and bool `recreates_dropped`")
-    if not isinstance(res.get("dropped_missing", []), list):
-        raise ConfigError("sync simulator `dropped_missing` must be a list")
+    missing = res.get("dropped_missing", [])
+    if not isinstance(missing, list) or not all(isinstance(m, str) for m in missing):
+        raise ConfigError("sync simulator `dropped_missing` must be a list of strings")
+    if drops:
+        echoed = res.get("dropped")
+        if not isinstance(echoed, list) or not all(isinstance(d, str) for d in echoed):
+            raise ConfigError("sync simulator output needs a `dropped` list echoing the --drop paths")
+        absent = {_key(d) for d in drops} - {_key(d) for d in echoed}
+        if absent:
+            raise ConfigError(f"sync simulator did not apply these --drop paths: {sorted(absent)}")
+        if res["checked"] < 1:
+            raise ConfigError("sync simulator checked 0 sources for a requested drop; nothing was simulated")
     return res
 
 
@@ -46,11 +64,14 @@ def run(cfg: Config, drops: list[str]) -> Report:
         raise ConfigError("no `sync_simulator` command in knowledge-ingest.config.json")
     cmd = (shlex.split(cfg.sync_simulator)
            + [a for d in drops for a in ("--drop", str(Path(d).expanduser()))] + ["--json"])
-    p = subprocess.run(cmd, cwd=cfg.root, capture_output=True, text=True)
+    try:
+        p = subprocess.run(cmd, cwd=cfg.root, capture_output=True, text=True)
+    except OSError as e:
+        raise ConfigError(f"cannot run sync simulator {cmd[0]!r}: {e}") from e
     if p.returncode != 0:
         raise ConfigError(f"sync simulator failed ({p.returncode}): {p.stderr.strip() or p.stdout.strip()}")
     try:
-        res = _validate(json.loads(p.stdout))
+        res = _validate(json.loads(p.stdout), drops)
     except json.JSONDecodeError as e:
         raise ConfigError(f"sync simulator did not return JSON: {e}") from e
     r = Report("sync-sim", f"{len(drops)} file(s) treated as deleted" if drops else "current vault state")

@@ -21,13 +21,20 @@ from .report import Report
 from .urls import norm as loose_norm
 
 
-def _urls(b: Bundle) -> dict[Path, str]:
+def _urls(b: Bundle, r: Report) -> dict[Path, str]:
+    """Raw file -> url. A Raw file with no usable url has no identity to compare, so
+    the scan would be incomplete: that is a FAIL, never a silent omission."""
     out = {}
     for raw in V.raw_files(b.path):
-        fm, _ = V.frontmatter(raw)
-        u = V.fm_value(fm, "url")
-        if u:
-            out[raw] = u
+        try:
+            u = V.fm_value(V.frontmatter(raw)[0], "url")
+        except V.VaultError as e:
+            r.fail(f"{raw.name}: {e}")
+            continue
+        if not u:
+            r.fail(f"{raw.name}: no `url`, so it cannot be checked for duplicates")
+            continue
+        out[raw] = u
     return out
 
 
@@ -36,13 +43,23 @@ def run(bundles: list[Bundle], cross: bool = False) -> list[Report]:
     for b in bundles:
         r = Report("dupes", b.name)
         r.footer = False
-        urls = _urls(b)
+        r.data["bundle_path"] = str(b.path)
+        problems = V.bundle_problems(b.path)
+        for msg in problems:
+            r.fail(msg)
+        if problems:
+            reports.append(r)
+            continue
+        urls = _urls(b, r)
         exact, normed, unnormalized = defaultdict(list), defaultdict(list), []
         for raw, u in urls.items():
             exact[V.norm_url(u)].append(raw.name)
             by_url_all[V.norm_url(u)].append(f"{b.name}/Raw/{raw.name}")
             try:
-                normed[loose_norm(u)].append(raw.name)
+                key = loose_norm(u)
+                if not key or key in ("http:", "https:"):
+                    raise ValueError("normalizes to an empty identity")
+                normed[key].append(raw.name)
             except Exception as e:  # report, never swallow: the scan is incomplete
                 unnormalized.append(f"{raw.name} ({u!r}: {type(e).__name__})")
         groups = {u: sorted(v) for u, v in exact.items() if len(v) > 1}

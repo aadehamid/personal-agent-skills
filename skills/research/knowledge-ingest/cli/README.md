@@ -27,9 +27,13 @@ project's file). Keys kb reads: `bundles[].name/path/shape`, `bundles[].uncited_
 - **Exit codes:** 0 clean (warnings allowed), 1 failures, 2 usage/config error. With
   `--json`, stdout is always `{"status": "clean"|"fail"|"error", "reports": [...]}`,
   errors included.
-- **`kb quotes` matching:** each source is searched on its own, body only (no
-  frontmatter, HTML or image alt text); only real markdown syntax is removed; fragments
-  match on word boundaries and in order. Changed punctuation is DRIFT.
+- **`kb quotes` matching:** each source is searched on its own, visible body only (no
+  frontmatter, hidden HTML, comments or image alt text). Only real markdown and real
+  HTML tags are removed, so `vector<int>` stays text. Fragments match on token
+  boundaries, in order, and each needs at least 3 word characters. Changed punctuation
+  is DRIFT.
+- **Parsing:** frontmatter is parsed with PyYAML. Invalid YAML or invalid UTF-8 is a
+  failure. Relative paths in the config resolve from the config file's folder.
 - **Recurring low-severity patterns** are reported once per bundle with the full list in
   `--json` `details`, so they do not bury real failures.
 - **Project-specific logic stays in the project.** Sync behaviour is reached through the

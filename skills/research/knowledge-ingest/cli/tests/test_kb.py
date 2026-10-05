@@ -40,6 +40,7 @@ def page(vault: Path, rel: str, body: str, sources: list[str] | None = None) -> 
 @pytest.fixture
 def vault(tmp_path: Path) -> Path:
     v = tmp_path / "Vault"
+    (v / "Raw").mkdir(parents=True)
     write(v / "Wiki" / "index.md", "# Index\n")
     write(v / "Wiki" / "log.md", "# Log\n\n## 2026-01-02\n* x\n\n## 2026-01-01\n* y\n")
     return v
@@ -527,3 +528,145 @@ def test_check_ingest_wrapper_forwards_validator(tmp_path, vault):
     res = subprocess.run([sys.executable, str(wrapper), str(vault), "--validator", "/nonexistent.py"],
                          capture_output=True, text=True, env={**os.environ, "KB_CONFIG": str(cfg)})
     assert res.returncode == 1 and "validator not found" in res.stdout
+
+
+# ------------------------------------- Codex second re-review 2026-10-04 (kb CLI)
+
+def test_quotes_token_boundaries_on_punctuation(vault):
+    src = _src(vault, "p.md", r"It uses C++ templates. Beware \*danger\* here.")
+    p = page(vault, "Wiki/summaries/p.md", '"uses C+", "danger", "uses C++ templates"', sources=[src])
+    c = quotes.run(p, None, []).data["counts"]
+    assert c["verified"] == 1 and c["missing"] == 2  # only the whole-token quote verifies
+
+
+def test_quotes_angle_brackets_that_are_not_html_stay(vault):
+    src = _src(vault, "g.md", "Use vector<int> here.")
+    p = page(vault, "Wiki/summaries/g.md", '"Use vector<float> here" and "Use vector<int> here"', sources=[src])
+    c = quotes.run(p, None, []).data["counts"]
+    assert c["verified"] == 1 and c["missing"] == 1
+
+
+def test_quotes_css_hidden_text_is_not_evidence(vault):
+    src = _src(vault, "css.md", '<span style="display: none">Invented promise here</span> visible')
+    p = page(vault, "Wiki/summaries/css.md", '"Invented promise here"', sources=[src])
+    assert quotes.run(p, None, []).data["counts"]["missing"] == 1
+
+
+def test_quotes_inline_code_content_can_be_quoted(vault):
+    src = _src(vault, "ic.md", "Run `kb check` before review.")
+    p = page(vault, "Wiki/summaries/ic.md", '"Run kb check before review"', sources=[src])
+    assert quotes.run(p, None, []).data["counts"]["verified"] == 1
+
+
+def test_quotes_digit_ending_quotation_pairs(vault):
+    src = _src(vault, "v.md", "the guide says version 2 is current")
+    p = page(vault, "Wiki/summaries/v.md", 'The source says "version 2" exactly.', sources=[src])
+    r = quotes.run(p, None, [])
+    assert r.exit_code == 0 and r.data["counts"]["verified"] == 1
+
+
+def test_quotes_checks_actually_ran(vault):
+    # Codex: tests asserting only verified == 0 could pass if extraction skipped the quote.
+    src = _src(vault, "r.md", "real text here")
+    p = page(vault, "Wiki/summaries/r.md", 'one "invented claim here" only', sources=[src])
+    rows = quotes.run(p, None, []).data["quotes"]
+    assert [(q["quote"], q["verdict"]) for q in rows] == [("invented claim here", "missing")]
+
+
+def test_cli_rejects_empty_ignore(tmp_path, vault):
+    src = _src(vault, "r.md", "real text here")
+    pg = page(vault, "Wiki/summaries/r.md", '"invented claim here"', sources=[src])
+    res = CliRunner().invoke(app, ["quotes", str(pg), "--ignore", "", "--json"])
+    assert res.exit_code == 2 and json.loads(res.stdout)["status"] == "error"
+
+
+def test_cli_rejects_invalid_since(tmp_path, vault):
+    for bad in ["not-a-date", "2026-02-30", "9999-99-99"]:
+        res = CliRunner().invoke(app, ["--config", str(_cfg(tmp_path, vault)), "check", "Test", "--since", bad, "--json"])
+        assert res.exit_code == 2, bad
+
+
+def test_cite_regex_needs_the_raw_target_and_live_context():
+    assert not V.cites("foo.md", "[self](foo.md)")
+    assert not V.cites("foo.md", "[w](../Wiki/foo.md)")
+    assert not V.cites("foo.md", "```\nresource: ../../Raw/foo.md\n```")
+    assert not V.cites("foo.md", "<!-- [x](../../Raw/foo.md) -->")
+    assert V.cites("foo.md", "[x](../../Raw/foo.md)")
+
+
+def test_config_relative_bundle_path_resolves_from_config_dir(tmp_path, monkeypatch):
+    proj = tmp_path / "proj"
+    (proj / "vault" / "Raw").mkdir(parents=True)
+    write(proj / "knowledge-ingest.config.json", json.dumps({"bundles": [{"name": "V", "path": "vault"}]}))
+    monkeypatch.chdir(tmp_path)
+    cfg = config.load(str(proj / "knowledge-ingest.config.json"))
+    assert cfg.bundles[0].path == proj / "vault"
+
+
+def test_missing_bundle_or_raw_folder_is_a_failure(tmp_path):
+    empty = tmp_path / "NoRaw"
+    empty.mkdir()
+    for r in [coverage.run(config.Bundle("x", empty)), coverage.run(config.Bundle("y", tmp_path / "nope")),
+              dupes.run([config.Bundle("z", empty)])[0]]:
+        assert r.exit_code == 1
+
+
+def test_config_field_types_are_validated(tmp_path, vault):
+    bad = write(tmp_path / "c.json", json.dumps({"bundles": [{"name": 3, "path": str(vault)}]}))
+    res = CliRunner().invoke(app, ["--config", str(bad), "coverage", "--json"])
+    assert res.exit_code == 2 and json.loads(res.stdout)["status"] == "error"
+
+
+def test_yaml_wiki_refs_forms():
+    assert V.wiki_refs("wiki_refs:\n- Wiki/a.md\n") == ["Wiki/a.md"]            # unindented list
+    assert V.wiki_refs('wiki_refs:\n  - "Wiki/a.md" # c\n') == ["Wiki/a.md"]  # quoted + comment
+    assert V.fm_value('url: "https://x.test/a" # note', "url") == "https://x.test/a"
+
+
+def test_invalid_yaml_frontmatter_fails_check(vault):
+    write(vault / "Raw" / "bad.md", "---\nurl: [unclosed\n---\nx\n")
+    r = checks.Report("check")
+    checks.check_readable(r, bundle(vault))
+    assert any("not valid YAML" in f for f in r.failures)
+
+
+def test_invalid_utf8_fails_check(vault):
+    (vault / "Raw" / "bin.md").write_bytes(b"---\nurl: u\n---\n\xff\xfe bad\n")
+    r = checks.Report("check")
+    checks.check_readable(r, bundle(vault))
+    assert any("not valid UTF-8" in f for f in r.failures)
+
+
+def test_link_extractor_forms():
+    t = ("[a](<x y.md#s> 'T') [b](p(1).md) [c][r]\n[r]: ref.md \"t\"\n"
+         "\\[not](esc.md) `[code](c.md)`\n```\n[fence](f.md)\n```\n[h](HTTPS://e.test/x.md)")
+    assert V.md_link_targets(t) == ["x y.md", "p(1).md", "ref.md"]
+
+
+def test_dupes_missing_or_empty_url_fails(vault):
+    write(vault / "Raw" / "nourl.md", "---\ntitle: t\n---\nx\n")
+    write(vault / "Raw" / "empty.md", "---\nurl: https://\n---\nx\n")
+    (r,) = dupes.run([bundle(vault)])
+    assert r.exit_code == 1 and len(r.failures) == 2
+
+
+def test_sync_sim_must_prove_requested_drop(tmp_path, vault):
+    out = json.dumps({"checked": 0, "writes": [], "dropped": []})
+    cfg = write(tmp_path / "c.json", json.dumps({"bundles": [{"name": "Test", "path": str(vault)}],
+                                                 "sync_simulator": f"python3 -c 'print({out!r})'"}))
+    res = CliRunner().invoke(app, ["--config", str(cfg), "sync-sim", "--drop", str(vault / "Raw" / "x.md"), "--json"])
+    assert res.exit_code == 2 and json.loads(res.stdout)["status"] == "error"
+
+
+def test_sync_sim_missing_executable_is_config_error(tmp_path, vault):
+    cfg = write(tmp_path / "c.json", json.dumps({"bundles": [{"name": "Test", "path": str(vault)}],
+                                                 "sync_simulator": "/no/such/simulator"}))
+    res = CliRunner().invoke(app, ["--config", str(cfg), "sync-sim", "--json"])
+    assert res.exit_code == 2 and json.loads(res.stdout)["status"] == "error"
+
+
+def test_json_envelope_records_config_and_note(tmp_path, vault):
+    cfg = _cfg(tmp_path, vault)
+    out = json.loads(CliRunner().invoke(app, ["--config", str(cfg), "coverage", "--json"]).stdout)
+    assert out["config"] == str(cfg.resolve()) and "independent review" in out["note"]
+    assert out["reports"][0]["bundle_path"] == str(vault)

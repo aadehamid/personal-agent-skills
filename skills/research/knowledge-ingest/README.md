@@ -26,7 +26,7 @@ points to.
 | `references/bootstrap.md` | agent, bootstrap mode | Setting up a new bundle: concept or catalog shape, and stub pages taken from the corpus's own terms. |
 | `references/audit.md` | agent, audit mode | Checking whether an existing bundle can be trusted: sample for fidelity and report an error rate. |
 | `cli/` | agent, through the `kb` command | The `kb` validation CLI (Python, Typer). Read-only. Subcommands: `check` (Gate A), `quotes` (every quotation verbatim in its sources), `coverage` (unprocessed sources), `dupes` (duplicate sources), `citers` (who cites a file), `sync-sim` (would the project's sync recreate a deleted file). `cli/README.md` has the rules for changing it. |
-| `cli/tests/test_kb.py` | you, when changing `kb` | 65 regression tests. Most reproduce a real bug from validating a live corpus, and the test names say which. |
+| `cli/tests/test_kb.py` | you, when changing `kb` | 85 regression tests. Most reproduce a real bug from validating a live corpus, and the test names say which. |
 | `scripts/check_ingest.py` | agent, legacy | Old entry point for Gate A. It now forwards to `kb check`. |
 | `scripts/url_identity.py` | agent, route mode | Compares an external list of saved links against a corpus inventory, treating the same article under different URLs as one. It imports its URL rules from `cli/kb/urls.py`. |
 | `evals/evals.json` | you, when testing | Six test prompts with expected behavior. Three should use the skill: starting a 40-file backlog, resuming yesterday's ingest, and auditing a vault. Three should not: summarising one paper, bulk-fetching URLs, and answering a question from existing notes. |
@@ -93,10 +93,16 @@ cd skills/research/knowledge-ingest/cli && uv run --group dev pytest -q
 
 Last updated 2026-10-04.
 
-- **`kb` hardening was re-reviewed.** Codex reviewed `kb` on 2026-10-04: needs-rework,
-  16 findings, all fixed with regression tests. A confirmation re-review of the fixes
-  ran before this skill was published; its result is in the commit history of the
-  project that built it.
+- **`kb` went through three Codex review rounds on 2026-10-04.** 16 findings, then 11
+  partial fixes plus new edge cases, then 13 more. All were fixed, each with a regression
+  test. Each round found a narrower layer of edge cases (false "clean" or "verified"
+  paths). A fourth pass runs after publishing, and anything it finds lands as a
+  follow-up commit.
+- **Citation rule.** `kb` counts a source as cited only when a page points at the Raw
+  file itself: a link or `resource:` path ending in `Raw/<file>`, the
+  `[source: <file>]` marker, or a `Raw/<file>` path. Bare mentions in prose do not
+  count, nor do examples inside code blocks or comments. On the corpus it was built
+  against, every real citation already used one of these forms.
 - **No trigger eval.** `evals/evals.json` tests behavior, not triggering. If the skill
   fires on the wrong requests, or misses casual ones like "work through the backlog",
   add a trigger set and tune the description with skill-creator.

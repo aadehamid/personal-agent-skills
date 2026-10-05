@@ -36,10 +36,17 @@ STATUS_WORDS = ("partial", "stub", "skeleton", "populated", "note", "editorial",
 _STATUS = re.compile(rf"^(?:(?i:{'|'.join(STATUS_WORDS)})\s*[.:]|(?:{'|'.join(w.upper() for w in STATUS_WORDS)})\b)")
 _IMAGE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
 _LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
-_TAG = re.compile(r"<[^>\n]+>")
+# Only real HTML tags are markup. `vector<int>` or `List<String>` in a source is text.
+_HTML_TAGS = ("a|abbr|article|aside|audio|b|blockquote|br|caption|center|cite|code|col|colgroup|dd|del|"
+              "details|dfn|div|dl|dt|em|figcaption|figure|font|footer|h[1-6]|header|hr|i|iframe|img|ins|"
+              "kbd|li|main|mark|nav|ol|p|picture|pre|q|s|samp|section|small|source|span|strong|sub|"
+              "summary|sup|svg|table|tbody|td|tfoot|th|thead|tr|u|ul|var|video")
+_TAG = re.compile(rf"</?(?:{_HTML_TAGS})\b[^<>\n]*/?>", re.I)
 _AUTOLINK = re.compile(r"<((?:https?|mailto):[^>\s]+)>")
 _HIDDEN = re.compile(r"<!--.*?-->|<(script|style|template|noscript)\b[^>]*>.*?</\1\s*>"
-                     r"|<(\w+)\b[^>]*\b(?:hidden|aria-hidden=[\"']true[\"'])[^>]*>.*?</\2\s*>",
+                     r"|<(\w+)\b[^>]*\b(?:hidden|aria-hidden=[\"']true[\"']"
+                     r"|style=[\"'][^\"']*(?:display\s*:\s*none|visibility\s*:\s*hidden)[^\"']*[\"'])"
+                     r"[^>]*>.*?</\2\s*>",
                      re.S | re.I)
 _PROTECT = "\ue000"  # private-use marker: keeps an escaped character away from emphasis parsing
 _ESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|~>])")
@@ -50,7 +57,10 @@ _ELLIPSIS = re.compile(r"\s*(?:\[\.\.\.\]|\[…\]|\.\.\.|…)\s*")
 _FOLD = str.maketrans({"’": "'", "‘": "'", "“": '"', "”": '"', "–": "-", "—": "-", "‑": "-"})
 _BLOCKQUOTE = re.compile(r"^ {0,3}>")
 MIN_WORD_CHARS = 3  # per fragment: fewer word characters cannot be verified meaningfully
-_INCH = re.compile(r'(?<=\d)"')  # 5" or 30": a measurement mark, not a quotation mark
+# A token may only open after one of these (or start/whitespace) and close before one of
+# these (or end/whitespace), so a quotation can never start or end inside a token.
+_OPEN_OK = "([{\"'‘“«—–"
+_CLOSE_OK = ".,;:!?)]}\"'’”»—–"
 
 
 def visible(text: str) -> str:
@@ -70,6 +80,7 @@ def visible(text: str) -> str:
         t = _STRONG.sub(lambda m: m.group(2), t)
         t = _EM.sub(lambda m: m.group(2), t)
     t = t.replace(_PROTECT, "")
+    t = re.sub(r"`([^`\n]*)`", r"\1", t)  # inline code is visible text; keep its content
     return re.sub(r"\s+", " ", t).strip()
 
 
@@ -78,12 +89,15 @@ def _fold(t: str) -> str:
 
 
 def _bounded(fragment: str) -> re.Pattern:
-    """The fragment, never glued to a longer word on either side.
+    """The fragment, starting and ending on token boundaries.
 
-    `dependent` must not match `dependents`, and a fragment ending in punctuation
-    must not match mid-token either: "uses C++" is not in "uses C++17".
+    Before it: start, whitespace, or opening punctuation. After it: end, whitespace,
+    or closing punctuation. So `dependent` is not in `dependents`, "uses C+" is not
+    in "uses C++", "uses C++" is not in "uses C++17", and "danger" is not in "*danger*".
     """
-    return re.compile(r"(?<!\w)" + re.escape(fragment) + r"(?!\w)")
+    before = r"(?:(?<=^)|(?<=\s)|(?<=[" + re.escape(_OPEN_OK) + r"]))"
+    after = r"(?=$|\s|[" + re.escape(_CLOSE_OK) + r"])"
+    return re.compile(before + re.escape(fragment) + after)
 
 
 def _in_order(fragments: list[str], hay: str) -> bool:
@@ -129,9 +143,14 @@ def extract(body: str, line_offset: int = 0) -> tuple[list[Quote], list[str]]:
             in_fence = not in_fence
             clean.append("")
             continue
-        ln = "" if in_fence else re.sub(r"`[^`]*`", "", ln)
+        if in_fence:
+            ln = ""
+        else:
+            # A code span holding a quote mark is an example (`--name "x"`), not a
+            # quotation: drop it. Other code spans are text: keep their content.
+            ln = re.sub(r"`([^`]*)`", lambda m: "" if re.search(r'["“”]', m.group(1)) else m.group(1), ln)
         ln = _AUTOLINK.sub(lambda m: m.group(1), ln)
-        clean.append(_INCH.sub("″", _TAG.sub("", ln)))
+        clean.append(_TAG.sub("", ln))
 
     quotes, problems, prose = [], [], []
     i = 0
@@ -169,11 +188,12 @@ def extract(body: str, line_offset: int = 0) -> tuple[list[Quote], list[str]]:
                         return first + k
                 return first
 
-            if flat.count('"') % 2:
+            spans, unpaired = _straight_quotes(flat)
+            if unpaired:
                 problems.append(f"line {first}: straight quote marks in this paragraph do not pair; "
                                 f"its quotations could not be checked")
             else:
-                quotes += [Quote(q, where(q), "inline") for q in re.findall(r'"([^"]+)"', flat)]
+                quotes += [Quote(q, where(q), "inline") for q in spans]
             if flat.count("“") != flat.count("”"):
                 problems.append(f"line {first}: curly quote marks in this paragraph do not pair; "
                                 f"its curly quotations could not be checked")
@@ -181,6 +201,24 @@ def extract(body: str, line_offset: int = 0) -> tuple[list[Quote], list[str]]:
                 quotes += [Quote(q, where(q), "inline") for q in re.findall(r"“([^”]+)”", flat)]
             para = []
     return quotes, problems
+
+
+def _straight_quotes(text: str) -> tuple[list[str], bool]:
+    """Straight-quoted spans, scanning with quote state. A `"` right after a digit is a
+    measurement mark (5", 30") only when no quotation is open; inside an open
+    quotation it closes it, so "version 2" pairs correctly. Returns (spans, unpaired)."""
+    spans, start = [], None
+    for i, ch in enumerate(text):
+        if ch != '"':
+            continue
+        if start is None:
+            if i > 0 and text[i - 1].isdigit():
+                continue  # 5" screen
+            start = i + 1
+        else:
+            spans.append(text[start:i])
+            start = None
+    return [s for s in spans if s.strip()], start is not None
 
 
 def classify(quote: str, sources: list[tuple[str, str]]) -> str:
