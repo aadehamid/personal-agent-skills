@@ -44,7 +44,10 @@ ship / ship-with-fixes / needs-rework.
 The "attack these specifically" section is where the review earns its cost. Reviewers
 reliably catch what they are pointed at. Name the number you transcribed and did not
 re-check, the synthesis you are not sure is in the source, the mechanism you might have
-supplied from your own knowledge.
+supplied from your own knowledge. This works: a reviewer pointed at a benchmark claim
+found the page had turned the source's "50x faster" into "50x lower cost" — a wrong unit
+that read plausibly and sat in a concept page. Numbers are where pointer-driven review
+pays best; name every number you did not personally verify against its source.
 
 ## Resolving findings
 

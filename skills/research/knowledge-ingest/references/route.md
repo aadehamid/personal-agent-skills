@@ -16,7 +16,9 @@ failures come from skipping this:
 
 For the second, normalise before comparing. The same article lives at many URLs: host
 moves, `/short-courses/` renamed to `/courses/`, repo renames, docs-tree restructures,
-`youtube.com/live/<id>` versus `?v=<id>`. A naive comparison once reported 123 sources
+`youtube.com/live/<id>` versus `?v=<id>`. Two more normalisations that recur: strip
+tracking queries (`?utm_source=…` and friends), and drop GitHub `/tree/main` — the tree
+URL is the same repo page as the plain URL. A naive comparison once reported 123 sources
 missing when the true figure was 64 — nearly half the answer was noise, and acting on it
 would have duplicated three dozen sources. `scripts/url_identity.py` carries the alias
 handling; extend its table when you confirm a new alias, and **verify each alias on both

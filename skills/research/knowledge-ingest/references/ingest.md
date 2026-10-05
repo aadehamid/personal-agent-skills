@@ -113,6 +113,26 @@ after a short quote is skipped. It also produces false negatives when link or em
 markup sits inside the source text. `kb quotes` handles all of these and reports a paragraph
 with unbalanced quote marks instead of guessing.
 
+## Raw immutability: the mechanical-repair exception (2026-10-05)
+
+Raw prose, quotes, and facts never change. Paths and frontmatter can be repaired. The
+test: would the edit survive if the source text were read aloud? Path repairs would;
+prose rewrites would not. The two legitimate repairs — image path absolutization
+(HTTP-HEAD-verified against the source domain, `*[figure not recovered]*` notes for
+figures gone from the live site) and frontmatter maintenance — are procedures, and the
+vault-maintenance skill owns them. Log path repairs in the bundle's `Wiki/log.md`.
+
+## Quote drift at scale (2026-10-05)
+
+One batch of subagent-written summaries produced ~90 `kb quotes` failures — drift is
+not a rare typo, it is what batch-written pages do. The failure modes (hard-wrapped
+quotes, ellipsis joins, case and trailing-punctuation drift, paraphrase quoted as
+fact) and the per-failure repair procedure live in the vault-maintenance skill. The
+lesson that generalizes: after repair, re-run `kb quotes` on every touched page, and
+treat the repair regexes as their own hazard — escape the quote text, test the
+pattern on one known instance before a bulk `re.subn`, and count replacements
+against the flagged failures.
+
 ## Stamp hygiene on touched pages (Codex review, 2026-09-12)
 
 Every page touched by an ingest — including one-line cross-ref additions to Learning
@@ -120,3 +140,9 @@ Path stages and old summaries — takes the current `updated` date and a fresh i
 stamp (`generated:` for the ingesting agent; on a page with an existing `generated:`,
 add `verified:` for this ingest instead of overwriting the original authorship). A
 touched page with stale metadata is a MEDIUM finding every time.
+
+Batch writers (subagents writing a dozen pages at once) systematically forget the
+stamps. Do not rely on the brief alone: after every batch write, run a bulk stamp pass
+over the touched pages — parse the frontmatter, add the missing stamp (`generated:`,
+or `verified:` where `generated:` already exists) — before running Gate A. The
+check-fix-recheck cycle costs more than the pass.
