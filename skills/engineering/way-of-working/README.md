@@ -22,7 +22,7 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 
 1. Add an `AGENTS.md` with the project's working rules and pointers. Keep it short.
 2. Build the shared tool for the figures and statuses the project's documents quote. Give it tests.
-3. Add `scripts/check.sh`, a CI job that runs it, and a pre-push hook. If the clone has no other hooks, enable it with `git config core.hooksPath scripts/hooks`. If it has some (Git LFS or pre-commit, for example), call the script from the existing pre-push hook instead (`references/guardrails.md`).
+3. Add `scripts/check.sh`, a CI job that runs it, and a pre-push hook. Set up the hook as `references/guardrails.md` describes, which avoids disabling hooks the clone already has.
 4. Add a `REVIEW_STANDARDS.md` for the reviewer agent. It starts nearly empty and grows only from real findings.
 5. Create a decision-record folder with an index, and agree with the agents how a skipped question is read.
 6. After the first heavy session, run a retro and put each lesson in one place (`references/improving.md`).
