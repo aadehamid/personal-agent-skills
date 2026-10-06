@@ -30,17 +30,21 @@ excluded() { local s; for s in "${EXCLUDE[@]}"; do [ "$1" = "$s" ] && return 0; 
 if [ -d "$repo/.git" ]; then
   run git -C "$repo" pull --ff-only --quiet
 else
+  run mkdir -p "$(dirname "$repo")"
   run git clone --quiet https://github.com/cursor/plugins "$repo"
 fi
 if [ ! -d "$src" ]; then echo "no pstack clone yet; run without --dry-run first"; exit 0; fi
 echo "pstack $(grep -m1 '"version"' "$repo/pstack/.cursor-plugin/plugin.json" | tr -dc '0-9.') at $(git -C "$repo" rev-parse --short HEAD)"
 
 run mkdir -p "$shared" "${agent_dirs[@]}" "$HOME/.claude/agents"
-# target LINK: where LINK points, as an absolute path, resolved by text only,
-# so it works for dangling links too.
-target() { python3 -c 'import os,sys;l=sys.argv[1];print(os.path.normpath(os.path.join(os.path.dirname(l),os.readlink(l))))' "$1"; }
+# canon PATH: PATH with every folder above its last part resolved through
+# symlinks. The last part is kept as is, so it works for dangling links and for
+# links that point at other links.
+canon() { python3 -c 'import os,sys;p=sys.argv[1];print(os.path.join(os.path.realpath(os.path.dirname(p)),os.path.basename(p)))' "$1"; }
+# target LINK: where LINK points, as a canonical absolute path.
+target() { canon "$(python3 -c 'import os,sys;l=sys.argv[1];print(os.path.join(os.path.dirname(l),os.readlink(l)))' "$1")"; }
 # owned LINK EXPECTED: LINK is a link that points exactly at EXPECTED.
-owned() { [ -L "$1" ] && [ "$(target "$1")" = "$2" ]; }
+owned() { [ -L "$1" ] && [ "$(target "$1")" = "$(canon "$2")" ]; }
 # free DEST EXPECTED: DEST is absent, or is a link we own (it points at EXPECTED).
 # Anything else (a real file or folder, or another provider's link, live or
 # dangling) belongs to someone else and is left alone.
