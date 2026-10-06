@@ -17,7 +17,7 @@ everything else    -> stays in the Turtle files
 1. **One kind and a concrete range per property.** Object, datatype or annotation property; never bare `rdf:Property` or `rdfs:Literal`. Prefer zoned `xsd:dateTimeStamp`.
 2. **SHACL cardinality on every property.** `sh:maxCount 1` gives a single value; no maximum gives a sorted array.
 3. **Stable IRIs, no blank nodes, fixed prefixes.** Every individual and every qualified-relation node gets a permanent IRI. Register each prefix once.
-4. **Relationship properties go on qualified-relation nodes.** This replaces the guideline's Rule 4 (RDF 1.2 reifiers). Reason: as of October 2026, RDF 1.2 is a W3C Candidate Recommendation, rdflib and pySHACL do not support it (Jena and RDF4J do), and n10s does not read it. A qualified-relation node needs none of that and loads as an ordinary node, so the guideline's flatten step is unnecessary. Revisit when the toolchain supports RDF 1.2.
+4. **Relationship properties go on qualified-relation nodes.** This replaces the guideline's Rule 4 (RDF 1.2 reifiers). Reason: as of October 2026, RDF 1.2 is a W3C Candidate Recommendation, rdflib and pySHACL do not support it (Jena 6.1.0+ and RDF4J 6.0.0+ do), and n10s does not read it. A qualified-relation node needs none of that and loads as an ordinary node, so the guideline's flatten step is unnecessary. Revisit when the toolchain supports RDF 1.2.
 5. **Explicit LPG names where the local name is not good enough**, through one annotation property (`lpg:name`), with a CI check for name collisions.
 
 Keep reasoning within the OWL 2 EL profile. EL has no inverse properties: store one direction per fact and materialize inverses before loading if consumers need them.
