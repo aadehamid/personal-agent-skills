@@ -1,0 +1,38 @@
+# Sources
+
+What the ontology skill was built from. Agents do not read this file. All text in the skill is our own wording.
+
+Last full review: 2026-10-05. Suggested cadence: when either source below changes, and every three months for the W3C and tool status in `references/lpg-projection.md`.
+
+## 1. The EPM ontology playbook
+
+- **Link:** `business_architecture/ontology/ontology-playbook.md` in https://github.com/aadehamid/enterprise-performance-model
+- **Version used:** the company-neutral rewrite in PR #199 (2026-10-05).
+- **What we took:** the step sequence and gates, the policies, the eleven promotion rules, the predicate review method, the quality bar, the soundness checks and the versioning rules. Shortened for an agent.
+- **What we left out:** the worked example and every project-specific decision (EPM IRIs, MPC choices, counts).
+- **License:** Hamid's own work.
+- **How to check for updates:** `gh api "repos/aadehamid/enterprise-performance-model/commits?path=business_architecture/ontology/ontology-playbook.md&since=2026-10-05T00:00:00Z" --jq '.[] | "\(.sha[0:12]) \(.commit.message|split("\n")[0])"'`
+
+## 2. Ontology_to_LPG_Conversion_Playbook v2
+
+- **Link:** https://github.com/aadehamid/enterprise-people-graph/tree/main/guideline_to_map_ontology_to_LPG
+- **Version used:** commit `cd63e12` (v2, RDF 1.2 edition, October 2026).
+- **What we took:** the mental model, design Rules 1, 2, 3 and 5, the pipeline and the anti-patterns.
+- **What we changed:** Rule 4 (RDF 1.2 reifiers) is replaced by qualified-relation nodes, and the flatten step drops out. The reasons are in `references/lpg-projection.md`.
+- **License:** Hamid's own work.
+- **How to check for updates:** `gh api "repos/aadehamid/enterprise-people-graph/commits?path=guideline_to_map_ontology_to_LPG" --jq '.[] | "\(.sha[0:12]) \(.commit.message|split("\n")[0])"'`
+
+## 3. Juha Korpela, "Building Semantics with Conceptual Models" (Common Sense Data, 2026)
+
+- **What we took:** the foundations behind the playbook: model the business, not the storage; entities as singular nouns; relationships as verbs; a definition for every entity. The skill relies on them through the playbook and does not restate them.
+- **License:** a published book. Nothing is quoted.
+
+## 4. External status checks (2026-10-05)
+
+These facts in `references/lpg-projection.md` change over time:
+
+- RDF 1.2 Concepts is a W3C Candidate Recommendation Snapshot, 7 April 2026: https://www.w3.org/TR/rdf12-concepts/
+- rdflib RDF 1.2 support: https://github.com/RDFLib/rdflib/issues/3524 (all stages open)
+- Jena RDF 1.2 support: https://github.com/apache/jena/issues/2805 (open)
+- RDF4J supports RDF 1.2: https://rdf4j.org/documentation/programming/rdf12/
+- n10s: https://github.com/neo4j-labs/neosemantics (last commit 29 May 2026, Neo4j 2025.06.2, no RDF 1.2)

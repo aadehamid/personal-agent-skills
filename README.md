@@ -9,6 +9,7 @@ My own skills for Claude Code and other agents. Each skill is a folder with a `S
 | planning | [project-discovery](skills/planning/project-discovery/SKILL.md) | Turns an idea or existing project into a tailored documentation package, with guided discovery, reference assessment, interactive or batch drafting, approval tracking, and review. |
 | writing | [clear-writing](skills/writing/clear-writing/SKILL.md) | Writes and edits plain, clear prose for people. Uses a subset of ASD-STE100, an anti-AI-tell pattern list, a re-pitch mode for messages that did not land, and a calibrate mode that tunes the rules from past sessions. |
 | writing | [wait-what](skills/writing/wait-what/SKILL.md) | Type `/wait-what` when Claude's last message did not make sense. Runs clear-writing's re-pitch mode. |
+| data | [ontology](skills/data/ontology/SKILL.md) | Builds a business ontology from scratch in gated steps (W3C stack), reuses public ontologies by mapping, and projects the result into a Neo4j property graph. |
 | research | [knowledge-ingest](skills/research/knowledge-ingest/SKILL.md) | Turns saved sources into a linked knowledge base (Obsidian vault or wiki), one article or a backlog of hundreds, and resumes where the last session stopped. Every claim must trace to a source; a mechanical gate (the `kb` CLI) and an independent review catch what the author misses. |
 
 Installed from elsewhere, not stored here:
