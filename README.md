@@ -6,6 +6,7 @@ My own skills for Claude Code and other agents. Each skill is a folder with a `S
 
 | Category | Skill | What it does |
 |---|---|---|
+| engineering | [way-of-working](skills/engineering/way-of-working/SKILL.md) | Hamid's engineering standard for agent work on any repo: recorded decisions, PRs for every change, checks before every push, shared deterministic tools and guardrails, and a retro loop that improves the standard. |
 | planning | [project-discovery](skills/planning/project-discovery/SKILL.md) | Turns an idea or existing project into a tailored documentation package, with guided discovery, reference assessment, interactive or batch drafting, approval tracking, and review. |
 | writing | [clear-writing](skills/writing/clear-writing/SKILL.md) | Writes and edits plain, clear prose for people. Uses a subset of ASD-STE100, an anti-AI-tell pattern list, a re-pitch mode for messages that did not land, and a calibrate mode that tunes the rules from past sessions. |
 | writing | [unslop](skills/writing/unslop/SKILL.md) | Alias: catches calls to unslop (for example from pstack) and routes them to clear-writing. |
@@ -35,7 +36,7 @@ config/           snippets to install outside the repo, such as the CLAUDE.md li
 workspaces/       eval run outputs (not tracked)
 ```
 
-Category names are short and lowercase: `writing`, `coding`, `data`, `ops`, `research`. Add a new one when no existing category fits.
+Category names are short and lowercase: `writing`, `coding`, `data`, `engineering`, `ops`, `research`. Add a new one when no existing category fits.
 
 ## Install on a machine
 
