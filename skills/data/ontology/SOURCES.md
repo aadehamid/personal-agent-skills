@@ -17,8 +17,7 @@ Last full review: 2026-10-05. Suggested cadence: when either source below change
 
 - **Link:** https://github.com/aadehamid/enterprise-people-graph/tree/main/guideline_to_map_ontology_to_LPG
 - **Version used:** commit `e7b09e8` (v2.1, October 2026; first used at `cd63e12`, v2).
-- **What we took:** the mental model, design Rules 1, 2, 3 and 5, the pipeline and the anti-patterns.
-- **What we took:** Rule 4 option 4a (qualified-relation nodes, the v2.1 default), not 4b (RDF 1.2 reifiers), so the flatten queries drop out. The reasons are in `references/lpg-projection.md`.
+- **What we took:** the mental model, design Rules 1, 2, 3, 4 and 5 with Rule 4 set to option 4a (qualified-relation nodes, the v2.1 default) rather than 4b (RDF 1.2 reifiers), the pipeline (without the 4b flatten queries) and the anti-patterns. The reasons for 4a are in `references/lpg-projection.md`.
 - **License:** Hamid's own work.
 - **How to check for updates:** `gh api "repos/aadehamid/enterprise-people-graph/commits?path=guideline_to_map_ontology_to_LPG" --jq '.[] | "\(.sha[0:12]) \(.commit.message|split("\n")[0])"'`
 
