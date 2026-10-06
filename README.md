@@ -56,7 +56,7 @@ To pick up work on another machine, also read the "Status" section in each skill
 
 The script symlinks each skill into `~/.agents/skills/`, then into the skills folder of every agent on the machine. It finds agent folders by looking for existing links into `~/.agents/skills`, which is how `npx skills add -g` installs skills. `~/.claude/skills` is always included. Re-run it after you add a skill or install a new agent. Use `--dry-run` to see what it would change.
 
-`update-pstack.sh` clones or pulls `cursor/plugins` into `~/Projects/cursor-plugins` and links pstack's skills the same way, leaving out pstack's unslop (the alias here replaces it). It also links pstack's subagents into `~/.claude/agents`, and points any Cursor pstack plugin's unslop at the alias. Re-run it to update pstack. To keep the old `update-pstack` command, run `ln -s "$PWD/scripts/update-pstack.sh" ~/.local/bin/update-pstack`.
+`update-pstack.sh` clones or pulls `cursor/plugins` into `~/Projects/cursor-plugins` and links pstack's skills into `~/.agents/skills`, `~/.claude/skills` and, when Hermes is installed, `~/.hermes/skills`, leaving out pstack's unslop (the alias here replaces it). It leaves alone any file, folder or link it did not create. It also links pstack's subagents into `~/.claude/agents`, and points any Cursor pstack plugin's unslop at the alias. Re-run it to update pstack. To keep the old `update-pstack` command, run `ln -s "$PWD/scripts/update-pstack.sh" ~/.local/bin/update-pstack`.
 
 ## Add a skill
 
