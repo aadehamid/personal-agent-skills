@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# Update pstack (cursor/plugins) and link its skills into every agent on this machine.
+#
+# The clone lives in ~/Projects/cursor-plugins. Each pstack skill is linked into
+# ~/.agents/skills (Codex reads it directly), then into ~/.claude/skills and,
+# when Hermes is installed, ~/.hermes/skills. pstack's subagents are linked into ~/.claude/agents.
+# Cursor is skipped: it has pstack as a plugin from its own marketplace.
+#
+# Skills in EXCLUDE are never linked, and an existing link to them is removed.
+# unslop is excluded because clear-writing replaces it.
+#
+# Safe to re-run. It never replaces a real folder, and it removes links whose
+# target pstack skill no longer exists upstream.
+#
+# Usage: ./scripts/update-pstack.sh [--dry-run]
+# Optional: ln -s "$PWD/scripts/update-pstack.sh" ~/.local/bin/update-pstack
+set -euo pipefail
+EXCLUDE=(unslop)
+repo="$HOME/Projects/cursor-plugins"
+src="$repo/pstack/skills"
+shared="$HOME/.agents/skills"
+# ~/.claude/skills always; other agents only if they are installed.
+agent_dirs=("$HOME/.claude/skills")
+[ -d "$HOME/.hermes" ] && agent_dirs+=("$HOME/.hermes/skills")
+dry=false
+[ "${1:-}" = "--dry-run" ] && dry=true
+run() { if $dry; then echo "would: $*"; else "$@"; fi; }
+excluded() { local s; for s in "${EXCLUDE[@]}"; do [ "$1" = "$s" ] && return 0; done; return 1; }
+
+if [ -d "$repo/.git" ]; then
+  run git -C "$repo" pull --ff-only --quiet
+else
+  run git clone --quiet https://github.com/cursor/plugins "$repo"
+fi
+if [ ! -d "$src" ]; then echo "no pstack clone yet; run without --dry-run first"; exit 0; fi
+echo "pstack $(grep -m1 '"version"' "$repo/pstack/.cursor-plugin/plugin.json" | tr -dc '0-9.') at $(git -C "$repo" rev-parse --short HEAD)"
+
+mkdir -p "$shared" "${agent_dirs[@]}" "$HOME/.claude/agents"
+linked=0
+for dir in "$src"/*/; do
+  name="$(basename "$dir")"
+  [ -f "$dir/SKILL.md" ] || continue
+  excluded "$name" && continue
+  if [ -e "$shared/$name" ] && [ "$(readlink -f "$shared/$name")" != "$(readlink -f "$dir")" ]; then
+    echo "skip $name: $shared/$name belongs to something else"; continue
+  fi
+  run ln -sfn "${dir%/}" "$shared/$name"
+  for agent in "${agent_dirs[@]}"; do
+    if [ -e "$agent/$name" ] && [ ! -L "$agent/$name" ]; then echo "skip $agent/$name: real folder"; continue; fi
+    run ln -sfn "$(python3 -c 'import os,sys;print(os.path.relpath(sys.argv[1],sys.argv[2]))' "$shared/$name" "$agent")" "$agent/$name"
+  done
+  linked=$((linked+1))
+done
+
+for a in "$repo"/pstack/agents/*.md; do
+  run ln -sfn "$a" "$HOME/.claude/agents/$(basename "$a")"
+done
+
+# Collect pstack names to unlink: excluded skills, and shared links whose
+# pstack target was removed upstream. Then remove those names everywhere,
+# but only where the link points at pstack or at the shared copy.
+gone=("${EXCLUDE[@]}")
+for l in "$shared"/*; do
+  [ -L "$l" ] && [ ! -e "$l" ] && [[ "$(readlink "$l")" == "$src"/* ]] && gone+=("$(basename "$l")")
+done
+for name in "${gone[@]}"; do
+  # Only touch a name whose shared link is pstack's (or already gone). Another
+  # skill with the same name, such as the unslop alias, keeps its links.
+  if [ -L "$shared/$name" ] && [[ "$(readlink "$shared/$name")" != "$src"/* ]]; then continue; fi
+  [ -L "$shared/$name" ] && { run rm "$shared/$name"; echo "removed $shared/$name"; }
+  [ -e "$shared/$name" ] && continue
+  for d in "${agent_dirs[@]}"; do
+    l="$d/$name"
+    [ -L "$l" ] && [[ "$(readlink "$l")" == *".agents/skills/$name" ]] && { run rm "$l"; echo "removed $l"; }
+  done
+done
+for l in "$HOME/.claude/agents"/*.md; do
+  [ -L "$l" ] && [ ! -e "$l" ] && [[ "$(readlink "$l")" == "$repo"/* ]] && { run rm "$l"; echo "removed $l"; }
+done
+echo "linked $linked pstack skills (excluded: ${EXCLUDE[*]})"
+
+# Cursor keeps pstack as a plugin. Some pstack skills link to ../unslop/SKILL.md
+# by path, so point each cached copy's unslop folder at the clear-writing alias.
+# The original goes to a backup outside Cursor's folders. Re-run after Cursor
+# updates the plugin (each version is a new cache folder).
+alias_dir="$shared/unslop"
+backup="$HOME/.local/share/pstack-unslop-backup"
+if [ -e "$alias_dir/SKILL.md" ]; then
+  for u in "$HOME"/.cursor/plugins/cache/*/pstack/*/skills/unslop; do
+    [ -e "$u" ] || continue
+    [ -L "$u" ] && continue
+    ver="$(basename "$(dirname "$(dirname "$u")")")"
+    run mkdir -p "$backup"
+    run mv "$u" "$backup/unslop-$ver"
+    run ln -s "$alias_dir" "$u"
+    echo "cursor: pstack $ver unslop now points to the clear-writing alias"
+  done
+fi
