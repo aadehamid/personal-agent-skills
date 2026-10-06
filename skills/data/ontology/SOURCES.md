@@ -33,6 +33,6 @@ These facts in `references/lpg-projection.md` change over time:
 
 - RDF 1.2 Concepts is a W3C Candidate Recommendation Snapshot, 7 April 2026: https://www.w3.org/TR/rdf12-concepts/
 - rdflib RDF 1.2 support: https://github.com/RDFLib/rdflib/issues/3524 (all stages open)
-- Jena RDF 1.2 support: https://github.com/apache/jena/issues/2805 (open)
-- RDF4J supports RDF 1.2: https://rdf4j.org/documentation/programming/rdf12/
+- Jena RDF 1.2 support: full syntax input and output and SPARQL 1.2 from 6.1.0 (5.4.0 to 6.0.x was an experimental preview), per https://github.com/apache/jena/blob/main/CHANGES.txt. The tracking issue #2805 is still open, which is not the status. Corrected 2026-10-06.
+- RDF4J RDF 1.2 support: from 6.0.0, https://rdf4j.org/release-notes/6.0.0/
 - n10s: https://github.com/neo4j-labs/neosemantics (last commit 29 May 2026, Neo4j 2025.06.2, no RDF 1.2)
