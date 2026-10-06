@@ -58,7 +58,7 @@ for dir in "$src"/*/; do
   run ln -sfn "${dir%/}" "$shared/$name"
   for agent in "${agent_dirs[@]}"; do
     if ! free "$agent/$name" "$shared/$name"; then echo "skip $agent/$name: belongs to something else"; continue; fi
-    run ln -sfn "$(python3 -c 'import os,sys;print(os.path.relpath(sys.argv[1],sys.argv[2]))' "$shared/$name" "$agent")" "$agent/$name"
+    run ln -sfn "$(python3 -c 'import os,sys;print(os.path.relpath(sys.argv[1],os.path.realpath(sys.argv[2])))' "$(canon "$shared/$name")" "$agent")" "$agent/$name"
   done
   linked=$((linked+1))
 done
