@@ -35,25 +35,29 @@ fi
 if [ ! -d "$src" ]; then echo "no pstack clone yet; run without --dry-run first"; exit 0; fi
 echo "pstack $(grep -m1 '"version"' "$repo/pstack/.cursor-plugin/plugin.json" | tr -dc '0-9.') at $(git -C "$repo" rev-parse --short HEAD)"
 
-mkdir -p "$shared" "${agent_dirs[@]}" "$HOME/.claude/agents"
+run mkdir -p "$shared" "${agent_dirs[@]}" "$HOME/.claude/agents"
+# free DEST PATTERN: true when DEST is absent, or is a link whose target matches
+# PATTERN (a glob). Anything else (a real file or folder, or another provider's
+# link, live or dangling) belongs to someone else and is left alone.
+free() { [ ! -e "$1" ] && [ ! -L "$1" ] && return 0; [ -L "$1" ] && [[ "$(readlink "$1")" == $2 ]]; }
 linked=0
 for dir in "$src"/*/; do
   name="$(basename "$dir")"
   [ -f "$dir/SKILL.md" ] || continue
   excluded "$name" && continue
-  if [ -e "$shared/$name" ] && [ "$(readlink -f "$shared/$name")" != "$(readlink -f "$dir")" ]; then
-    echo "skip $name: $shared/$name belongs to something else"; continue
-  fi
+  if ! free "$shared/$name" "$src/*"; then echo "skip $shared/$name: belongs to something else"; continue; fi
   run ln -sfn "${dir%/}" "$shared/$name"
   for agent in "${agent_dirs[@]}"; do
-    if [ -e "$agent/$name" ] && [ ! -L "$agent/$name" ]; then echo "skip $agent/$name: real folder"; continue; fi
+    if ! free "$agent/$name" "*.agents/skills/$name"; then echo "skip $agent/$name: belongs to something else"; continue; fi
     run ln -sfn "$(python3 -c 'import os,sys;print(os.path.relpath(sys.argv[1],sys.argv[2]))' "$shared/$name" "$agent")" "$agent/$name"
   done
   linked=$((linked+1))
 done
 
 for a in "$repo"/pstack/agents/*.md; do
-  run ln -sfn "$a" "$HOME/.claude/agents/$(basename "$a")"
+  dest="$HOME/.claude/agents/$(basename "$a")"
+  if ! free "$dest" "$repo/*"; then echo "skip $dest: belongs to something else"; continue; fi
+  run ln -sfn "$a" "$dest"
 done
 
 # Collect pstack names to unlink: excluded skills, and shared links whose
