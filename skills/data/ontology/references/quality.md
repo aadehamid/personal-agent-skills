@@ -23,7 +23,7 @@ Candidate text collected from references goes through a human gate, exactly like
 
 **Identity.** Identity before direction before meaning. A label suggests a candidate and never confirms one. Renames are overlay fields on the identity map; restore them after any regeneration before rebuilding the Turtle.
 
-**Taxonomy.** One parent per concept except roots; no cycles; every concept at a level with its parent; one `prefLabel` per language; a language tag on every literal; local IDs as `skos:notation`; external IDs via `dcterms:references`.
+**Taxonomy.** Exactly one parent per concept, except the scheme's top concepts (`skos:topConceptOf`), which have none; no cycles; every concept at a level, with its parent shown unless it is a top concept; one `prefLabel` per language; a language tag on every literal; local IDs as `skos:notation`; external IDs via `dcterms:references`.
 
 **Predicates.** Judge each row against its written definition. Never translate a verb silently. A failing row is held, and its fact removed if it was emitting.
 

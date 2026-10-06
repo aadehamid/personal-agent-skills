@@ -20,7 +20,7 @@ Meaning-change test: would every query, report and assistant answer produced und
 
 ## Release gate
 
-Every held item has a verdict and the ledger reconciles; build, evidence and consumer-impact scan cite one commit; the consumer attestation is fresh; the SHACL slice passes; the owner has approved in writing.
+Every held row has a fresh verdict after source correction (a row still held carries a recorded reason it is left out of this release) and the ledger reconciles; build, evidence and consumer-impact scan cite one commit; the consumer attestation is fresh; the SHACL slice passes; the owner has approved in writing.
 
 Every release ships version info on each module and the release, issued and modified dates, a changelog entry per change (what, why, who approved, classification), and a new DCAT dataset version with its distributions. Module owners approve minor and patch releases; the ontology owner approves majors.
 

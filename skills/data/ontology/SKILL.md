@@ -23,9 +23,10 @@ Do Step 8 right after Step 0. Otherwise keep the order.
 2. **Identity.** Keep local IDs as `skos:notation`, derive slugs, mint slugs where none exist. **Slugs are identity. Labels are presentation.**
    Done when: every node has a stable HTTP URI and nothing is identified by label.
 3. **SKOS taxonomy.** One concept scheme, `broader`/`narrower`, labels, a definition on every concept. Definitions meet the quality bar in `references/quality.md`.
-   Done when: every concept has a definition, a label and a parent, and the mechanical checks pass.
+   Done when: every concept has a definition and a label; every concept except the scheme's top concepts (`skos:topConceptOf`) has exactly one parent; the mechanical checks pass.
 4. **Relationships.** One predicate family at a time, one row at a time: identity, direction, definition test, verdict. **Hold** unclear rows for the source author. Keep a **conservation** ledger. Read `references/promotion.md` before this step.
-   Done when: every row has a verdict, the ledger reconciles, the evidence gate passes. Then release the core module (after held rows are corrected), checked by a small SHACL slice.
+   Done when: every row has a recorded verdict (APPROVE, STAND or HOLD), the ledger reconciles, and the evidence gate passes. A HOLD completes the row for this step: it emits no fact and goes to the source-correction backlog.
+   **Release gate (before the first module release).** Release the core module only when every held row has gone back to the source author and has a fresh verdict after the correction. A row may stay held at release only with a recorded reason it is left out of this release. Check the release with a small SHACL slice (Step 9).
 5. **Organizations and roles.** `org:Role`; an n-ary `ResponsibilityAssignment` for RACI; party roles on the relationship, not as subclasses; public reference instances of real companies in their own module; control between legal entities as its own relation.
    Done when: every in-scope process has RACI, none inferred from hierarchy, and every reference instance cites a source.
 6. **Plans and runs.** Planned inputs and outputs on definitions; P-Plan bridges definitions to `prov:Activity` runs. Consuming systems hold the runs.
