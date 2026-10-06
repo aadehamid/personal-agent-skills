@@ -103,14 +103,20 @@ echo "linked $linked pstack skills (excluded: ${EXCLUDE[*]})"
 alias_dir="$shared/unslop"
 backup="$HOME/.local/share/pstack-unslop-backup"
 if [ -e "$alias_dir/SKILL.md" ]; then
-  for u in "$HOME"/.cursor/plugins/cache/*/pstack/*/skills/unslop; do
+  # The cache is cache/<marketplace>/<plugin>/<version>/. The plugin folder is
+  # named "pstack" on some installs and a numeric id on others, so match on the
+  # name in each copy's .cursor-plugin/plugin.json instead.
+  for u in "$HOME"/.cursor/plugins/cache/*/*/*/skills/unslop; do
     [ -e "$u" ] || continue
     [ -L "$u" ] && continue
-    ver="$(basename "$(dirname "$(dirname "$u")")")"
+    copy="$(dirname "$(dirname "$u")")"
+    name="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("name",""))' "$copy/.cursor-plugin/plugin.json" 2>/dev/null || true)"
+    [ "$name" = pstack ] || continue
+    ver="$(basename "$copy")"
     run mkdir -p "$backup"
     # One backup per cache folder and run, so a restored copy never lands
     # inside an earlier backup.
-    provider="$(basename "$(dirname "$(dirname "$(dirname "$(dirname "$u")")")")")"
+    provider="$(basename "$(dirname "$(dirname "$copy")")")-$(basename "$(dirname "$copy")")"
     run mv "$u" "$backup/unslop-$provider-$ver-$(date +%Y%m%d%H%M%S)-$$"
     run ln -s "$alias_dir" "$u"
     echo "cursor: pstack $ver unslop now points to the clear-writing alias"
