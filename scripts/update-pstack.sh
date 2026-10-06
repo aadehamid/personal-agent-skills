@@ -15,6 +15,7 @@
 # Usage: ./scripts/update-pstack.sh [--dry-run]
 # Optional: ln -s "$PWD/scripts/update-pstack.sh" ~/.local/bin/update-pstack
 set -euo pipefail
+command -v python3 >/dev/null || { echo "update-pstack needs python3" >&2; exit 1; }
 EXCLUDE=(unslop)
 repo="$HOME/Projects/cursor-plugins"
 src="$repo/pstack/skills"
@@ -44,7 +45,10 @@ canon() { python3 -c 'import os,sys;p=sys.argv[1];print(os.path.join(os.path.rea
 # target LINK: where LINK points, as a canonical absolute path.
 target() { canon "$(python3 -c 'import os,sys;l=sys.argv[1];print(os.path.join(os.path.dirname(l),os.readlink(l)))' "$1")"; }
 # owned LINK EXPECTED: LINK is a link that points exactly at EXPECTED.
-owned() { [ -L "$1" ] && [ "$(target "$1")" = "$(canon "$2")" ]; }
+owned() {
+  local got want
+  [ -L "$1" ] && got="$(target "$1")" && want="$(canon "$2")" && [ -n "$got" ] && [ "$got" = "$want" ]
+}
 # free DEST EXPECTED: DEST is absent, or is a link we own (it points at EXPECTED).
 # Anything else (a real file or folder, or another provider's link, live or
 # dangling) belongs to someone else and is left alone.
