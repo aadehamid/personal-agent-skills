@@ -28,7 +28,7 @@ Read this before Step 4, or whenever rough source data (a workbook, a spreadshee
 2. **Build the batch:** every row asserting the verb, with source and target by slug, both definitions, the raw verb, the evidence tier, the proposed disposition.
 3. **Verdict each row:** identity, then direction, then the definition test.
    - APPROVE: meets the definition; the fact is stored.
-   - HOLD: fails, or evidence too weak; no fact; back to the source author. Never remap to another predicate.
+   - HOLD: fails, or evidence too weak; no fact; reason recorded. It joins the source-correction backlog only by a recorded decision (the release gate in Step 4); otherwise it keeps its reason and waits for a later release. Never remap to another predicate.
    - STAND: already emitting correctly. Counts move only when a row changes bucket.
 4. **Sample and reconcile** per rule 6.
 
