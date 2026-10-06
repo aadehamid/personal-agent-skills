@@ -15,6 +15,6 @@ This README is for people. Agents do not read it.
 
 Added 2026-10-06.
 
-- **pstack's own unslop must stay unlinked.** `update-pstack` excludes it. If pstack's unslop is linked again, the two skills share a name.
+- **pstack's own unslop must stay unlinked.** `scripts/update-pstack.sh` excludes it. If pstack's unslop is linked again, the two skills share a name.
 - **File-path links still reach pstack's copy.** A few pstack skills link straight to `../unslop/SKILL.md`. An agent that follows that link reads pstack's original file in the clone, not this alias. That's rare and harmless, since clear-writing covers the same rules.
-- **Cursor's pstack plugin has its own unslop.** This alias does not affect it while the plugin is installed.
+- **Cursor's pstack plugin has its own unslop.** `scripts/update-pstack.sh` points each cached copy at this alias and backs up the original. Re-run it after Cursor updates the plugin, since each version is a new cache folder.
