@@ -12,6 +12,10 @@ A repository with no `AGENTS.md`, no check script and no CI is not a reason to w
 4. **A review standards file.** Near-empty at first. It grows from findings a reviewer actually made, each with the incident that taught it.
 5. **Decision records.** A folder with an index, and agreement with the owner on how a skipped question is read (`references/deciding.md`).
 
+**The first pull request is the exception.** Rule 3 and `before-push.md` require the check script to pass before every push, and on a bare repository there is not one yet — an agent that treats this as absolute cannot push at all. Until step 2 lands, the check before a push is the project's own build and test command; if the project has none, say so in the pull request body rather than implying one ran. Nothing else about the flow changes: one concern, a pull request, the owner merges.
+
+The check script starts with the gates the project already has. It gains the shared tool's consistency checks when step 3 lands, not before — the tool does not exist yet, and a check script that names a missing tool fails on its own first run.
+
 Say what you are about to do and why before the first of these lands. An owner who did not ask for a check script is owed the reason, and may have one already.
 
 The work you were asked to do is not lost by this: it waits one session, and lands on a repository where every later change is checked.
