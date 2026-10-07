@@ -12,7 +12,7 @@ Last review: 2026-10-06.
 
 ## 2. mattpocock-skills (marketplace `mattpocock`, v1.3.1)
 
-- **What we took:** the retro loop (`retro`), decision interviews (`grill-with-docs`, `grilling`), and the rules for writing documents agents read (`writing-for-agents`). This skill points to them rather than copying them.
+- **What we took:** the retro loop (`retro`), decision interviews (`grill-with-docs`, `grilling`), the rules for writing documents agents read (`writing-for-agents`), and the shape of a PR body (`pr`) — the smallest view that makes the point, evidence before and after, and merge danger as a one-way or two-way door. That shape is adapted into `references/changing.md`, not adopted as a template: `changing.md` already owns what a PR body says, and a second authority for one rule is what rule 6 forbids. The `pr` skill credits Humanlayer's `show-me`.
 - **How to check for updates:** `claude plugin update mattpocock-skills@mattpocock`.
 
 ## 3. clear-writing (this repo)

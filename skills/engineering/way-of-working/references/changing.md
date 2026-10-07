@@ -7,9 +7,19 @@ Read this before opening a pull request.
 1. Branch from the current main.
 2. Make one concern's change. A follow-up fix found while working goes in its own PR unless it is the same concern.
 3. Run the checks in `before-push.md`.
-4. Open the PR. The body says what changed, why, what the checks found (including the independent review), and any judgement call the reviewer should weigh. Quote the shared tool's commit line for every figure.
+4. Open the PR. The body says what changed, why, what the checks found (including the independent review), and any judgement call the reviewer should weigh. Quote the shared tool's commit line for every figure. See "What the body says" below.
 5. Watch the PR until it merges. See "Watching a pull request" below.
 6. After merge, sync main, delete the branch, and move to the next item.
+
+## What the body says
+
+Three things earn their place. A wall of prose does not.
+
+- **The smallest view that makes the point.** A diff sketch, a call tree, a file tree or a short table says more than paragraphs, because the reader is checking a shape rather than reading an argument. Pick the one that answers the question they have, and drop the rest.
+- **Evidence, before and after.** Not "verified" — the output. The failing run and the passing run, or the command and what it printed. Evidence the reader can re-run beats a claim they must trust, and it is the difference between a reviewer checking your work and taking your word.
+- **Merge danger.** A one-way door or a two-way one? A change that is cheap to revert is lower risk, and the owner deciding whether to merge needs to know which this is. Add the blast radius in a word or two: what it touches, and who will notice.
+
+This shape is adapted from the `pr` skill in `mattpocock-skills` (itself from Humanlayer's `show-me`). The skill's template is not adopted wholesale: this file already says what a PR body contains, and a second authority for the same rule is what rule 6 forbids.
 
 ## Watching a pull request
 
