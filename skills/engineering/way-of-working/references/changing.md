@@ -22,14 +22,14 @@ Watch every pull request you open, and every one already open when you start, un
 - **Delete only the branch you just merged.** A merged pull request does not prove the branch is merged: a squash merge breaks commit ancestry, and commits pushed after the merge stay on the branch. Check the live remote rather than a cached ref, and delete under a lease so a concurrent push aborts the delete:
 
   ```sh
-  git fetch origin <branch>
-  sha="$(git rev-parse origin/<branch>)"           # capture once, right after the fetch
-  git merge-base --is-ancestor "$sha" origin/main  # exit 0 only if that commit is in main
-  git push origin --delete <branch> --force-with-lease="<branch>:$sha"
-  git branch -d <branch>                           # -d, never -D: it refuses an unmerged branch
+  git fetch origin <branch> main &&
+  sha="$(git rev-parse origin/<branch>)" &&
+  git merge-base --is-ancestor "$sha" origin/main &&
+  git push origin --delete <branch> --force-with-lease="<branch>:$sha" &&
+  git branch -d <branch>
   ```
 
-  Everything after the fetch uses the captured `sha`, never `origin/<branch>` again: re-reading a mutable ref between the check and the delete is how a branch verified as merged ends up leased at a commit that is not. Abort on any step that fails.
+  Run it as one `&&` chain, so the first failure stops the rest: a bare sequence would carry on to the delete after the ancestry check said no. Fetch `main` as well as the branch, or the check compares against a stale `main`. Everything after the fetch uses the captured `sha`, never `origin/<branch>` again — re-reading a mutable ref between the check and the delete is how a branch verified as merged ends up leased at a commit that is not. The last line is `-d`, never `-D`: it refuses an unmerged branch.
 
   Without the lease, a push landing after the check takes that work with it. With it, the delete is rejected instead (`stale info`, exit 1).
 - **A branch someone else opened is theirs to delete**, even after its pull request merges. Ask.

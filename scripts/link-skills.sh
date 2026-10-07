@@ -83,10 +83,10 @@ done
 if $claude_md; then
   snippet="$repo/config/claude-md-snippet.md"
   target="$HOME/.claude/CLAUDE.md"
-  # Append only the sections the target does not already carry. Each section
-  # carries its own marker comment, and presence is decided by that marker: a
-  # heading alone proves nothing, because the target may hold a heading of the
-  # same name with different text under it.
+  # Append only the sections the target does not already carry. A heading alone
+  # proves nothing, because the target may hold a heading of the same name with
+  # different text under it. Presence is the section's marker, or, for an
+  # install made before markers existed, its instruction line.
   missing="$(python3 - "$snippet" "$target" <<'PY'
 import pathlib, sys
 
@@ -102,21 +102,20 @@ for line in src.read_text().splitlines(keepends=True):
 if cur:
     blocks.append("".join(cur))
 
-def marker(block):
-    for line in block.splitlines():
+def identity(block):
+    lines = block.splitlines()
+    for i, line in enumerate(lines):
         if line.startswith("<!-- way-of-working-snippet:"):
-            return line.strip()
-    return ""
+            instruction = next((l.strip() for l in lines[i + 1:] if l.strip()), "")
+            return line.strip(), instruction
+    raise SystemExit(f"snippet section has no marker comment: {lines[0]!r}")
 
 out = []
 for block in blocks:
-    tag = marker(block)
-    if not tag:
-        raise SystemExit(
-            f"snippet section has no marker comment: {block.splitlines()[0]!r}"
-        )
-    if tag not in have:
-        out.append(block.rstrip() + "\n")
+    tag, instruction = identity(block)
+    if tag in have or (instruction and instruction in have):
+        continue
+    out.append(block.rstrip() + "\n")
 sys.stdout.write("\n".join(out))
 PY
 )"
