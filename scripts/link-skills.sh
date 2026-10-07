@@ -83,14 +83,16 @@ done
 if $claude_md; then
   snippet="$repo/config/claude-md-snippet.md"
   target="$HOME/.claude/CLAUDE.md"
-  # Append only the sections the target does not already carry, keyed on each
-  # top-level heading. A single whole-file marker would make a new section
-  # invisible to an install that already had an older one.
+  # Append only the sections the target does not already carry. Each section
+  # carries its own marker comment, and presence is decided by that marker: a
+  # heading alone proves nothing, because the target may hold a heading of the
+  # same name with different text under it.
   missing="$(python3 - "$snippet" "$target" <<'PY'
 import pathlib, sys
 
 src, dst = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
 have = dst.read_text() if dst.exists() else ""
+
 blocks, cur = [], []
 for line in src.read_text().splitlines(keepends=True):
     if line.startswith("# ") and cur:
@@ -99,7 +101,22 @@ for line in src.read_text().splitlines(keepends=True):
     cur.append(line)
 if cur:
     blocks.append("".join(cur))
-out = [b.rstrip() + "\n" for b in blocks if b.splitlines()[0].strip() not in have]
+
+def marker(block):
+    for line in block.splitlines():
+        if line.startswith("<!-- way-of-working-snippet:"):
+            return line.strip()
+    return ""
+
+out = []
+for block in blocks:
+    tag = marker(block)
+    if not tag:
+        raise SystemExit(
+            f"snippet section has no marker comment: {block.splitlines()[0]!r}"
+        )
+    if tag not in have:
+        out.append(block.rstrip() + "\n")
 sys.stdout.write("\n".join(out))
 PY
 )"

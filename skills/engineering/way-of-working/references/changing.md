@@ -18,7 +18,8 @@ Watch every pull request you open, and every one already open when you start, un
 - **Poll every five minutes** on a recurring timer, and report **only when something changes** — a new review, a comment, a check result, a merge state. Silence is the normal case; do not narrate an unchanged poll.
 - **On a HOLD**, fix on the same branch, run the check script again, run the independent review again (`before-push.md`), and reply on the PR saying what changed.
 - **A review against an older commit is not the current verdict.** Read the commit the review names before acting on it.
-- **On merge**, sync main, delete the branch local and remote, and stop the timer. Delete any other merged branch you find on the remote while you are there: it has no commits main lacks, and it is a branch someone will branch from by mistake.
+- **On merge**, sync main, delete the branch local and remote, and stop the timer.
+- **Delete only the branch you just merged**, and check it first: `git log origin/main..origin/<branch>` must print nothing. A merged pull request does not prove the branch is merged — a squash merge breaks commit ancestry, and commits pushed after the merge stay on the branch. A branch someone else opened is theirs to delete, so ask.
 
 ## Rules that save review rounds
 
