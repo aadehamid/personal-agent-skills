@@ -83,14 +83,33 @@ done
 if $claude_md; then
   snippet="$repo/config/claude-md-snippet.md"
   target="$HOME/.claude/CLAUDE.md"
-  marker="load the clear-writing skill first"
-  if [ -f "$target" ] && grep -qF "$marker" "$target"; then
-    echo "CLAUDE.md already has the snippet"
+  # Append only the sections the target does not already carry, keyed on each
+  # top-level heading. A single whole-file marker would make a new section
+  # invisible to an install that already had an older one.
+  missing="$(python3 - "$snippet" "$target" <<'PY'
+import pathlib, sys
+
+src, dst = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+have = dst.read_text() if dst.exists() else ""
+blocks, cur = [], []
+for line in src.read_text().splitlines(keepends=True):
+    if line.startswith("# ") and cur:
+        blocks.append("".join(cur))
+        cur = []
+    cur.append(line)
+if cur:
+    blocks.append("".join(cur))
+out = [b.rstrip() + "\n" for b in blocks if b.splitlines()[0].strip() not in have]
+sys.stdout.write("\n".join(out))
+PY
+)"
+  if [ -z "$missing" ]; then
+    echo "CLAUDE.md already has every snippet section"
   elif $dry; then
-    echo "would: append $snippet to $target"
+    echo "would: append the missing section(s) of $snippet to $target"
   else
-    { [ -s "$target" ] && echo; cat "$snippet"; } >> "$target"
-    echo "added the snippet to $target"
+    { [ -s "$target" ] && echo; printf '%s' "$missing"; } >> "$target"
+    echo "added the missing section(s) to $target"
   fi
 fi
 

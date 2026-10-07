@@ -8,10 +8,10 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 
 | Path | Read by | What it does |
 |---|---|---|
-| `SKILL.md` | agent, every run | The eight rules and the pointers to each reference. Its description makes agents load it when starting on a project, setting up guardrails, recording a decision, preparing a PR or running a retro. |
+| `SKILL.md` | agent, every run | The session-start list, the eight rules, and the pointers to each reference. Its description makes agents load it when starting on a project, setting up guardrails, recording a decision, preparing a PR or running a retro. |
 | `references/deciding.md` | agent, before a decision | Decision interviews (grill-with-docs), decision records, Proposed vs Decided, amendments. |
 | `references/changing.md` | agent, before a PR | The PR flow, watching PRs, cross-repo changes, rules that save review rounds. |
-| `references/before-push.md` | agent, before every push | The five checks, plus proving a new check fails. |
+| `references/before-push.md` | agent, before every push | The five checks, the independent-review command and how to handle its findings, plus proving a new check fails. |
 | `references/guardrails.md` | agent, when a project lacks them | The shared deterministic tool, the one check script run by CI and a pre-push hook, and the split between mechanical rules and judgement rules. |
 | `references/documents.md` | agent, when writing project docs | One place per meaning, method vs record, moving approved text, handover notes. |
 | `references/improving.md` | agent, after a costly session | The retro loop and where each lesson goes. |
@@ -35,4 +35,4 @@ Started 2026-10-06 from one project.
 
 - **No evals yet.** Write test prompts before tuning: starting a new repo, preparing a PR with a figure in it, and recording a decision from a vague request.
 - **One project's lessons.** Expect changes after the first project that isn't an ontology build. The guardrail examples come from a Python and Markdown repo.
-- **A review gate between the stages.** The skill tells the implementing agent to run an independent review. A hook that refuses to push without one is not built yet.
+- **A review gate between the stages.** The skill gives the implementing agent the command to run an independent review, and tells it to reproduce each finding and re-review after fixing. It is still the agent's job to run it: a hook that refuses to push without one is not built yet.

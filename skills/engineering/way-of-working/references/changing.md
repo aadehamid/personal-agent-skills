@@ -8,8 +8,17 @@ Read this before opening a pull request.
 2. Make one concern's change. A follow-up fix found while working goes in its own PR unless it is the same concern.
 3. Run the checks in `before-push.md`.
 4. Open the PR. The body says what changed, why, what the checks found (including the independent review), and any judgement call the reviewer should weigh. Quote the shared tool's commit line for every figure.
-5. Watch the PR (a background poller that wakes the agent on a new review, comment or merge). On a HOLD, fix on the same branch, run the checks again, reply on the PR with what changed.
+5. Watch the PR until it merges. See "Watching a pull request" below.
 6. After merge, sync main, delete the branch, and move to the next item.
+
+## Watching a pull request
+
+Watch every pull request you open, and every one already open when you start, until it merges or the owner closes it. A pull request nobody watches sits on a review finding for hours.
+
+- **Poll every five minutes** on a recurring timer, and report **only when something changes** — a new review, a comment, a check result, a merge state. Silence is the normal case; do not narrate an unchanged poll.
+- **On a HOLD**, fix on the same branch, run the check script again, run the independent review again (`before-push.md`), and reply on the PR saying what changed.
+- **A review against an older commit is not the current verdict.** Read the commit the review names before acting on it.
+- **On merge**, sync main, delete the branch local and remote, and stop the timer. Delete any other merged branch you find on the remote while you are there: it has no commits main lacks, and it is a branch someone will branch from by mistake.
 
 ## Rules that save review rounds
 
