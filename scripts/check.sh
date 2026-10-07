@@ -33,15 +33,34 @@ tracked_paths() {
 }
 
 tree_state() {
+  local contents entries
+  # A read that fails has to abort the snapshot, not vanish from it. A path that
+  # drops out of *both* snapshots compares equal, so a check that rewrote a file
+  # this guard could not read still reaches "All checks passed." That is not
+  # theory: with `2>/dev/null` here, an untracked file at mode 000 gave the same
+  # tree_state before and after its contents were replaced.
+  #
+  # The status has to be taken here. Neither pipeline is the last command in the
+  # group below, and a group's status belongs to its last command, so `set -e`
+  # never sees `xargs` exit 123 on a failed read.
+  #
+  # stderr is left alone, so the reason a path could not be read is visible.
+  # The './' prefix is what keeps a file named '-' out of standard input.
+  if ! contents="$(tracked_paths | sort -z | sed -z 's|^|./|' | xargs -0 -r sha256sum --)"; then
+    echo >&2 "FAIL: a tracked path could not be hashed."
+    return 1
+  fi
+  if ! entries="$(tracked_paths | sort -z | sed -z 's|^|./|' | xargs -0 -r stat -c '%A %F %N' --)"; then
+    echo >&2 "FAIL: a tracked path could not be stat-ed."
+    return 1
+  fi
   {
-    # Every path goes through './' or a trailing '--', so a file named '--help'
-    # is read as a path rather than as an option to the tool.
-    tracked_paths | sort -z | sed -z 's|^|./|' | xargs -0 -r sha256sum -- 2>/dev/null
     # Mode, filesystem type, and — for a symlink — its target, quoted and
     # escaped by %N, so a target ending in a newline cannot collide with a
-    # different name. One call covers what two would: fewer places to be wrong,
-    # and no command substitution to strip a trailing newline.
-    tracked_paths | sort -z | sed -z 's|^|./|' | xargs -0 -r stat -c '%A %F %N' -- 2>/dev/null
+    # different name. One call covers what two would: fewer places to be wrong.
+    # The trailing newline the command substitution stripped is put back here,
+    # so the two snapshots are built the same way either side of the checks.
+    printf '%s\n' "$contents" "$entries"
     git status --porcelain --untracked-files=all
     git ls-files --stage -z
   } | sha256sum | cut -d' ' -f1
