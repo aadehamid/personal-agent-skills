@@ -16,7 +16,7 @@ Read the project's `AGENTS.md`, its review standards file, its check script, and
 
 Do this before any other work in a repository. Reading the project's files comes first, then bringing the repository up to the standard.
 
-1. **Read the project's files** — `AGENTS.md`, its review standards file, its check script, its decision records.
+1. **Read the project's files** — `AGENTS.md`, its review standards file, its check script, its decision records. **A repository that has none is the case this list is for**: build them before doing anything else, in the order `references/guardrails.md` gives under "A project with nothing yet".
 2. **Run the check script.** If the project has none, build one from `references/guardrails.md`: one script, called by CI and by a pre-push hook. Land it before other work, because every later change depends on it.
 3. **Check the hook is wired and working.** `git config core.hooksPath` should point at the tracked hook and the hook should be executable, but that proves nothing on its own: an executable hook that does nothing passes it, and git skips a missing or non-executable hook without a word. Run the verification in `references/guardrails.md` — `git hook run pre-push` exits 0, and exits non-zero when a check is deliberately broken. Wire it if it is not, under the conditions in that same reference. A shared or existing hook setup serves other work, so report what you found and ask instead of overwriting it.
 4. **Check for open pull requests** — yours and anyone's. Watch each one until it merges, before starting unrelated work. The mechanism and cadence are in `references/changing.md`.

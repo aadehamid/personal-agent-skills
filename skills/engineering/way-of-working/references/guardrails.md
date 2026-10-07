@@ -2,6 +2,20 @@
 
 Read this when a project lacks a shared tool, a check script, CI or a review standards file, or when you are about to write a one-off script to count or classify something.
 
+## A project with nothing yet
+
+A repository with no `AGENTS.md`, no check script and no CI is not a reason to work without them. It is the case this skill exists for, and the first session on such a repository builds them. One concern per pull request, in this order:
+
+1. **`AGENTS.md`.** The project's working rules and pointers. Keep it short: it points at other files rather than restating them. Start from the session-start list in `SKILL.md`, keep what applies, drop what does not, and add what this project needs.
+2. **`scripts/check.sh`, CI and the pre-push hook.** One script running every mechanical gate, called by both CI and the hook, so a local run and a CI run cannot differ. The sections below have the detail and the conditions for installing the hook.
+3. **The shared tool** for the figures the project's documents quote, with its tests.
+4. **A review standards file.** Near-empty at first. It grows from findings a reviewer actually made, each with the incident that taught it.
+5. **Decision records.** A folder with an index, and agreement with the owner on how a skipped question is read (`references/deciding.md`).
+
+Say what you are about to do and why before the first of these lands. An owner who did not ask for a check script is owed the reason, and may have one already.
+
+The work you were asked to do is not lost by this: it waits one session, and lands on a repository where every later change is checked.
+
 ## Shared, deterministic tools
 
 Every agent that writes its own counting script counts differently, and each difference becomes a wrong figure in a document. Build one tool in the repo instead, and make every agent use it.

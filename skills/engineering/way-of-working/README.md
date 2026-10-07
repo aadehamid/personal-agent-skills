@@ -12,13 +12,15 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 | `references/deciding.md` | agent, before a decision | Decision interviews (grill-with-docs), decision records, Proposed vs Decided, amendments. |
 | `references/changing.md` | agent, before a PR | The PR flow, watching PRs, cross-repo changes, rules that save review rounds. |
 | `references/before-push.md` | agent, before every push | The five checks, the independent-review command and how to handle its findings, plus proving a new check fails. |
-| `references/guardrails.md` | agent, when a project lacks them | The shared deterministic tool, the one check script run by CI and a pre-push hook, and the split between mechanical rules and judgement rules. |
+| `references/guardrails.md` | agent, when a project lacks them | The order to build the guardrails in on a repository that has none, the shared deterministic tool, the one check script run by CI and a pre-push hook, and the split between mechanical rules and judgement rules. |
 | `references/documents.md` | agent, when writing project docs | One place per meaning, method vs record, moving approved text, handover notes. |
 | `references/improving.md` | agent, after a costly session | The retro loop and where each lesson goes. |
 | `SOURCES.md` | you | Where each rule came from. |
 | `README.md` | you | This file. |
 
 ## Adopting it on a new project
+
+An agent that lands on a repository with none of this is told to build it, in order, by the "A project with nothing yet" section of `references/guardrails.md`. The steps below are the same ones, written for you.
 
 1. Add an `AGENTS.md` with the project's working rules and pointers. Keep it short.
 2. Build the shared tool for the figures and statuses the project's documents quote. Give it tests.
