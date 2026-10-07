@@ -23,13 +23,15 @@ Watch every pull request you open, and every one already open when you start, un
 
   ```sh
   git fetch origin <branch>
-  git log origin/main..origin/<branch>          # must print nothing
-  sha="$(git rev-parse origin/<branch>)"
+  sha="$(git rev-parse origin/<branch>)"           # capture once, right after the fetch
+  git merge-base --is-ancestor "$sha" origin/main  # exit 0 only if that commit is in main
   git push origin --delete <branch> --force-with-lease="<branch>:$sha"
-  git branch -d <branch>                        # -d, never -D: it refuses an unmerged branch
+  git branch -d <branch>                           # -d, never -D: it refuses an unmerged branch
   ```
 
-  Without the lease, a push landing between the check and the delete takes that work with it. With it, the delete is rejected instead (`stale info`, exit 1).
+  Everything after the fetch uses the captured `sha`, never `origin/<branch>` again: re-reading a mutable ref between the check and the delete is how a branch verified as merged ends up leased at a commit that is not. Abort on any step that fails.
+
+  Without the lease, a push landing after the check takes that work with it. With it, the delete is rejected instead (`stale info`, exit 1).
 - **A branch someone else opened is theirs to delete**, even after its pull request merges. Ask.
 
 ## Rules that save review rounds
