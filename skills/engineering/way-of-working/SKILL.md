@@ -12,6 +12,18 @@ The owner decides; the agent supplies evidence, options and a recommendation, an
 
 Read the project's `AGENTS.md`, its review standards file, its check script, and its decision records. Where the project has its own rule, it wins over this skill. Where it lacks one, propose adding it, using the references below.
 
+## Session start
+
+Do this before any other work in a repository. Reading the project's files comes first, then bringing the repository up to the standard.
+
+1. **Read the project's files** — `AGENTS.md`, its review standards file, its check script, its decision records.
+2. **Run the check script.** If the project has none, build one from `references/guardrails.md`: one script, called by CI and by a pre-push hook. Land it before other work, because every later change depends on it.
+3. **Check the hook is wired and working.** `git config core.hooksPath` should point at the tracked hook and the hook should be executable, but that proves nothing on its own: an executable hook that does nothing passes it, and git skips a missing or non-executable hook without a word. Run the verification in `references/guardrails.md` — `git hook run pre-push` exits 0, and exits non-zero when a check is deliberately broken. Wire it if it is not, under the conditions in that same reference. A shared or existing hook setup serves other work, so report what you found and ask instead of overwriting it.
+4. **Check for open pull requests** — yours and anyone's. Watch each one until it merges, before starting unrelated work. The mechanism and cadence are in `references/changing.md`.
+5. **Match the reader.** Prose for people follows clear-writing; documents for agents follow writing-for-agents.
+
+When a step cannot be done — no permission to change CI, a shared hook setup, another owner's pull request — say what you found and ask. Do not skip it silently.
+
 ## The rules
 
 1. **On the record.** Nothing is Decided or Approved without the owner's recorded words, quoted in a decision record. A merge decides nothing. A skipped question in a decision round means "agreed with the recommendation" only if the owner has said so. Read `references/deciding.md` before recording a decision or running a decision interview.

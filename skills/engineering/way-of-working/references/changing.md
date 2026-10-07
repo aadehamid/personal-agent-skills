@@ -8,8 +8,31 @@ Read this before opening a pull request.
 2. Make one concern's change. A follow-up fix found while working goes in its own PR unless it is the same concern.
 3. Run the checks in `before-push.md`.
 4. Open the PR. The body says what changed, why, what the checks found (including the independent review), and any judgement call the reviewer should weigh. Quote the shared tool's commit line for every figure.
-5. Watch the PR (a background poller that wakes the agent on a new review, comment or merge). On a HOLD, fix on the same branch, run the checks again, reply on the PR with what changed.
+5. Watch the PR until it merges. See "Watching a pull request" below.
 6. After merge, sync main, delete the branch, and move to the next item.
+
+## Watching a pull request
+
+Watch every pull request you open, and every one already open when you start, until it merges or the owner closes it. A pull request nobody watches sits on a review finding for hours.
+
+- **Poll every five minutes** on a recurring timer, and report **only when something changes** — a new review, a comment, a check result, a merge state. Silence is the normal case; do not narrate an unchanged poll.
+- **On a HOLD**, fix on the same branch, run the check script again, run the independent review again (`before-push.md`), and reply on the PR saying what changed.
+- **A review against an older commit is not the current verdict.** Read the commit the review names before acting on it.
+- **On merge**, sync main, delete the branch, and stop the timer.
+- **Delete only the branch you just merged.** A merged pull request does not prove the branch is merged: a squash merge breaks commit ancestry, and commits pushed after the merge stay on the branch. Check the live remote rather than a cached ref, and delete under a lease so a concurrent push aborts the delete:
+
+  ```sh
+  git fetch origin <branch> main &&
+  sha="$(git rev-parse origin/<branch>)" &&
+  git merge-base --is-ancestor "$sha" origin/main &&
+  git push origin --delete <branch> --force-with-lease="<branch>:$sha" &&
+  git branch -d <branch>
+  ```
+
+  Run it as one `&&` chain, so the first failure stops the rest: a bare sequence would carry on to the delete after the ancestry check said no. Fetch `main` as well as the branch, or the check compares against a stale `main`. Everything after the fetch uses the captured `sha`, never `origin/<branch>` again — re-reading a mutable ref between the check and the delete is how a branch verified as merged ends up leased at a commit that is not. The last line is `-d`, never `-D`: it refuses an unmerged branch.
+
+  Without the lease, a push landing after the check takes that work with it. With it, the delete is rejected instead (`stale info`, exit 1).
+- **A branch someone else opened is theirs to delete**, even after its pull request merges. Ask.
 
 ## Rules that save review rounds
 

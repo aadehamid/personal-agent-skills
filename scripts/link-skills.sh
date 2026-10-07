@@ -83,14 +83,49 @@ done
 if $claude_md; then
   snippet="$repo/config/claude-md-snippet.md"
   target="$HOME/.claude/CLAUDE.md"
-  marker="load the clear-writing skill first"
-  if [ -f "$target" ] && grep -qF "$marker" "$target"; then
-    echo "CLAUDE.md already has the snippet"
+  # Append only the sections the target does not already carry. A heading alone
+  # proves nothing, because the target may hold a heading of the same name with
+  # different text under it. Presence is the section's marker, or, for an
+  # install made before markers existed, its instruction line.
+  missing="$(python3 - "$snippet" "$target" <<'PY'
+import pathlib, sys
+
+src, dst = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+have = dst.read_text() if dst.exists() else ""
+
+blocks, cur = [], []
+for line in src.read_text().splitlines(keepends=True):
+    if line.startswith("# ") and cur:
+        blocks.append("".join(cur))
+        cur = []
+    cur.append(line)
+if cur:
+    blocks.append("".join(cur))
+
+def identity(block):
+    lines = block.splitlines()
+    for i, line in enumerate(lines):
+        if line.startswith("<!-- way-of-working-snippet:"):
+            instruction = next((l.strip() for l in lines[i + 1:] if l.strip()), "")
+            return line.strip(), instruction
+    raise SystemExit(f"snippet section has no marker comment: {lines[0]!r}")
+
+out = []
+for block in blocks:
+    tag, instruction = identity(block)
+    if tag in have or (instruction and instruction in have):
+        continue
+    out.append(block.rstrip() + "\n")
+sys.stdout.write("\n".join(out))
+PY
+)"
+  if [ -z "$missing" ]; then
+    echo "CLAUDE.md already has every snippet section"
   elif $dry; then
-    echo "would: append $snippet to $target"
+    echo "would: append the missing section(s) of $snippet to $target"
   else
-    { [ -s "$target" ] && echo; cat "$snippet"; } >> "$target"
-    echo "added the snippet to $target"
+    { [ -s "$target" ] && echo; printf '%s' "$missing"; } >> "$target"
+    echo "added the missing section(s) to $target"
   fi
 fi
 
