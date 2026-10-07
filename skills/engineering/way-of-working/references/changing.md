@@ -18,8 +18,19 @@ Watch every pull request you open, and every one already open when you start, un
 - **Poll every five minutes** on a recurring timer, and report **only when something changes** — a new review, a comment, a check result, a merge state. Silence is the normal case; do not narrate an unchanged poll.
 - **On a HOLD**, fix on the same branch, run the check script again, run the independent review again (`before-push.md`), and reply on the PR saying what changed.
 - **A review against an older commit is not the current verdict.** Read the commit the review names before acting on it.
-- **On merge**, sync main, delete the branch local and remote, and stop the timer.
-- **Delete only the branch you just merged**, and check it first: `git log origin/main..origin/<branch>` must print nothing. A merged pull request does not prove the branch is merged — a squash merge breaks commit ancestry, and commits pushed after the merge stay on the branch. A branch someone else opened is theirs to delete, so ask.
+- **On merge**, sync main, delete the branch, and stop the timer.
+- **Delete only the branch you just merged.** A merged pull request does not prove the branch is merged: a squash merge breaks commit ancestry, and commits pushed after the merge stay on the branch. Check the live remote rather than a cached ref, and delete under a lease so a concurrent push aborts the delete:
+
+  ```sh
+  git fetch origin <branch>
+  git log origin/main..origin/<branch>          # must print nothing
+  sha="$(git rev-parse origin/<branch>)"
+  git push origin --delete <branch> --force-with-lease="<branch>:$sha"
+  git branch -d <branch>                        # -d, never -D: it refuses an unmerged branch
+  ```
+
+  Without the lease, a push landing between the check and the delete takes that work with it. With it, the delete is rejected instead (`stale info`, exit 1).
+- **A branch someone else opened is theirs to delete**, even after its pull request merges. Ask.
 
 ## Rules that save review rounds
 
