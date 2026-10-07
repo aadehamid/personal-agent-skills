@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Pre-push gate. Git runs this before every push; a non-zero exit cancels it.
+#
+# Install once per clone:
+#     git config core.hooksPath scripts/hooks
+#
+# It runs the same script CI runs, so a push that passes here passes there.
+set -euo pipefail
+
+exec "$(git rev-parse --show-toplevel)/scripts/check.sh"
