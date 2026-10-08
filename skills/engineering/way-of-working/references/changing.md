@@ -57,6 +57,7 @@ Watch every pull request you open, and every one already open when you start, un
 - **Cross-repo changes go in step.** When a change spans repositories, open one PR per repo and say in each which other PR it depends on.
 - **A review comment against an older commit is not the current verdict.** Check the review's commit before acting on it.
 - **When an automated reviewer is new to a repo**, it runs on the next event; push or comment to trigger it rather than waiting.
+- **Resolve a conflict by writing the file, then reading it back.** A resolution made by a scripted find-and-replace keeps whatever its pattern did not match, which is how a conflict marker reaches a commit: the script reports success because its own pattern matched. Read the resolved file for markers, and for the lines you meant to keep, before you stage it. Fixing the file and reading it again is the repair. Staging a resolution does not record it; committing it does — `git rebase --continue`, or `git commit` on a merge — and `git rerere` records one on its own. Where `rerere` is switched on, an abort keeps a recorded resolution for the next attempt to reuse, so a retry can hand back the same wrong lines. With it off, the same abort is a clean slate.
 
 ## Done when
 
