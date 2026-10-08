@@ -1,6 +1,6 @@
 ---
 name: project-discovery
-description: Guided discovery and approval-aware documentation for a new or underdefined project. Use when a user needs to turn an idea, existing project, or reference implementation into a concrete problem, requirements, models, architecture, evaluation, and implementation handoff; also when resuming that documentation work. Not for implementing an already approved specification, an isolated bug fix, or merely rewriting an existing paragraph.
+description: Discover new projects or organize and update an existing project’s documentation and repository structure. Use when a user needs to turn an idea, existing project, or reference implementation into a concrete problem, requirements, models, architecture, evaluation, and implementation handoff; also when consolidating existing documents, assessing gaps, or resuming that work. Not for implementing an already approved specification, an isolated bug fix, or merely rewriting an existing paragraph.
 ---
 
 # Project discovery
@@ -28,6 +28,19 @@ Project identity, reference repositories, stack, provider/model choices, hosting
 licenses, data sources, document count, paths, and publishing preferences are
 inputs to discover, not values supplied by this skill. Names in examples are not
 defaults. Templates define record shapes, not a mandatory project architecture.
+
+## Choose the work
+
+For a new or underdefined project, discover the missing scope and build a tailored
+package. For an established project, start from its existing authority and use
+`references/existing-projects.md` before proposing documents or structural changes.
+Use both paths when an existing project has genuine unresolved scope; confine
+discovery to those gaps rather than reopening settled decisions.
+
+Organization can cover documentation, navigation, and repository layout within
+the requested scope. Application refactoring, dependency changes, and runtime
+migrations require their own implementation scope. A reference layout is a
+candidate to assess, not a reason to move files.
 
 ## Establish the work
 
