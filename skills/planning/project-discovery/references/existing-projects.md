@@ -7,7 +7,7 @@ decision records, relevant code/configuration, and checks. Record the revision
 being inspected and preserve unrelated working changes. Existing approvals stay
 attached to their recorded content; a reorganization does not approve new design.
 
-Inventory relevant files before drafting replacements. Identify each document’s
+Inventory relevant files before drafting replacements. Identify each document's
 purpose, authority, approval state, overlap, consumers, and stale or missing
 content. Check executable references such as build paths, imports, scripts, CI,
 notebook paths, and generated outputs before proposing repository moves.
@@ -25,7 +25,7 @@ consumers. Use existing IDs and conventions where they serve the project.
 Do not create empty directories or split coherent documents to match an example.
 
 Assess a supplied reference using `discovery.md`. Consider its applicable stack
-before recommending substitutes, while preserving the current project’s contracts.
+before recommending substitutes, while preserving the current project's contracts.
 Record reuse, adaptation, deferral, or exclusion separately from adoption.
 
 Distinguish path/link changes from substantive rewrites. Preserve approved
@@ -50,7 +50,7 @@ twins together. Run project checks appropriate to the move; link validation alon
 does not prove code or build paths still work.
 
 Keep a running record of consequential changes, reasons, evidence, checks, and
-remaining work in the project’s existing log or handoff. Separate current status
+remaining work in the project's existing log or handoff. Separate current status
 from dated history. Check that quotations and historical claims match the named
 source revision and time; do not rewrite an earlier observation as a later result.
 

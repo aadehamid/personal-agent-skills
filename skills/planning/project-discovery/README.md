@@ -1,7 +1,7 @@
 # project-discovery
 
 Turn an idea into a researched documentation package, or organize and update
-an existing project’s documents and repository layout.
+an existing project's documents and repository layout.
 
 The skill supports interactive discovery and batch drafting. It preserves approved
 decisions, labels new proposals, and records implementation gates. It can assess a
@@ -23,9 +23,9 @@ Example:
 
 For an existing project:
 
-> Use project-discovery to organize this repository’s existing documentation.
+> Use project-discovery to organize this repository's existing documentation.
 > Inventory it first, preserve approved decisions, and add only missing content.
-> Assess the reference layout and stack where they meet this project’s needs.
+> Assess the reference layout and stack where they meet this project's needs.
 > Work in batch, keep a log, and open a PR. Do not merge it.
 
 To work unattended, explicitly request batch drafting and state the delivery

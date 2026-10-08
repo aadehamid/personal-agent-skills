@@ -1,6 +1,6 @@
 ---
 name: project-discovery
-description: Discover new projects or organize and update an existing project’s documentation and repository structure. Use when a user needs to turn an idea, existing project, or reference implementation into a concrete problem, requirements, models, architecture, evaluation, and implementation handoff; also when consolidating existing documents, assessing gaps, or resuming that work. Not for implementing an already approved specification, an isolated bug fix, or merely rewriting an existing paragraph.
+description: Discover new projects or organize and update an existing project's documentation and repository structure. Use when a user needs to turn an idea, existing project, or reference implementation into a concrete problem, requirements, models, architecture, evaluation, and implementation handoff; also when consolidating existing documents, assessing gaps, or resuming that work. Not for implementing an already approved specification, an isolated bug fix, or merely rewriting an existing paragraph.
 ---
 
 # Project discovery
