@@ -1,7 +1,7 @@
 # project-discovery
 
-Turn an idea or an underdefined project into a researched documentation package
-that an owner can review and an implementer can use.
+Turn an idea into a researched documentation package, or organize and update
+an existing project's documents and repository layout.
 
 The skill supports interactive discovery and batch drafting. It preserves approved
 decisions, labels new proposals, and records implementation gates. It can assess a
@@ -20,6 +20,13 @@ Example:
 > Use project-discovery for a volunteer scheduling application. Inspect this
 > repository first. Ask the important questions, propose the needed documents,
 > and keep changes local. Do not select a hosting provider yet.
+
+For an existing project:
+
+> Use project-discovery to organize this repository's existing documentation.
+> Inventory it first, preserve approved decisions, and add only missing content.
+> Assess the reference layout and stack where they meet this project's needs.
+> Work in batch, keep a log, and open a PR. Do not merge it.
 
 To work unattended, explicitly request batch drafting and state the delivery
 permission separately. For example, ask for all agreed drafts without pauses
@@ -42,6 +49,7 @@ It does not build the application, deploy infrastructure, or approve its own des
 | --- | --- | --- |
 | `SKILL.md` | Agent | Activation, outcome, permissions, operating modes, and completion |
 | `references/discovery.md` | Agent during discovery/research | Context, reference inspection, source research, and questions |
+| `references/existing-projects.md` | Agent organizing an existing project | Inventory, consolidation, moves, history, and gap assessment |
 | `references/documentation.md` | Agent before package drafting | Tailored documents, authority, state, evaluation, and batch behavior |
 | `references/review-and-handoff.md` | Agent before delivery | Review, verification, optional publication, and resumption |
 | `assets/record-templates.md` | Agent creating records | Adaptable field shapes, not fixed project documents |

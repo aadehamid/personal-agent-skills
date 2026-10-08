@@ -54,6 +54,12 @@
       "kind": "behavior",
       "prompt": "Use project-discovery to review this proposed plan for a form-extraction demo before handoff: Step 1 publishes the exact synthetic answer table in the README. Step 2 evaluates agents against that same table as a blind test. Step 3 configures isolation and access controls. Report says 98% quality but gives no matching rule or denominator. Reviewer permissions differ between the API and policy documents. State the needed corrections and readiness honestly; do not implement or publish.",
       "expected": ["Distinguish visible development truth from held-out truth", "Require isolation before protected evaluation", "Require matching/denominator definitions", "Resolve permission authority conflict", "Do not claim ready or manufacture measured evidence"]
+    },
+    {
+      "id": "existing-project-organization",
+      "kind": "behavior",
+      "prompt": "Use project-discovery in batch to organize an existing equipment maintenance repository. Its approved charter covers problem, requirements, and architecture in one file. README and HANDOFF disagree about current status; the decision record says HANDOFF owns status. Two guides repeat the same interface contract, whose approved owner is interfaces.md. The reference project has separate charter files, a different cloud provider, and many empty component directories. Existing build scripts refer to docs/assets. Preserve approved contracts and historical session notes. Work locally, keep a change log, and report a bounded organization plan and the verification needed. Do not implement, install, commit, publish, or merge.",
+      "expected": ["Inventory existing coverage and authority before adding documents", "Keep the coherent approved charter rather than forcing reference splits", "Reconcile status and interface summaries against their recorded owners", "Assess reference layout and stack without adopting provider changes or empty directories", "Distinguish path changes from substantive rewrites and preserve approval history", "Check links, assets and build consumers; keep reasons, evidence and next work in a log", "Respect local-only scope and separate organization completion from implementation readiness"]
     }
   ]
 }
