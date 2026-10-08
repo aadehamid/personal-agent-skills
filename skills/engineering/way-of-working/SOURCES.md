@@ -2,7 +2,7 @@
 
 What the way-of-working skill was built from. Agents do not read this file.
 
-Last review: 2026-10-06.
+Last review: 2026-10-07.
 
 ## 1. The enterprise-performance-model ontology build (2026-10-05 and 06)
 
