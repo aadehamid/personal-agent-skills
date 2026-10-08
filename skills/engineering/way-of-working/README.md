@@ -14,6 +14,7 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 | `references/before-push.md` | agent, before every push | The five checks, the independent-review command and how to handle its findings, plus proving a new check fails. |
 | `references/guardrails.md` | agent, when a project lacks them | The order to build the guardrails in, the shared deterministic tool, the one check script run by CI and a pre-push hook, and the split between mechanical rules and judgement rules. |
 | `references/documents.md` | agent, when writing project docs | One place per meaning, method vs record, moving approved text, handover notes. |
+| `references/tools.md` | agent, when locating helper skills | Focused search of installed roots, then plugin caches if needed. |
 | `references/improving.md` | agent, after a costly session | The retro loop and where each lesson goes. |
 | `SOURCES.md` | you | Where each rule came from. |
 | `README.md` | you | This file. |

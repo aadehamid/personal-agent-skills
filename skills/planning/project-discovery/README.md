@@ -58,6 +58,8 @@ It does not build the application, deploy infrastructure, or approve its own des
 | `evals/cases.json` | Evaluator | Activation, main-path, restraint, and resumption cases |
 | `evals/README.md` | Evaluator | Fresh-context execution and grading procedure |
 | `scripts/validate.py` | Maintainer/CI | Standard-library mechanical checks |
+| `scripts/subject_case.py` | Evaluator | Export a prompt without grading criteria |
+| `scripts/test_subject_case.py` | Maintainer/CI | Verify prompt isolation and command failures |
 | `scripts/test_validate.py` | Maintainer/CI | Regression tests for the validator |
 | `scripts/make_fixture.py` | Evaluator | Original disposable project for file-tool behavior checks |
 | `evals/RESULTS.md` | People | Observed validation and independent review results, including limits |

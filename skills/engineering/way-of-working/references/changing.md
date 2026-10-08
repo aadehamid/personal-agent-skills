@@ -33,6 +33,7 @@ This shape is adapted from the `pr` skill in `mattpocock-skills` (itself from Hu
 Watch every pull request you open, and every one already open when you start, until it merges or the owner closes it. A pull request nobody watches sits on a review finding for hours.
 
 - **Poll every five minutes** on a recurring timer, and report **only when something changes** — a new review, a comment, a check result, a merge state. Silence is the normal case; do not narrate an unchanged poll.
+- **Bound review output.** Use `gh api --jq` to select the reviewed commit, creation time, state, and relevant body text. Omit decorative HTML footers. Keep unresolved findings from earlier commits available until fixed or answered. Retrieve source text needed to judge a finding even when it is from an older round.
 - **On a HOLD**, fix on the same branch, run the check script again, run the independent review again (`before-push.md`), and reply on the PR saying what changed.
 - **A review against an older commit is not the current verdict.** Read the commit the review names before acting on it.
 - **On merge**, sync main, delete the branch, and stop the timer.
