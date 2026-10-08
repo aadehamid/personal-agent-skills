@@ -12,7 +12,7 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 | `references/deciding.md` | agent, before a decision | Decision interviews (grill-with-docs), decision records, Proposed vs Decided, amendments. |
 | `references/changing.md` | agent, before a PR | The PR flow, watching PRs, cross-repo changes, rules that save review rounds. |
 | `references/before-push.md` | agent, before every push | The five checks, the independent-review command and how to handle its findings, plus proving a new check fails. |
-| `references/guardrails.md` | agent, when a project lacks them | The order to build the guardrails in on a repository that has none, the shared deterministic tool, the one check script run by CI and a pre-push hook, and the split between mechanical rules and judgement rules. |
+| `references/guardrails.md` | agent, when a project lacks them | The order to build the guardrails in, the shared deterministic tool, the one check script run by CI and a pre-push hook, and the split between mechanical rules and judgement rules. |
 | `references/documents.md` | agent, when writing project docs | One place per meaning, method vs record, moving approved text, handover notes. |
 | `references/improving.md` | agent, after a costly session | The retro loop and where each lesson goes. |
 | `SOURCES.md` | you | Where each rule came from. |
@@ -20,7 +20,7 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 
 ## Adopting it on a new project
 
-The order is in `references/guardrails.md` under "A project with nothing yet". That is the authoritative version, for you and for agents alike; this file does not repeat it, because two copies of a procedure drift. In short: `AGENTS.md`, then the check script with CI and the pre-push hook, then the shared tool, then a review standards file, then decision records — one pull request each, and agree with your agents how a skipped question is read before the decision records go in.
+The order is in `references/guardrails.md` under "A project with nothing yet". That is the authoritative version, for you and for agents alike; this file does not repeat it, because two copies of a procedure drift.
 
 After the first heavy session, run a retro and put each lesson in one place (`references/improving.md`).
 

@@ -4,10 +4,12 @@ Read this when a project lacks a shared tool, a check script, CI or a review sta
 
 ## A project with nothing yet
 
-A repository with no `AGENTS.md`, no check script and no CI is not a reason to work without them. It is the case this skill exists for, and the first session on such a repository builds them. One concern per pull request, in this order:
+A repository with no `AGENTS.md`, no check script and no CI is not a reason to work without them. It is the case this skill exists for, and building them is the first work on such a repository. One concern per pull request, in this order:
+
+Start at the first step you do not find, not at step 1. A repository that already has `AGENTS.md` resumes at step 2, and only the steps still missing are the work. **The order is not finished until every step exists**: a session that lands one of them has not discharged it, and the next session picks up at the first step still missing.
 
 1. **`AGENTS.md`.** The project's working rules and pointers. Keep it short: it points at other files rather than restating them. Start from the session-start list in `SKILL.md`, keep what applies, drop what does not, and add what this project needs.
-2. **`scripts/check.sh`, CI and the pre-push hook.** One script running every mechanical gate, called by both CI and the hook, so a local run and a CI run cannot differ. The sections below have the detail and the conditions for installing the hook.
+2. **`scripts/check.sh`, CI and the pre-push hook.** One script running every mechanical gate, called by both CI and the hook, so a local run and a CI run cannot differ. The sections below have the detail and the conditions for installing the hook. **The hook's install line goes into the `AGENTS.md` you wrote at step 1** — the project's own file, so a fresh clone of that project can wire the hook. It never goes into this skill: the install line names one project's path, and every other repository loads this skill.
 3. **The shared tool** for the figures the project's documents quote, with its tests.
 4. **A review standards file.** Near-empty at first. It grows from findings a reviewer actually made, each with the incident that taught it.
 5. **Decision records.** A folder with an index, and agreement with the owner on how a skipped question is read (`references/deciding.md`).
@@ -18,7 +20,7 @@ The check script starts with the gates the project already has. It gains the sha
 
 Say what you are about to do and why before the first of these lands. An owner who did not ask for a check script is owed the reason, and may have one already.
 
-The work you were asked to do is not lost by this: it waits one session, and lands on a repository where every later change is checked.
+The work you were asked to do is not lost by this: it waits behind the guardrails, and lands on a repository where every later change is checked.
 
 ## Shared, deterministic tools
 
@@ -35,7 +37,7 @@ Before writing any script to count or classify, check whether the shared tool al
 
 - One script runs every mechanical check: the project's gates, all tests, the shared tool's consistency checks, and a test that published figures in documents match the tool.
 - It fails if the checks change the working tree (compare content hashes before and after, in a language where any read error raises).
-- CI runs it on every PR. A pre-push hook runs it locally. **Give the hook a way to be installed** — a `scripts/bootstrap.sh` that sets `core.hooksPath` and installs anything the checks need, or, if the project prefers fewer files, the one-line `git config` command written into the project's `AGENTS.md`. Either way say where it is, and put it in the session-start list in `SKILL.md`: a hook nobody installs is a hook that never runs, and a fresh clone is exactly where that happens.
+- CI runs it on every PR. A pre-push hook runs it locally. **Give the hook a way to be installed** — a `scripts/bootstrap.sh` that sets `core.hooksPath` and installs anything the checks need, or, if the project prefers fewer files, the one-line `git config` command written into the project's `AGENTS.md`. Either way say where it is, and put it in the session-start steps of the project's `AGENTS.md` (step 2 of the order above): a hook nobody installs is a hook that never runs, and a fresh clone is exactly where that happens.
 - Set up the hook only in the simple case, where all of these hold: `git config core.hooksPath` prints nothing; `ls "$(git rev-parse --git-path hooks)"` shows only `*.sample` files; no tool installs hooks (Git LFS, pre-commit); and `git worktree list` shows one worktree. In any other case, change no hook configuration: report what you found and ask the owner how to wire the check in, because an existing or shared hook setup can serve other worktrees or repositories.
 - In the simple case: add `scripts/hooks/pre-push` that runs the check script, track it as executable (`git update-index --chmod=+x scripts/hooks/pre-push`; `git ls-files -s` shows `100755`), and set `git config core.hooksPath scripts/hooks`. Git silently skips a missing or non-executable hook, so a successful push proves nothing.
 - Prove the hook runs: `git hook run pre-push` (Git 2.36 or later) must print the check script's output and exit 0. Then make one check fail on purpose and confirm `git hook run pre-push` exits non-zero; restore it.
