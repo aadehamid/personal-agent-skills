@@ -24,3 +24,15 @@ A handover brief outside the repo goes stale the moment work starts. When it is 
 ## Done when
 
 Every rule you touched has one authoritative wording, every other mention points to it, and the instruction file holds pointers rather than detail.
+
+## Read only the evidence needed
+
+For skill discovery, search for `SKILL.md` in the installed skill roots first.
+Exclude virtual environments, dependency directories, and caches from content
+searches. Expand to plugin caches only when an installed dependency is missing.
+
+For GitHub review, select the fields needed for the current decision with
+`gh api --jq`. Include the reviewed commit, creation time, state, and relevant
+body text. Omit decorative HTML footers and read older rounds only when a
+current finding depends on them. Bound output before returning it to context;
+large transcripts belong in files, with the evidence summarized for the reader.

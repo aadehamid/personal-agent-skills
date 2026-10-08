@@ -78,7 +78,7 @@ echo "== knowledge-ingest CLI =="
 
 echo
 echo "== project-discovery validate =="
-(cd skills/planning/project-discovery/scripts && python3 -m unittest test_validate)
+(cd skills/planning/project-discovery/scripts && python3 -m unittest test_validate test_subject_case)
 
 echo
 echo "== shell syntax =="

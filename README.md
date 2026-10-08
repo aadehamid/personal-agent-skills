@@ -18,6 +18,7 @@ Installed from elsewhere, not stored here:
 
 | Skill | Install | What it does |
 |---|---|---|
+| retro | `npx skills add mattpocock/skills --skill retro -g` | Reviews a session and ranks improvements to the agent environment. |
 | writing-for-agents | `npx skills add mattpocock/skills --skill writing-for-agents -g` | Writing documents an agent reads: skills, CLAUDE.md, AGENTS.md. Clear-writing hands those to it. |
 
 ## Layout
@@ -44,9 +45,16 @@ Category names are short and lowercase: `writing`, `coding`, `data`, `engineerin
 git clone https://github.com/aadehamid/personal-agent-skills.git
 cd personal-agent-skills
 ./scripts/link-skills.sh --claude-md --tools
-npx skills add mattpocock/skills --skill writing-for-agents -g
+npx skills add mattpocock/skills --skill writing-for-agents --skill retro -g
 ./scripts/update-pstack.sh   # optional: pstack from cursor/plugins, without its unslop
 ```
+
+Check that `retro/SKILL.md` and `writing-for-agents/SKILL.md` exist in both
+`~/.agents/skills` and your agent's skill directory. A Claude plugin cache alone
+does not make a skill discoverable in Codex. On this machine, both were installed
+from `mattpocock/skills` revision `b0618bc436ad893b3c5e84e55fba86586d34a404`
+and linked into Codex's skills directory. New sessions may need to refresh their
+skill catalog.
 
 `--tools` installs each skill's command-line tool with `uv tool install --editable` (needs [uv](https://docs.astral.sh/uv/)). Today that is `kb`, the validation CLI for knowledge-ingest. A skill that needs per-project setup says so in the "Set up on a machine" section of its README.
 

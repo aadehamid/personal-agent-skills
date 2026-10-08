@@ -10,7 +10,12 @@ evidence that an agent interviews well or respects approvals.
    Ask which workflow it would use. Do not give it the expected result.
 3. For behavior cases, load the actual SKILL.md and applicable bundled references
    into a fresh context, then submit only the case's user prompt. Exclude this file
-   and the `expected` fields from the subject's context.
+   and the `expected` fields from the subject's context. Export the prompt with
+   `python3 scripts/subject_case.py CASE_ID` from the skill directory. Give the
+   subject an isolated workspace containing only that prompt, the skill runtime
+   files, and permitted raw artifacts. Keep `evals/`, review diffs, and grader
+   material outside its readable workspace. A read-only full checkout still
+   exposes answers; read-only access alone does not make a test blind.
 4. Use read-only/no-tools boundaries for inline-output cases. They intentionally
    cannot demonstrate real file delivery or shipping. For `repository-resume`,
    create a new directory with `scripts/make_fixture.py`, enable scoped file tools,
@@ -19,7 +24,10 @@ evidence that an agent interviews well or respects approvals.
    must remain unchanged; the next draft and state/index must exist. Do not expose
    expected outcomes or the original hashes to the subject.
 5. An independent grader reads the prompt, output, and action transcript against
-   the expected outcomes. Report concrete evidence, not keyword counts.
+   the expected outcomes after the subject finishes. Use different agents for
+   committed-diff review and blind execution. If a subject sees grading criteria
+   or prior conclusions, label the run non-blind and restart with a fresh subject
+   before claiming blind evidence. Report concrete evidence, not keyword counts.
 6. Run at least `batch-main`, an interactive case, and a restraint or real-failure
    case on available Claude and Codex hosts. Record exact capability/auth failures,
    not a passing result for an unexecuted host.
