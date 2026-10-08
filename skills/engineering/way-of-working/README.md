@@ -12,7 +12,7 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 | `references/deciding.md` | agent, before a decision | Decision interviews (grill-with-docs), decision records, Proposed vs Decided, amendments. |
 | `references/changing.md` | agent, before a PR | The PR flow, watching PRs, cross-repo changes, rules that save review rounds. |
 | `references/before-push.md` | agent, before every push | The five checks, the independent-review command and how to handle its findings, plus proving a new check fails. |
-| `references/guardrails.md` | agent, when a project lacks them | The shared deterministic tool, the one check script run by CI and a pre-push hook, and the split between mechanical rules and judgement rules. |
+| `references/guardrails.md` | agent, when a project lacks them | The order to build the guardrails in, the shared deterministic tool, the one check script run by CI and a pre-push hook, and the split between mechanical rules and judgement rules. |
 | `references/documents.md` | agent, when writing project docs | One place per meaning, method vs record, moving approved text, handover notes. |
 | `references/improving.md` | agent, after a costly session | The retro loop and where each lesson goes. |
 | `SOURCES.md` | you | Where each rule came from. |
@@ -20,12 +20,9 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 
 ## Adopting it on a new project
 
-1. Add an `AGENTS.md` with the project's working rules and pointers. Keep it short.
-2. Build the shared tool for the figures and statuses the project's documents quote. Give it tests.
-3. Add `scripts/check.sh`, a CI job that runs it, and a pre-push hook. Set up the hook as `references/guardrails.md` describes, which avoids disabling hooks the clone already has.
-4. Add a `REVIEW_STANDARDS.md` for the reviewer agent. It starts nearly empty and grows only from real findings.
-5. Create a decision-record folder with an index, and agree with the agents how a skipped question is read.
-6. After the first heavy session, run a retro and put each lesson in one place (`references/improving.md`).
+The order is in `references/guardrails.md` under "A project with nothing yet". That is the authoritative version, for you and for agents alike; this file does not repeat it, because two copies of a procedure drift.
+
+After the first heavy session, run a retro and put each lesson in one place (`references/improving.md`).
 
 The enterprise-performance-model repo is the worked example. See `scripts/epm_facts.py`, `scripts/check.sh`, `.github/workflows/checks.yml` and `business_architecture/domain/decisions/`. Its `REVIEW_STANDARDS.md` is in enterprise-performance-model PR #222, open when this was written.
 
