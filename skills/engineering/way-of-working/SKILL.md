@@ -12,6 +12,8 @@ The owner decides; the agent supplies evidence, options and a recommendation, an
 
 Read the project's `AGENTS.md`, its review standards file, its check script, and its decision records. Where the project has its own rule, it wins over this skill. Where it lacks one, propose adding it, using the references below.
 
+When locating helper skills, read `references/tools.md` before searching.
+
 ## Session start
 
 Do this before any other work in a repository. Reading the project's files comes first, then bringing the repository up to the standard.
