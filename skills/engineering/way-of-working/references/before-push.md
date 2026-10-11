@@ -10,7 +10,7 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
 
    **Commit the change first, and leave the working tree clean.** A branch review reads committed commits only, so an uncommitted fix is not reviewed at all — an agent that reviews, then edits, then pushes has reviewed the wrong thing. Note the commit you reviewed; if HEAD moves before the push, review again.
 
-   **With Herdr** (the working agent is inside a Herdr pane), spawn a reviewer agent in its own pane — a different kind/model from the writer — prompt it adversarially, wait for it, and read its findings. **Reuse the review tab for this repo rather than opening a new one for every review.** Name it `review-<repo>` (the repo's directory name) so it is findable:
+   **With Herdr** (the working agent is inside a Herdr pane), spawn a reviewer agent in its own pane — a different kind/model from the writer — and have it run the `ce-code-review` skill, which does a structured multi-agent review (risk-based reviewer selection, parallel reviewers, a cross-model adversarial pass, a validator, and a rendered report). **Reuse the review tab for this repo rather than opening a new one for every review.** Name it `review-<repo>` (the repo's directory name) so it is findable:
 
       ```sh
       # Find an existing review tab for this repo, or create one.
@@ -26,12 +26,12 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
       herdr pane run "$review_pane" "git fetch origin && git checkout <branch>"
       herdr agent start reviewer --kind codex --pane "$review_pane" -- -m <different-model>
       herdr agent prompt reviewer \
-        "Adversarially review the diff on branch <branch> vs main. Verify: <what to verify>. Say how it could still pass while being wrong." \
+        "Run the ce-code-review skill on this branch. Review the diff vs main. Verify: <what to verify>. Report findings only; do not apply them." \
         --wait --timeout 120000
       herdr agent read reviewer --source recent-unwrapped --lines 120
       ```
 
-      Use a reviewer kind and model different from the one that wrote the change. If the reviewer is `blocked` during startup, wait until it is `idle` before prompting it. If a full response is not visible in the read, ask the reviewer to write its findings as Markdown in a temporary directory and reply with the file path, then read that file.
+      Use a reviewer kind and model different from the one that wrote the change. If the reviewer is `blocked` during startup, wait until it is `idle` before prompting it. If a full response is not visible in the read, ask the reviewer to write its findings as Markdown in a temporary directory and reply with the file path, then read that file. `ce-code-review` is report-only by default, so it will not mutate the tree; apply its findings yourself, then re-run the review on the fixed diff.
 
       **Close the review tab when the PR merges.** The originating agent sends the reviewer a "PR merged" message, then closes the tab it created: `herdr tab close "$review_tab"` (or `herdr workspace close` if the review lives in its own workspace). Do not close a tab you did not create.
 
