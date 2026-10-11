@@ -44,7 +44,7 @@ Category names are short and lowercase: `writing`, `coding`, `data`, `engineerin
 ```bash
 git clone https://github.com/aadehamid/personal-agent-skills.git
 cd personal-agent-skills
-./scripts/link-skills.sh --claude-md --tools
+./scripts/link-skills.sh --global --tools
 npx skills add mattpocock/skills --skill writing-for-agents --skill retro -g
 ./scripts/update-pstack.sh   # optional: pstack from cursor/plugins, without its unslop
 ```
@@ -58,7 +58,7 @@ skill catalog.
 
 `--tools` installs each skill's command-line tool with `uv tool install --editable` (needs [uv](https://docs.astral.sh/uv/)). Today that is `kb`, the validation CLI for knowledge-ingest. A skill that needs per-project setup says so in the "Set up on a machine" section of its README.
 
-`--claude-md` adds `config/claude-md-snippet.md` to `~/.claude/CLAUDE.md`. That line tells Claude to load clear-writing whenever it writes prose. Without it, Claude rarely loads the skill on its own. The script does not add the line twice.
+`--global` adds `config/global-snippet.md` to every agent's global instruction file — Claude's `~/.claude/CLAUDE.md`, Codex's `~/.codex/AGENTS.md`, and any other agent root that holds a `CLAUDE.md` or `AGENTS.md`. That tells each agent to load clear-writing whenever it writes prose, and way-of-working before changing a repo. Without it, agents rarely load the skills on their own. The script does not add the sections twice. `--claude-md` is kept as an alias.
 
 To pick up work on another machine, also read the "Status" section in each skill's README. It lists the open items. To check sources for updates, first rebuild the local `upstream/` snapshots as described in that skill's `SOURCES.md`.
 

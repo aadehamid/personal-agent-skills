@@ -49,7 +49,7 @@ steps depends on your username or on where your home folder is.
    ```bash
    git clone https://github.com/aadehamid/personal-agent-skills.git
    cd personal-agent-skills
-   ./scripts/link-skills.sh --claude-md --tools
+   ./scripts/link-skills.sh --global --tools
    ```
 
 3. Get the project repo, which holds the config, the schema validator, the sync

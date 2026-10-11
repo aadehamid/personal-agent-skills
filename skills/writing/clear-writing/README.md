@@ -43,7 +43,7 @@ python3 evals/grade.py ../../../workspaces/clear-writing/iteration-N
 Last updated 2026-10-03 (iteration 2: re-pitch mode, positive targets, completion criteria; preferred over the previous version in all 4 tests).
 
 - **Calibration is thin.** `calibration.md` came from only 3 sessions, so most rules are marked tentative. Run calibrate mode again on a machine with more sessions: pull first, say "calibrate my writing rules", review the diff, then commit and push. Calibrate mode merges with the existing file, so the results from each machine add up.
-- **CLAUDE.md summary is on hold.** After the next calibration, decide whether to add a three-to-five-line summary of the calibrated rules to `~/.claude/CLAUDE.md`. This is separate from the one-line pointer that `link-skills.sh --claude-md` installs.
+- **CLAUDE.md summary is on hold.** After the next calibration, decide whether to add a three-to-five-line summary of the calibrated rules to `~/.claude/CLAUDE.md`. This is separate from the one-line pointer that `link-skills.sh --global` installs.
 - **Triggering.** The description was tuned on 2026-10-03 (held-out score 5/8, up from 4/8). The CLAUDE.md pointer does most of the work. Retune only if the skill starts to trigger on the wrong requests.
 
 ## Sources

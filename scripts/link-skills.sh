@@ -10,10 +10,13 @@
 #
 # Safe to re-run. It never replaces a real folder, only symlinks.
 #
-# Usage: ./scripts/link-skills.sh [--dry-run] [--claude-md] [--tools]
-#   --claude-md  also add config/claude-md-snippet.md to ~/.claude/CLAUDE.md,
-#                unless that file already contains it. Without this line in
-#                CLAUDE.md, Claude rarely loads the writing skill on its own.
+# Usage: ./scripts/link-skills.sh [--dry-run] [--global] [--tools]
+#   --global     also add config/global-snippet.md to every agent's global
+#                instruction file (Claude's ~/.claude/CLAUDE.md, Codex's
+#                ~/.codex/AGENTS.md, and any other agent root that holds a
+#                CLAUDE.md or AGENTS.md), unless that file already contains it.
+#                Without these lines, agents rarely load the writing skill on
+#                their own. --claude-md is kept as an alias for the same thing.
 #   --tools      also install each skill's command-line tool: any skill with a
 #                cli/pyproject.toml is installed with `uv tool install --editable`,
 #                so edits to the repo take effect without a reinstall. Needs uv.
@@ -21,12 +24,12 @@ set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 shared="$HOME/.agents/skills"
 dry=false
-claude_md=false
+global=false
 tools=false
 for arg in "$@"; do
   case "$arg" in
     --dry-run) dry=true ;;
-    --claude-md) claude_md=true ;;
+    --global|--claude-md) global=true ;;
     --tools) tools=true ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
@@ -80,14 +83,33 @@ find "$repo/skills" -name SKILL.md -not -path '*/node_modules/*' -not -path '*/.
   echo "linked $name"
 done
 
-if $claude_md; then
-  snippet="$repo/config/claude-md-snippet.md"
-  target="$HOME/.claude/CLAUDE.md"
-  # Append only the sections the target does not already carry. A heading alone
-  # proves nothing, because the target may hold a heading of the same name with
-  # different text under it. Presence is the section's marker, or, for an
-  # install made before markers existed, its instruction line.
-  missing="$(python3 - "$snippet" "$target" <<'PY'
+if $global; then
+  snippet="$repo/config/global-snippet.md"
+  # Every agent's global instruction file: Claude's CLAUDE.md, Codex's AGENTS.md,
+  # and any other agent root that already holds a CLAUDE.md or AGENTS.md. The
+  # agent_dirs() list is skills folders; their parent is the agent root.
+  targets=""
+  for d in $dirs; do
+    root="$(dirname "$d")"
+    for f in CLAUDE.md AGENTS.md claude.md agents.md; do
+      [ -f "$root/$f" ] && targets="$targets $root/$f"
+    done
+  done
+  # Always include the two known global files even if no symlink exists yet.
+    targets="$targets $HOME/.claude/CLAUDE.md $HOME/.codex/AGENTS.md"
+    # Dedupe by inode: on a case-insensitive filesystem CLAUDE.md and claude.md
+    # are the same file, and appending to both would double the snippet.
+    targets="$(echo "$targets" | tr ' ' '\n' | grep -v '^$' | while read -r t; do
+      [ -e "$t" ] || continue
+      ino="$(ls -i "$t" | awk '{print $1}')"
+      echo "$ino $t"
+    done | sort -u -k1,1 | awk '{print $2}')"
+  for target in $targets; do
+    # Append only the sections the target does not already carry. A heading alone
+    # proves nothing, because the target may hold a heading of the same name with
+    # different text under it. Presence is the section's marker, or, for an
+    # install made before markers existed, its instruction line.
+    missing="$(python3 - "$snippet" "$target" <<'PY'
 import pathlib, sys
 
 src, dst = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
@@ -119,14 +141,15 @@ for block in blocks:
 sys.stdout.write("\n".join(out))
 PY
 )"
-  if [ -z "$missing" ]; then
-    echo "CLAUDE.md already has every snippet section"
-  elif $dry; then
-    echo "would: append the missing section(s) of $snippet to $target"
-  else
-    { [ -s "$target" ] && echo; printf '%s' "$missing"; } >> "$target"
-    echo "added the missing section(s) to $target"
-  fi
+    if [ -z "$missing" ]; then
+      echo "$target already has every snippet section"
+    elif $dry; then
+      echo "would: append the missing section(s) of $snippet to $target"
+    else
+      { [ -s "$target" ] && echo; printf '%s' "$missing"; } >> "$target"
+      echo "added the missing section(s) to $target"
+    fi
+  done
 fi
 
 if $tools; then
