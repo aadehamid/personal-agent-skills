@@ -23,6 +23,10 @@ shared="$HOME/.agents/skills"
 # ~/.claude/skills always; other agents only if they are installed.
 agent_dirs=("$HOME/.claude/skills")
 [ -d "$HOME/.hermes" ] && agent_dirs+=("$HOME/.hermes/skills")
+# Every Hermes profile is an agent too; link pstack into each one.
+for p in "$HOME"/.hermes/profiles/*/skills; do
+  [ -d "$p" ] && agent_dirs+=("$p")
+done
 dry=false
 [ "${1:-}" = "--dry-run" ] && dry=true
 run() { if $dry; then echo "would: $*"; else "$@"; fi; }
