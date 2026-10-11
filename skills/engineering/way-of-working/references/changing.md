@@ -6,10 +6,11 @@ Read this before opening a pull request.
 
 1. Branch from the current main.
 2. Make one concern's change. A follow-up fix found while working goes in its own PR unless it is the same concern.
-3. Run the checks in `before-push.md`.
-4. Open the PR. Its body carries what "What the body says" below lists. That section is the one place that says what a body holds.
-5. Watch the PR until it merges. See "Watching a pull request" below.
-6. After merge, sync main, delete the branch, and move to the next item.
+3. **Refine the code before review.** Run the `ce-simplify-code` skill on the change. It launches three parallel reviewers (code-reuse, code-quality, efficiency), applies worthwhile findings while preserving behavior, verifies with typecheck/lint/tests, and summarizes. This is the pass that makes the diff reviewable — do it before the checks below, so the independent review reads the code you intend to ship, not a first draft. Skip it only when the change is documentation, generated or vendored files, or mechanical churn with no substantive code (the skill's own preflight decides).
+4. Run the checks in `before-push.md`.
+5. Open the PR. Its body carries what "What the body says" below lists. That section is the one place that says what a body holds.
+6. Watch the PR until it merges. See "Watching a pull request" below.
+7. After merge, sync main, delete the branch, and move to the next item.
 
 ## What the body says
 

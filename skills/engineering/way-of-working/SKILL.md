@@ -33,7 +33,7 @@ When a step cannot be done — no permission to change CI, a shared hook setup, 
 ## The rules
 
 1. **On the record.** Nothing is Decided or Approved without the owner's recorded words, quoted in a decision record. A merge decides nothing. A skipped question in a decision round means "agreed with the recommendation" only if the owner has said so. Read `references/deciding.md` before recording a decision or running a decision interview.
-2. **Every change is a pull request.** One concern per PR. A reviewer merges or holds; fix holds on the same branch. Watch open PRs and finish them before starting unrelated work. Read `references/changing.md` before opening a PR.
+2. **Every change is a pull request.** One concern per PR. A reviewer merges or holds; fix holds on the same branch. Watch open PRs and finish them before starting unrelated work. Read `references/changing.md` before opening a PR. Refine the code with `ce-simplify-code` before the checks and review, so the diff you ship is the code you intend.
 3. **Check before every push**, the first push and every review fix alike. Read `references/before-push.md` before you push.
 4. **Shared, deterministic tools.** Figures, row status and repo-wide searches come from one tested tool in the repo, never from a script an agent writes for the occasion or from memory. Mechanical rules run in one check script, in CI and a pre-push hook. Read `references/guardrails.md` when a project lacks them or when you are about to write a one-off counting script.
 5. **Claim only what has landed.** A document states as done only what is merged; anything in an open PR is pending, with its number.
