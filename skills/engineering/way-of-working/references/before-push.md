@@ -6,14 +6,30 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
 2. **Figures come from the shared tool.** Every count, total and ID list is recomputed by the project's tool from the source files, never copied from memory, a summary or an earlier message. Count the population the sentence claims: rows, not mentions; listed rows, not IDs cited in rationale text.
 3. **External facts cite a primary source.** Release notes, a changelog, a specification or a filing, with version and date. An open issue, a roadmap or a search snippet is a lead, not a source. A version claim names the first release with full support, not a preview. For anything hosted on GitHub, read it with `gh api` (releases, tags, file contents).
 4. **A change reaches every place it applies.** Search the whole repo for every status, rule, term or figure you change, including text split across lines. When you change a rule, walk every section that depends on it: later pipeline steps, checklists, examples, companion documents, other repos that copy it.
-5. **An independent review runs on the diff, and every finding is fixed or answered.** Use a different model from the one that wrote the change. With the Codex plugin installed:
+5. **An independent review runs on the diff, and every finding is fixed or answered.** Use a different model from the one that wrote the change. Prefer Herdr when the working agent is inside a Herdr-managed pane (`test "${HERDR_ENV:-}" = 1`); fall back to the Codex plugin otherwise.
+
+   **Commit the change first, and leave the working tree clean.** A branch review reads committed commits only, so an uncommitted fix is not reviewed at all — an agent that reviews, then edits, then pushes has reviewed the wrong thing. Note the commit you reviewed; if HEAD moves before the push, review again.
+
+   **With Herdr** (the working agent is inside a Herdr pane), spawn a reviewer agent in its own pane — a different kind/model from the writer — prompt it adversarially, wait for it, and read its findings:
+
+   ```sh
+   split=$(herdr pane split --current --direction right --cwd "$PWD" --no-focus)
+   review_pane=$(printf '%s\n' "$split" | jq -r '.result.pane.pane_id')
+   herdr agent start reviewer --kind codex --pane "$review_pane" -- -m <different-model>
+   herdr agent prompt reviewer \
+     "Adversarially review the diff on branch <branch> vs main. Verify: <what to verify>. Say how it could still pass while being wrong." \
+     --wait --timeout 120000
+   herdr agent read reviewer --source recent-unwrapped --lines 120
+   ```
+
+   Use a reviewer kind and model different from the one that wrote the change. If the reviewer is `blocked` during startup, wait until it is `idle` before prompting it. If a full response is not visible in the read, ask the reviewer to write its findings as Markdown in a temporary directory and reply with the file path, then read that file.
+
+   **Without Herdr** (the working agent is not inside a Herdr pane), use the Codex plugin:
 
    ```sh
    node "$(ls -d "$HOME"/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs | tail -1)" \
      adversarial-review --wait --base main --scope branch "<what to verify>"
    ```
-
-   **Commit the change first, and leave the working tree clean.** A branch review reads committed commits only, so an uncommitted fix is not reviewed at all — an agent that reviews, then edits, then pushes has reviewed the wrong thing. Note the commit you reviewed; if HEAD moves before the push, review again.
 
    Tell it which claims to verify and which documents must stay consistent. Ask it to be adversarial, and to say how the thing under review could still pass while being wrong.
 
