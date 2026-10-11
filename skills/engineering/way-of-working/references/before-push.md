@@ -10,19 +10,30 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
 
    **Commit the change first, and leave the working tree clean.** A branch review reads committed commits only, so an uncommitted fix is not reviewed at all — an agent that reviews, then edits, then pushes has reviewed the wrong thing. Note the commit you reviewed; if HEAD moves before the push, review again.
 
-   **With Herdr** (the working agent is inside a Herdr pane), spawn a reviewer agent in its own pane — a different kind/model from the writer — prompt it adversarially, wait for it, and read its findings:
+   **With Herdr** (the working agent is inside a Herdr pane), spawn a reviewer agent in its own pane — a different kind/model from the writer — prompt it adversarially, wait for it, and read its findings. **Reuse the review tab for this repo rather than opening a new one for every review.** Name it `review-<repo>` (the repo's directory name) so it is findable:
 
-   ```sh
-   split=$(herdr pane split --current --direction right --cwd "$PWD" --no-focus)
-   review_pane=$(printf '%s\n' "$split" | jq -r '.result.pane.pane_id')
-   herdr agent start reviewer --kind codex --pane "$review_pane" -- -m <different-model>
-   herdr agent prompt reviewer \
-     "Adversarially review the diff on branch <branch> vs main. Verify: <what to verify>. Say how it could still pass while being wrong." \
-     --wait --timeout 120000
-   herdr agent read reviewer --source recent-unwrapped --lines 120
-   ```
+      ```sh
+      # Find an existing review tab for this repo, or create one.
+      review_tab=$(herdr tab list --json | jq -r --arg repo "$(basename "$PWD")" \
+        '.result.tabs[] | select(.label == "review-\($repo)") | .tab_id' | head -1)
+      if [ -z "$review_tab" ]; then
+        created=$(herdr tab create --cwd "$PWD" --label "review-$(basename "$PWD")" --no-focus)
+        review_tab=$(printf '%s\n' "$created" | jq -r '.result.tab.tab_id')
+      fi
+      review_pane=$(herdr tab get "$review_tab" | jq -r '.result.tab.root_pane.pane_id')
 
-   Use a reviewer kind and model different from the one that wrote the change. If the reviewer is `blocked` during startup, wait until it is `idle` before prompting it. If a full response is not visible in the read, ask the reviewer to write its findings as Markdown in a temporary directory and reply with the file path, then read that file.
+      # Point the reused tab at the branch under review, then start the reviewer.
+      herdr pane run "$review_pane" "git fetch origin && git checkout <branch>"
+      herdr agent start reviewer --kind codex --pane "$review_pane" -- -m <different-model>
+      herdr agent prompt reviewer \
+        "Adversarially review the diff on branch <branch> vs main. Verify: <what to verify>. Say how it could still pass while being wrong." \
+        --wait --timeout 120000
+      herdr agent read reviewer --source recent-unwrapped --lines 120
+      ```
+
+      Use a reviewer kind and model different from the one that wrote the change. If the reviewer is `blocked` during startup, wait until it is `idle` before prompting it. If a full response is not visible in the read, ask the reviewer to write its findings as Markdown in a temporary directory and reply with the file path, then read that file.
+
+      **Close the review tab when the PR merges.** The originating agent sends the reviewer a "PR merged" message, then closes the tab it created: `herdr tab close "$review_tab"` (or `herdr workspace close` if the review lives in its own workspace). Do not close a tab you did not create.
 
    **Without Herdr** (the working agent is not inside a Herdr pane), use the Codex plugin:
 
