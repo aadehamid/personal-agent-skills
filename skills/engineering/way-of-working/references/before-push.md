@@ -46,7 +46,7 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
 
 ## Prove a new check fails
 
-When you add a check, break the thing it checks on purpose (change one figure, one status, one row) and confirm the check fails; then restore it. A check that has never failed may pass vacuously.
+When you add a check, break the thing it checks on purpose (change one figure, one status, one record) and confirm the check fails; then restore it. A check that has never failed may pass vacuously.
 
 Test the check against the cases it claims, not just the happy path: a guard that hashes names rather than contents, or that follows a symlink, or that reads a file named `-` as standard input, passes every ordinary run and fails none. Enumerate the cases the check claims to catch and make each one fail on purpose.
 
