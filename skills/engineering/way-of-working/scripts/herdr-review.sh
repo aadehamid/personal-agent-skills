@@ -91,6 +91,7 @@ fi
 
 report=$(mktemp "${TMPDIR:-/tmp}/review-XXXXXX")   # unique; a failure stops here
 rm -f "$report"                                     # absent until the reviewer writes it
+echo "Report file: $report" >&2                     # findable even if the output is cut short
 prompt="Read AGENTS.md and the repository's review standards file (for example REVIEW_STANDARDS.md) first, and apply them. Run the ce-code-review skill on branch $branch, diff vs main. Verify: $verify. Say how this could pass review while still being wrong. Report findings only; do not apply them. Write them as Markdown to $report and reply with the path."
 
 # --wait fails fast (agent_prompt_stalled) if the prompt never starts work, and

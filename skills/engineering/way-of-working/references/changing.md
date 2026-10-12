@@ -10,7 +10,7 @@ Read this before opening a pull request.
 4. Run the checks in `before-push.md`.
 5. Open the PR. Its body carries what "What the body says" below lists. That section is the one place that says what a body holds.
 6. Watch the PR until it merges. See "Watching a pull request" below.
-7. After merge, sync main, delete the branch, and move to the next item.
+7. After merge, run `~/.agents/skills/way-of-working/scripts/after-merge.sh <branch>` and move to the next item.
 
 **When a PR must merge one way, make it the only way the repository allows.** A file that pins one of the PR's own commits breaks under a squash or rebase merge, which give that commit a new SHA. A warning in the PR body is not enough: a PR that carried one at the top was squash-merged anyway, and a follow-up PR had to re-pin. Ask the owner to untick "Allow squash merging" and "Allow rebase merging" in the repository settings, so the default merge button is the right one.
 
@@ -35,25 +35,12 @@ This shape is adapted from the `pr` skill in `mattpocock-skills` (itself from Hu
 
 Watch every pull request you open, and every one already open when you start, until it merges or the owner closes it. A pull request nobody watches sits on a review finding for hours.
 
-- **Poll every five minutes** on a recurring timer, and report **only when something changes** — a new review, a comment, a check result, a merge state. Silence is the normal case; do not narrate an unchanged poll.
+- **Run `~/.agents/skills/way-of-working/scripts/watch-pr.sh <number>`** from the repository as a background job the harness reports back on. It polls every 30 seconds and exits on the first change that needs you: a merge or close, a new review or comment, or a check that finishes. A check that only starts is not a change. It exits at once if the pull request has already merged. When it exits, read what changed, act, and start it again unless the pull request is merged or closed. Report only changes; silence is the normal case.
 - **Bound review output.** Use `gh api --jq` to select the reviewed commit, creation time, state, and relevant body text. Omit decorative HTML footers. Keep unresolved findings from earlier commits available until fixed or answered. Retrieve source text needed to judge a finding even when it is from an older round.
 - **On a HOLD**, fix on the same branch, run the check script again, run the independent review again (`before-push.md`), and reply on the PR saying what changed.
 - **A review against an older commit is not the current verdict.** Read the commit the review names before acting on it.
-- **On merge**, sync main, delete the branch, and stop the timer.
-- **Delete only the branch you just merged.** A merged pull request does not prove the branch is merged: a squash merge breaks commit ancestry, and commits pushed after the merge stay on the branch. Check the live remote rather than a cached ref, and delete under a lease so a concurrent push aborts the delete:
-
-  ```sh
-  git fetch origin <branch> main &&
-  sha="$(git rev-parse origin/<branch>)" &&
-  git merge-base --is-ancestor "$sha" origin/main &&
-  git push origin --delete <branch> --force-with-lease="<branch>:$sha" &&
-  git branch -d <branch>
-  ```
-
-  Run it as one `&&` chain, so the first failure stops the rest: a bare sequence would carry on to the delete after the ancestry check said no. Fetch `main` as well as the branch, or the check compares against a stale `main`. Everything after the fetch uses the captured `sha`, never `origin/<branch>` again — re-reading a mutable ref between the check and the delete is how a branch verified as merged ends up leased at a commit that is not. The last line is `-d`, never `-D`: it refuses an unmerged branch.
-
-  Without the lease, a push landing after the check takes that work with it. With it, the delete is rejected instead (`stale info`, exit 1).
-- **A branch someone else opened is theirs to delete**, even after its pull request merges. Ask.
+- **On merge, run `~/.agents/skills/way-of-working/scripts/after-merge.sh <branch>`.** It syncs `main`, then deletes the branch locally and on the remote only if every commit on it is in `main`. A squash or rebase merge, or a commit pushed after the merge, leaves work outside `main`, and the script then deletes nothing. It reads the live remote and deletes under a lease on the commit it checked, so a push landing after the check makes the delete fail rather than lose that work. Locally it uses `git branch -d`, which refuses an unmerged branch. `scripts/test_pr_scripts.py` covers a squash merge, a late push, an unpushed local commit, a remote branch already deleted and an unreachable origin. The lease's race with a concurrent push is not tested.
+- **Delete only a branch you opened.** A branch someone else opened is theirs to delete, even after its pull request merges. Ask.
 
 ## Rules that save review rounds
 
