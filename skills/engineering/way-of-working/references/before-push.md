@@ -33,13 +33,23 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
       # Standalone assignment, so set -e stops the recipe if the lookup fails.
       pane_agent=$(herdr pane get "$review_pane" | jq -r 'if .result.pane then (.result.pane.agent // "") else error("pane lookup failed") end')
       if [ -z "$pane_agent" ]; then
-        if ! herdr agent start "rev-$(printf '%s' "$repo" | tr 'A-Z' 'a-z' | tr -cs 'a-z0-9' '-' | cut -c1-28)" \
-            --kind codex --pane "$review_pane" -- \
-            -m gpt-6.1-sol -c model_reasoning_effort=medium \
-            -a never -s workspace-write -c sandbox_workspace_write.network_access=true; then
+        # A just-created tab's shell may not be ready yet (agent_pane_busy): retry briefly.
+        started=""
+        for try in 1 2 3 4 5; do
+          if out=$(herdr agent start "rev-$(printf '%s' "$repo" | tr 'A-Z' 'a-z' | tr -cs 'a-z0-9' '-' | cut -c1-28)" \
+              --kind codex --pane "$review_pane" -- \
+              -m gpt-6.1-sol -c model_reasoning_effort=medium \
+              -a never -s workspace-write -c sandbox_workspace_write.network_access=true 2>&1); then
+            started=1; break
+          fi
+          case "$out" in *agent_pane_busy*) sleep 2 ;; *) break ;; esac
+        done
+        if [ -z "$started" ]; then
+          printf '%s\n' "$out"
           # agent_not_ready: usually Codex's trust dialog on a new directory.
           herdr agent read "$review_pane" --source recent-unwrapped --lines 30 || true
-          echo "Reviewer blocked at startup. Answer it (herdr agent send-keys $review_pane <key>), then run this again."
+          echo "Reviewer did not start (error above). If it is blocked on a question, answer it"
+          echo "(herdr agent send-keys $review_pane <key>); if the pane stayed busy, wait. Then run this again."
           exit 1
         fi
       fi
