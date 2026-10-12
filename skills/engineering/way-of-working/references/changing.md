@@ -12,6 +12,8 @@ Read this before opening a pull request.
 6. Watch the PR until it merges. See "Watching a pull request" below.
 7. After merge, sync main, delete the branch, and move to the next item.
 
+**When a PR must merge one way, make it the only way the repository allows.** A file that pins one of the PR's own commits breaks under a squash or rebase merge, which give that commit a new SHA. A warning in the PR body is not enough: enterprise-performance-model #225 carried one at the top and was squash-merged anyway, and #227 had to re-pin. Ask the owner to untick "Allow squash merging" and "Allow rebase merging" in the repository settings, so the default merge button is the right one.
+
 ## What the body says
 
 The body carries these:

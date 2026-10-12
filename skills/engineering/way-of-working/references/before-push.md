@@ -13,25 +13,70 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
    **With Herdr** (the working agent is inside a Herdr pane), spawn a reviewer agent in its own pane — a different kind/model from the writer — and have it run the `ce-code-review` skill, which does a structured multi-agent review (risk-based reviewer selection, parallel reviewers, a cross-model adversarial pass, a validator, and a rendered report). **Reuse the review tab for this repo rather than opening a new one for every review.** Name it `review-<repo>` (the repo's directory name) so it is findable:
 
       ```sh
-      # Find an existing review tab for this repo, or create one.
-      review_tab=$(herdr tab list --json | jq -r --arg repo "$(basename "$PWD")" \
-        '.result.tabs[] | select(.label == "review-\($repo)") | .tab_id' | head -1)
+      set -euo pipefail   # a failed lookup must stop the recipe, not create a stray tab
+      # Work in this agent's own workspace. An unfiltered `tab list` spans every
+      # workspace, and a tab created without --workspace can open in whichever
+      # one the owner is looking at.
+      repo=$(basename "$PWD")
+      review_tab=$(herdr tab list --workspace "$HERDR_WORKSPACE_ID" | jq -r --arg l "review-$repo" \
+        '.result.tabs[] | select(.label == $l) | .tab_id' | head -1)
       if [ -z "$review_tab" ]; then
-        created=$(herdr tab create --cwd "$PWD" --label "review-$(basename "$PWD")" --no-focus)
+        created=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --label "review-$repo" --no-focus)
         review_tab=$(printf '%s\n' "$created" | jq -r '.result.tab.tab_id')
       fi
-      review_pane=$(herdr tab get "$review_tab" | jq -r '.result.tab.root_pane.pane_id')
+      # `herdr tab get` does not return the pane; find it in the pane list.
+      review_pane=$(herdr pane list | jq -r --arg t "$review_tab" '.result.panes[] | select(.tab_id == $t) | .pane_id' | head -1)
 
-      # Point the reused tab at the branch under review, then start the reviewer.
-      herdr pane run "$review_pane" "git fetch origin && git checkout <branch>"
-      herdr agent start reviewer --kind codex --pane "$review_pane" -- -m <different-model>
-      herdr agent prompt reviewer \
-        "Run the ce-code-review skill on this branch. Review the diff vs main. Verify: <what to verify>. Report findings only; do not apply them." \
-        --wait --timeout 120000
-      herdr agent read reviewer --source recent-unwrapped --lines 120
+      # Start a reviewer only if the pane has none; a reused tab keeps its reviewer.
+      # Different model from the writer, no approval prompts, sandboxed with network.
+      # (Claude writing: Codex on gpt-6.1-sol at medium reasoning, Hamid's choice 2026-10-11.)
+      # Standalone assignment, so set -e stops the recipe if the lookup fails.
+      pane_agent=$(herdr pane get "$review_pane" | jq -r 'if .result.pane then (.result.pane.agent // "") else error("pane lookup failed") end')
+      if [ -z "$pane_agent" ]; then
+        if ! herdr agent start "rev-$(printf '%s' "$repo" | tr 'A-Z' 'a-z' | tr -cs 'a-z0-9' '-' | cut -c1-28)" \
+            --kind codex --pane "$review_pane" -- \
+            -m gpt-6.1-sol -c model_reasoning_effort=medium \
+            -a never -s workspace-write -c sandbox_workspace_write.network_access=true; then
+          # agent_not_ready: usually Codex's trust dialog on a new directory.
+          herdr agent read "$review_pane" --source recent-unwrapped --lines 30 || true
+          echo "Reviewer blocked at startup. Answer it (herdr agent send-keys $review_pane <key>), then run this again."
+          exit 1
+        fi
+      fi
+
+      # A review takes longer than a foreground tool call allows (10 minutes in Claude Code).
+      # Run the whole block as a background job the harness reports back on, with its exit
+      # status (Claude Code: run_in_background), never with `&`. Address the reviewer by its pane. --wait fails fast (agent_prompt_stalled) if the prompt never
+      # starts work, and otherwise returns when the reviewer is idle, done or blocked.
+      report=$(mktemp "${TMPDIR:-/tmp}/review-XXXXXX")   # unique; a failure stops here
+      rm -f "$report"                                     # absent until the reviewer writes it
+      if ! herdr agent prompt "$review_pane" \
+          "Run the ce-code-review skill on branch <branch>, diff vs main. Verify: <what to verify>. Report findings only; do not apply them. Write them as Markdown to $report and reply with the path." \
+          --wait --timeout 3600000; then
+        herdr agent read "$review_pane" --source recent-unwrapped --lines 60 || true
+        echo "Prompt not completed. agent_blocked: the reviewer was already waiting on a question and"
+        echo "got nothing; answer it (herdr agent send-keys $review_pane <key>), then run this again."
+        echo "timeout: the review may still be running; wait for the same report:"
+        echo "  herdr agent wait $review_pane --until idle --until done --timeout 3600000 && cat '$report'"
+        exit 1
+      fi
+      if [ ! -f "$report" ]; then   # no report means no review, whatever the pane shows
+        state=$(herdr agent get "$review_pane" | jq -r '.result.agent.agent_status' || true)
+        herdr agent read "$review_pane" --source recent-unwrapped --lines 60 || true
+        echo "No report (state: $state). A blocked reviewer refuses new prompts: answer it"
+        echo "(herdr agent send-keys $review_pane <key>), then wait for the same report:"
+        echo "  herdr agent wait $review_pane --until idle --until done --timeout 3600000 && cat '$report'"
+        exit 1
+      fi
+      cat "$report"
       ```
 
-      Use a reviewer kind and model different from the one that wrote the change. If the reviewer is `blocked` during startup, wait until it is `idle` before prompting it. If a full response is not visible in the read, ask the reviewer to write its findings as Markdown in a temporary directory and reply with the file path, then read that file. `ce-code-review` is report-only by default, so it will not mutate the tree; apply its findings yourself, then re-run the review on the fixed diff.
+      **Wait for the job's exit status and output before you push or open a pull request.** Launching it returns neither. A non-zero status stops the push: follow the recovery lines it printed. The review tab shares the working tree, so the reviewer sees the branch you have checked out. A `blocked` state means the reviewer is waiting on a question; read the pane and answer it. `ce-code-review` is report-only by default, so it will not mutate the tree; apply its findings yourself. For later rounds, prompt the same pane with the new commit and say which findings you fixed or answered (see "Re-review after fixing" below).
+
+      Setup notes and one known gap:
+      - **The writer can drive the reviewer only with an allow rule.** Claude Code's auto mode blocks starting or prompting an agent that never asks for approval. Hamid adds `Bash(herdr agent:*)` once per machine through `/permissions`.
+      - **`-a never` stops command-approval prompts.** Execution failures go back to the reviewer instead, so the owner is never asked to approve its commands.
+      - **Known gap: the cross-model pass does not run.** Under `workspace-write`, `ce-code-review`'s Claude cross-check fails with `npm error code EPERM`. Adding `writable_roots` for `~/.npm`, `~/.claude`, `~/.cache` and `~/.config` clears that, but the transport then fails with `ETARGET`: `acpx@0.19.4` requires `@agentclientprotocol/sdk@^1.5.0`, which npm cannot find (2026-10-12). Either way the review falls back to an adversarial pass from the same model family. Say so in the PR body.
 
       **Close the review tab when the PR merges.** The originating agent sends the reviewer a "PR merged" message, then closes the tab it created: `herdr tab close "$review_tab"` (or `herdr workspace close` if the review lives in its own workspace). Do not close a tab you did not create.
 
