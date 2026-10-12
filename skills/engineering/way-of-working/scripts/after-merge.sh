@@ -24,7 +24,8 @@ done
 # reporting a missing ref could hide another refusing the delete, so stop instead.
 push_urls=$(git remote get-url --push --all origin)
 if [ "$(wc -l <<<"$push_urls")" -ne 1 ]; then
-  echo "origin has several push URLs; delete $branch on each by hand" >&2
+  echo "origin has several push URLs; nothing deleted. This script handles one push URL." >&2
+  echo "Leave $branch, or for each URL fetch its tip, require it in $base, delete with a lease." >&2
   exit 1
 fi
 push_url=$push_urls

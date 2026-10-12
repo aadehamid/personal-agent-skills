@@ -357,7 +357,8 @@ class AfterMerge(unittest.TestCase):
         self.git(self.repo, "remote", "set-url", "--add", "--push", "origin", second)
         r = self.run_after("feat")
         self.assertEqual(r.returncode, 1)
-        self.assertIn("origin has several push URLs", r.stderr)
+        self.assertIn("origin has several push URLs; nothing deleted", r.stderr)
+        self.assertIn("require it in main", r.stderr)
         self.assertEqual(self.branches(), (["feat", "main"], True))
         self.git(self.tmp, "--git-dir", second, "show-ref", "--verify", "refs/heads/feat")
 
