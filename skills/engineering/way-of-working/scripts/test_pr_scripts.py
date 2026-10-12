@@ -350,6 +350,17 @@ class AfterMerge(unittest.TestCase):
         self.assertIn("deletion prohibited", r.stderr)
         self.assertFeatKept(r)
 
+    def test_several_push_urls_delete_nothing(self):
+        self.merge_on_origin()
+        second = self.clone("second", "--bare")
+        self.git(self.repo, "remote", "set-url", "--add", "--push", "origin", self.origin)
+        self.git(self.repo, "remote", "set-url", "--add", "--push", "origin", second)
+        r = self.run_after("feat")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("origin has several push URLs", r.stderr)
+        self.assertEqual(self.branches(), (["feat", "main"], True))
+        self.git(self.tmp, "--git-dir", second, "show-ref", "--verify", "refs/heads/feat")
+
     def test_failed_remote_lookup_is_not_taken_for_a_deleted_branch(self):
         self.merge_on_origin()
         r = self.run_after("feat", hook="ls-remote-fails")

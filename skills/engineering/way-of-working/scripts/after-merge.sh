@@ -20,6 +20,15 @@ done
 [ -n "$branch" ] || { echo "usage: $0 <branch> [--base <branch>]" >&2; exit 2; }
 [ "$branch" != "$base" ] || { echo "refusing to delete the base branch $base" >&2; exit 2; }
 
+# Every check below reads the one place the delete goes. With several push URLs, one
+# reporting a missing ref could hide another refusing the delete, so stop instead.
+push_urls=$(git remote get-url --push --all origin)
+if [ "$(wc -l <<<"$push_urls")" -ne 1 ]; then
+  echo "origin has several push URLs; delete $branch on each by hand" >&2
+  exit 1
+fi
+push_url=$push_urls
+
 git fetch --quiet origin "$base"
 git switch --quiet "$base"
 git merge --quiet --ff-only "origin/$base"
@@ -43,7 +52,7 @@ fi
 # a server that hides refs makes a hidden branch look deleted.
 remote_rc() {   # git's exit code: 0 the branch is there, 2 it is not, other an error
   local rc=0
-  git ls-remote --exit-code --heads origin "refs/heads/$branch" >/dev/null || rc=$?
+  git ls-remote --exit-code --heads "$push_url" "refs/heads/$branch" >/dev/null || rc=$?
   echo "$rc"
 }
 # Git's words for a missing ref: from fetch, from a delete the client refuses, and
@@ -65,13 +74,13 @@ git_unless_gone() {
 rc=$(remote_rc)
 case "$rc" in
   0)
-    if git_unless_gone fetch --quiet origin "refs/heads/$branch"; then
+    if git_unless_gone fetch --quiet "$push_url" "refs/heads/$branch"; then
       remote_sha=$(git rev-parse FETCH_HEAD)
       if ! git merge-base --is-ancestor "$remote_sha" "origin/$base"; then
         echo "origin/$branch has commits that are not in $base; nothing deleted" >&2
         exit 1
       fi
-      if git_unless_gone push --quiet origin --delete "$branch" --force-with-lease="$branch:$remote_sha"; then
+      if git_unless_gone push --quiet "$push_url" --delete "$branch" --force-with-lease="$branch:$remote_sha"; then
         echo "deleted origin/$branch"
       fi
     fi
