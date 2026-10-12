@@ -7,7 +7,7 @@ applies the script's own --jq filters with jq, so the filters themselves are tes
 
 after-merge.sh deletes branches, so each case builds a throwaway origin and clone and
 checks what is left on both sides. A git wrapper on PATH injects what cannot be
-staged beforehand: a failed lookup or fetch, or a command run just before the branch
+staged beforehand: a failed lookup, a fetch that wrongly reports the ref missing, or a command run just before the branch
 fetch, the remote delete or `branch -d` (a push, a commit, the branch deleted elsewhere).
 """
 import json
@@ -63,8 +63,10 @@ FAKE_GIT = textwrap.dedent(r'''
     import os, subprocess, sys
     real, hook, args = os.environ["REAL_GIT"], os.environ.get("FAKE_GIT_HOOK", ""), sys.argv[1:]
     branch_fetch = args[:1] == ["fetch"] and any(a.startswith("refs/heads/") for a in args)
-    if (hook == "ls-remote-fails" and args[:1] == ["ls-remote"]) or (hook == "fetch-fails" and branch_fetch):
+    if hook == "ls-remote-fails" and args[:1] == ["ls-remote"]:
         sys.exit(128)
+    if hook == "fetch-fails" and branch_fetch:   # claims the ref is missing; the remote still has it
+        sys.exit("fatal: couldn't find remote ref refs/heads/feat")
     before = {"before-fetch": branch_fetch,
               "before-push-delete": args[:1] == ["push"] and "--delete" in args,
               "before-branch-delete": args[:1] == ["branch"] and any(a in ("-d", "-D", "--delete") for a in args)}
@@ -319,6 +321,34 @@ class AfterMerge(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("could not delete origin/feat", r.stderr)
         self.assertEqual(self.branches(), (["feat", "main"], True))
+
+    def hide_on_origin(self, *extra):
+        """Make origin stop listing feat, though it still has it: a server that hides refs."""
+        cmds = [f"git --git-dir='{self.origin}' config uploadpack.hideRefs refs/heads/feat"]
+        cmds += [f"git --git-dir='{self.origin}' config {setting}" for setting in extra]
+        return " && ".join(cmds)
+
+    def assertFeatKept(self, r):
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("could not delete origin/feat", r.stderr)
+        self.assertIn("feat", self.branches()[0])
+        self.git(self.tmp, "--git-dir", self.origin, "show-ref", "--verify", "refs/heads/feat")
+
+    def test_lease_refusal_is_not_taken_for_a_deleted_branch_when_the_ref_is_hidden(self):
+        self.merge_on_origin()
+        late = self.clone("late", "-b", "feat")
+        r = self.run_after("feat", hook="before-push-delete", hook_cmd=(
+            f"cd '{late}' && git commit --quiet --allow-empty -m race && git push --quiet origin feat && "
+            + self.hide_on_origin()))
+        self.assertIn("stale info", r.stderr)
+        self.assertFeatKept(r)
+
+    def test_refused_delete_is_not_taken_for_a_deleted_branch_when_the_ref_is_hidden(self):
+        self.merge_on_origin()
+        r = self.run_after("feat", hook="before-push-delete",
+                           hook_cmd=self.hide_on_origin("receive.denyDeletes true"))
+        self.assertIn("deletion prohibited", r.stderr)
+        self.assertFeatKept(r)
 
     def test_failed_remote_lookup_is_not_taken_for_a_deleted_branch(self):
         self.merge_on_origin()

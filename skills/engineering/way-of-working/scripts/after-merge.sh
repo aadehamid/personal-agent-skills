@@ -36,34 +36,44 @@ fi
 
 # Read the live remote, not a cached ref, and delete under a lease on the exact
 # commit checked, so a push that lands after the check makes the delete fail.
-# Someone else (a review bot, on merge) can delete the branch at any moment, so a
-# fetch or delete that fails counts as done only if the live remote then has no branch.
+# Someone else (a review bot, on merge) can delete the branch at any moment. A fetch
+# or delete that fails counts as done only if git's error says the ref is missing and
+# the live remote then lists no such branch; a lease refusal, a server rule or a
+# network error stays a failure. This trusts the remote to list every branch it has;
+# a server that hides refs makes a hidden branch look deleted.
 remote_rc() {   # git's exit code: 0 the branch is there, 2 it is not, other an error
   local rc=0
   git ls-remote --exit-code --heads origin "refs/heads/$branch" >/dev/null || rc=$?
   echo "$rc"
 }
-gone_now() {
-  [ "$(remote_rc)" = 2 ] || { echo "could not delete origin/$branch; nothing more deleted" >&2; exit 1; }
-  echo "origin/$branch is already gone"
+# Git's words for a missing ref: from fetch, from a delete the client refuses, and
+# from one the server refuses.
+missing_ref="couldn't find remote ref|remote ref does not exist|unable to resolve reference"
+# Runs git. Returns 0 if it succeeded, 1 if the branch went missing; otherwise exits 1.
+git_unless_gone() {
+  local err
+  err=$(LC_ALL=C git "$@" 2>&1) && return 0
+  echo "$err" >&2
+  if grep -Eq "$missing_ref" <<<"$err" && [ "$(remote_rc)" = 2 ]; then
+    echo "origin/$branch is already gone"
+    return 1
+  fi
+  echo "could not delete origin/$branch; nothing more deleted" >&2
+  exit 1
 }
 
 rc=$(remote_rc)
 case "$rc" in
   0)
-    if git fetch --quiet origin "refs/heads/$branch"; then
+    if git_unless_gone fetch --quiet origin "refs/heads/$branch"; then
       remote_sha=$(git rev-parse FETCH_HEAD)
       if ! git merge-base --is-ancestor "$remote_sha" "origin/$base"; then
         echo "origin/$branch has commits that are not in $base; nothing deleted" >&2
         exit 1
       fi
-      if git push --quiet origin --delete "$branch" --force-with-lease="$branch:$remote_sha"; then
+      if git_unless_gone push --quiet origin --delete "$branch" --force-with-lease="$branch:$remote_sha"; then
         echo "deleted origin/$branch"
-      else
-        gone_now
       fi
-    else
-      gone_now
     fi
     ;;
   2) echo "origin/$branch is already gone" ;;
