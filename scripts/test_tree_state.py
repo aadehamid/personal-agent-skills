@@ -175,6 +175,11 @@ def folder_state(root):
     return state
 
 
+class EnvScrub(unittest.TestCase):
+    def test_no_git_variable_survives_import(self):
+        self.assertEqual([n for n in os.environ if n.startswith("GIT_")], [])
+
+
 class InheritedGitEnv(unittest.TestCase):
     """A pre-push hook in a worktree exports an absolute GIT_DIR. The tests must not follow it."""
 
@@ -183,11 +188,16 @@ class InheritedGitEnv(unittest.TestCase):
         subprocess.run(["git", "init", "-q", decoy], check=True, capture_output=True)
         decoy_git = os.path.join(decoy, ".git")
         before = folder_state(decoy_git)
-        env = dict(os.environ, GIT_DIR=decoy_git, GIT_INDEX_FILE=os.path.join(decoy_git, "index"))
-        child = subprocess.run([sys.executable, __file__, "TreeState"], env=env, capture_output=True, text=True)
+        # Every variable that can redirect git, all aimed at the decoy (the scrub must drop them all).
+        env = dict(os.environ, GIT_DIR=decoy_git, GIT_INDEX_FILE=os.path.join(decoy_git, "index"),
+                   GIT_OBJECT_DIRECTORY=os.path.join(decoy_git, "objects"), GIT_COMMON_DIR=decoy_git,
+                   GIT_WORK_TREE=decoy, GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="user.name",
+                   GIT_CONFIG_VALUE_0="decoy")
+        child = subprocess.run([sys.executable, __file__, "TreeState", "EnvScrub"], env=env,
+                               capture_output=True, text=True)
         # The decoy staying clean proves nothing unless the fixture tests actually ran and passed.
         self.assertEqual(child.returncode, 0, child.stdout + child.stderr)
-        expected = len(unittest.TestLoader().getTestCaseNames(TreeState))
+        expected = len(unittest.TestLoader().getTestCaseNames(TreeState)) + 1  # plus EnvScrub
         self.assertGreater(expected, 0)
         self.assertRegex(child.stderr, rf"Ran {expected} tests? ")
         self.assertNotIn("skipped", child.stderr)
