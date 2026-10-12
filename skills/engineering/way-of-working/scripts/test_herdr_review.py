@@ -40,7 +40,8 @@ FAKE = textwrap.dedent(r'''
             tabs = [t for t in tabs if t["workspace_id"] == ws]
         out({"result": {"tabs": tabs}})
     if cmd == "tab create":
-        out({"result": {"tab": {"tab_id": "w2:t3"}, "root_pane": {"pane_id": "w2:p3"}}})
+        root = None if "noroot" in s else {"pane_id": "w2:p3"}
+        out({"result": {"tab": {"tab_id": "w2:t3"}, "root_pane": root}})
     if cmd == "pane list":
         if "panelisterr" in s: err("pane_not_found")
         out({"result": {"panes": [{"tab_id": "w9:t1", "pane_id": "w9:p1"},
@@ -189,10 +190,17 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(created[0][2:4], ["--workspace", "w2"])
         self.assertIn("Review tab: w2:t3 (created)", r.stderr)
 
-    def test_created_tab_is_named_even_if_a_later_step_fails(self):
+    def test_new_tab_pane_comes_from_the_create_response(self):
         r, calls = self.run_case("newtab,fresh,panelisterr")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("pane list", calls)
+
+    def test_created_tab_is_named_even_if_a_later_step_fails(self):
+        r, calls = self.run_case("newtab,fresh,noroot")
+        self.assertNotEqual(r.returncode, 0)
         self.assertIn("Review tab: w2:t3 (created)", r.stderr)
-        self.assertNotIn("pane list", calls)   # a new tab's pane comes from the create response
+        self.assertNotIn("agent start", calls)
+        self.assertNotIn("agent prompt", calls)
 
     def test_reused_tab_is_named_before_pane_lookup_fails(self):
         r, _ = self.run_case("panelisterr")
