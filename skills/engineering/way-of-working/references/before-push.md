@@ -38,7 +38,7 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
 
    Tell it which claims to verify and which documents must stay consistent. Ask it to be adversarial, and to say how the thing under review could still pass while being wrong.
 
-   - **State claims as the change's effects, not as your search.** Write "the ledger gains a sixth bucket; scoped answers no longer wait for #226", not "every document stating the figures was updated". The reviewer checks what the claim names, so a claim that describes your search confines the review to the places you already looked.
+   - **State claims as the change's effects, not as your search.** Name what the change does to the project, in this PR's own terms. For example, a PR that added a ledger bucket and ended a waiting step claimed "every document stating the figures was updated"; the claim that would have exposed its misses was "the ledger gains a bucket; answers no longer wait for that step". The reviewer checks what the claim names, so a claim that describes your search confines the review to the places you already looked.
    - **Reproduce every finding before you accept it.** A finding is a claim; run it. A finding accepted on assertion becomes a wrong change.
    - **Fix clear defects; answer judgement calls in the PR body.** Say which is which, so the reviewer can weigh the judgement.
    - **Re-review after fixing.** A fix can introduce its own defects — a guard tightened in one place is often loosened in another. Run the review again on the fixed diff, and keep going until a pass returns no new finding.
