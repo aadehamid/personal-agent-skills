@@ -30,7 +30,9 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
       # Start a reviewer only if the pane has none; a reused tab keeps its reviewer.
       # Different model from the writer, no approval prompts, sandboxed with network.
       # (Claude writing: Codex on gpt-6.1-sol at medium reasoning, Hamid's choice 2026-10-11.)
-      if [ -z "$(herdr pane get "$review_pane" | jq -r '.result.pane.agent // empty')" ]; then
+      # Standalone assignment, so set -e stops the recipe if the lookup fails.
+      pane_agent=$(herdr pane get "$review_pane" | jq -r 'if .result.pane then (.result.pane.agent // "") else error("pane lookup failed") end')
+      if [ -z "$pane_agent" ]; then
         herdr agent start "rev-$(printf '%s' "$repo" | tr 'A-Z' 'a-z' | tr -cs 'a-z0-9' '-' | cut -c1-28)" \
           --kind codex --pane "$review_pane" -- \
           -m gpt-6.1-sol -c model_reasoning_effort=medium \
@@ -39,14 +41,16 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
 
       # Address the reviewer by its pane. --wait fails fast (agent_prompt_stalled) if the
       # prompt never starts work; run this in the background, since a review takes minutes.
-      report="${TMPDIR:-/tmp}/review-$repo-$(date +%s).md"
+      report=$(mktemp "${TMPDIR:-/tmp}/review-XXXXXX") && rm -f "$report"   # unique, and absent until the reviewer writes it
       herdr agent prompt "$review_pane" \
         "Run the ce-code-review skill on branch <branch>, diff vs main. Verify: <what to verify>. Report findings only; do not apply them. Write them as Markdown to $report and reply with the path." \
         --wait --timeout 3600000
       state=$(herdr agent get "$review_pane" | jq -r '.result.agent.agent_status')
-      if [ -f "$report" ]; then cat "$report"; else
+      if [ ! -f "$report" ]; then   # no report means no review, whatever the pane shows
         echo "no report (state: $state)"; herdr agent read "$review_pane" --source recent-unwrapped --lines 60
+        exit 1
       fi
+      cat "$report"
       ```
 
       The review tab shares the working tree, so the reviewer sees the branch you have checked out. A `blocked` state means the reviewer is waiting on a question; read the pane and answer it. `ce-code-review` is report-only by default, so it will not mutate the tree; apply its findings yourself. For later rounds, prompt the same pane with the new commit and say which findings you fixed or answered (see "Re-review after fixing" below).
