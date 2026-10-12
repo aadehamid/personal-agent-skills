@@ -28,7 +28,7 @@ The work you were asked to do is not lost by this: it waits behind the guardrail
 
 Every agent that writes its own counting script counts differently, and each difference becomes a wrong figure in a document. Build one tool in the repo instead, and make every agent use it.
 
-- **What it answers:** the figures documents quote, one item's status, the rows in one work item, a repo-wide search that also matches text split across lines, and consistency checks such as decision records against their index.
+- **What it answers:** the figures documents quote, one item's status, the items in one work item, a repo-wide search that also matches text split across lines, and consistency checks such as decision records against their index.
 - **How it computes:** run the project's existing scripts as they are (in a temporary copy if they write files) rather than reimplementing their logic. Define each population once, in code, from the source file's structure.
 - **What it prints:** the files it read and the commit, so a PR body can quote the line; `--json` for agents.
 - **How it is trusted:** tests that pin today's figures, tests that break the input on purpose (reformatting, citations, wrapped lists) and expect the same answer, and a test that the tool never writes to the repo.

@@ -8,7 +8,7 @@ Last review: 2026-10-07.
 
 - **Link:** https://github.com/aadehamid/enterprise-performance-model, PRs #199 to #221 (merged) and #222 (open when this was written).
 - **What we took:** every rule, from the review rounds that taught it. Examples: the decision-record and attribution rules (#199, #212); claiming only what has landed (#216); counting from structure, not text search (#208, #216); primary sources with full-support versions (enterprise-people-graph #1); a rule change reaching every dependent section (enterprise-people-graph #1, #216); the shared tool and check script (#217 to #221); review standards holding only judgement rules (#222, open when this was written).
-- **What we left out:** everything specific to that project (its decisions, figures and file names), except as the worked example named in `README.md`.
+- **What we left out:** everything specific to that project (its decisions, figures and file names). This file is the only place in the skill that names it.
 
 ## 2. mattpocock-skills (marketplace `mattpocock`, v1.3.1)
 

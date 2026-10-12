@@ -1,6 +1,6 @@
 # way-of-working
 
-Hamid's engineering standard for working with coding agents. It covers how decisions get recorded, how changes move through pull requests, what gets checked before every push, which guardrails a project needs, and how the standard improves after each project. It came out of the enterprise-performance-model ontology build on 2026-10-05 and 06. Every rule in it exists because skipping it cost a review round there.
+Hamid's engineering standard for working with coding agents on any project. It covers how decisions get recorded, how changes move through pull requests, what gets checked before every push, which guardrails a project needs, and how the standard improves after each project. Every rule in it exists because skipping it cost a review round on a real project; `SOURCES.md` lists which. The skill itself names no project: its rules and examples are meant to hold anywhere.
 
 This README is for people. Agents read `SKILL.md` and the files it points to.
 
@@ -23,14 +23,12 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 
 The order is in `references/guardrails.md` under "A project with nothing yet". That is the authoritative version, for you and for agents alike; this file does not repeat it, because two copies of a procedure drift.
 
-After the first heavy session, run a retro and put each lesson in one place (`references/improving.md`).
-
-The enterprise-performance-model repo is the worked example. See `scripts/epm_facts.py`, `scripts/check.sh`, `.github/workflows/checks.yml` and `business_architecture/domain/decisions/`. Its `REVIEW_STANDARDS.md` is in enterprise-performance-model PR #222, open when this was written.
+After the first heavy session, run a retro and put each lesson in one place (`references/improving.md`). A lesson that holds only for one project goes in that project's own files, never in this skill.
 
 ## Status
 
 Started 2026-10-06 from one project.
 
 - **No evals yet.** Write test prompts before tuning: starting a new repo, preparing a PR with a figure in it, and recording a decision from a vague request.
-- **One project's lessons.** Expect changes after the first project that isn't an ontology build. The guardrail examples come from a Python and Markdown repo.
+- **Narrow evidence so far.** The lessons come from a few Python and Markdown repositories. Expect changes as other kinds of project use it.
 - **A review gate between the stages.** The skill gives the implementing agent the command to run an independent review, and tells it to reproduce each finding and re-review after fixing. It is still the agent's job to run it: a hook that refuses to push without one is not built yet.

@@ -3,9 +3,9 @@
 Run these before you open a PR and again before every review-fix push. Fixes cause as many misses as first pushes.
 
 1. **The check script passes.** Run the project's check script (for example `scripts/check.sh`). If the project has none, see `guardrails.md`.
-2. **Figures come from the shared tool.** Every count, total and ID list is recomputed by the project's tool from the source files, never copied from memory, a summary or an earlier message. Count the population the sentence claims: rows, not mentions; listed rows, not IDs cited in rationale text.
+2. **Figures come from the shared tool.** Every count, total and ID list is recomputed by the project's tool from the source files, never copied from memory, a summary or an earlier message. Count the population the sentence claims, not a neighbouring one: the listed items, not IDs cited in another item's rationale or explanation.
 3. **External facts cite a primary source.** Release notes, a changelog, a specification or a filing, with version and date. An open issue, a roadmap or a search snippet is a lead, not a source. A version claim names the first release with full support, not a preview. For anything hosted on GitHub, read it with `gh api` (releases, tags, file contents).
-4. **A change reaches every place it applies.** Search the whole repo for every status, rule, term or figure you change, including text split across lines. When you change a rule, walk every section that depends on it: later pipeline steps, checklists, examples, companion documents, other repos that copy it. When a change adds a member to a list (a bucket, a status, a route) or replaces an instruction, also search for the bare old figure, the list's other members, and the old instruction's words, such as the issue a step used to wait for. A search for the phrases you expect finds only those phrases.
+4. **A change reaches every place it applies.** Search the whole repo for every status, rule, term or figure you change, including text split across lines. When you change a rule, walk every section that depends on it: later pipeline steps, checklists, examples, companion documents, other repos that copy it. When a change adds a member to a set of values (an enum value, a status, a category) or replaces an instruction, also search for the bare old number, the set's other members, and the old instruction's own words, such as the ticket a step used to wait for. A search for the phrases you expect finds only those phrases.
 5. **An independent review runs on the diff, and every finding is fixed or answered.** Use a different model from the one that wrote the change. Prefer Herdr when the working agent is inside a Herdr-managed pane (`test "${HERDR_ENV:-}" = 1`); fall back to the Codex plugin otherwise.
 
    **Commit the change first, and leave the working tree clean.** A branch review reads committed commits only, so an uncommitted fix is not reviewed at all — an agent that reviews, then edits, then pushes has reviewed the wrong thing. Note the commit you reviewed; if HEAD moves before the push, review again.
@@ -18,12 +18,12 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
       ~/.agents/skills/way-of-working/scripts/herdr-review.sh --branch <branch> --verify "<claims to verify>"
       ```
 
-      `scripts/herdr-review.sh` opens or reuses the `review-<repo>` tab in this agent's own workspace, starts a reviewer only in an empty pane (Codex on gpt-6.1-sol at medium reasoning, `-a never`, sandboxed with network; Hamid's choice 2026-10-11), tells it to apply the repository's review standards, waits, and prints the report. It exits 1 with recovery steps when there is no report: a blocked or busy start, a rejected or timed-out prompt, or a reviewer that stopped on a question. `scripts/test_herdr_review.py` covers each of those cases.
+      `scripts/herdr-review.sh` opens or reuses the `review-<repo>` tab in this agent's own workspace, starts a reviewer only in an empty pane (Codex on gpt-6.1-sol at medium reasoning, `-a never`, sandboxed with network; the owner's choice, set in the script), tells it to apply the repository's review standards, waits, and prints the report. It exits 1 with recovery steps when there is no report: a blocked or busy start, a rejected or timed-out prompt, or a reviewer that stopped on a question. `scripts/test_herdr_review.py` covers each of those cases.
 
       **Wait for the job's exit status and output before you push or open a pull request.** Launching it returns neither. A non-zero status stops the push: follow the recovery lines it printed. The review tab shares the working tree, so the reviewer sees the branch you have checked out. For later rounds, run it again with the new commit and say which findings you fixed or answered (see "Re-review after fixing" below). `ce-code-review` is report-only, so apply its findings yourself.
 
       Setup notes and one known gap:
-      - **The writer can drive the reviewer only with an allow rule.** Claude Code's auto mode blocks starting or prompting an agent that never asks for approval. Hamid adds `Bash(herdr agent:*)` once per machine through `/permissions`.
+      - **The writer can drive the reviewer only with an allow rule.** Claude Code's auto mode blocks starting or prompting an agent that never asks for approval. The owner adds `Bash(herdr agent:*)` once per machine through `/permissions`.
       - **`-a never` stops command-approval prompts.** Execution failures go back to the reviewer instead, so the owner is never asked to approve its commands.
       - **Known gap: the cross-model pass does not run.** Under `workspace-write`, `ce-code-review`'s Claude cross-check fails with `npm error code EPERM`. Adding `writable_roots` for `~/.npm`, `~/.claude`, `~/.cache` and `~/.config` clears that, but the transport then fails with `ETARGET`: `acpx@0.19.4` requires `@agentclientprotocol/sdk@^1.5.0`, which npm cannot find (2026-10-12). Either way the review falls back to an adversarial pass from the same model family. Say so in the PR body.
 
@@ -38,7 +38,7 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
 
    Tell it which claims to verify and which documents must stay consistent. Ask it to be adversarial, and to say how the thing under review could still pass while being wrong.
 
-   - **State claims as the change's effects, not as your search.** Name what the change does to the project, in this PR's own terms. For example, a PR that added a ledger bucket and ended a waiting step claimed "every document stating the figures was updated"; the claim that would have exposed its misses was "the ledger gains a bucket; answers no longer wait for that step". The reviewer checks what the claim names, so a claim that describes your search confines the review to the places you already looked.
+   - **State claims as the change's effects, not as your search.** Name what the change does to the project, in this PR's own terms. For example, a PR that adds an order status and drops a manual approval step should claim "orders gain a status; refunds no longer wait for manual approval", not "every document stating the counts was updated". The reviewer checks what the claim names, so a claim that describes your search confines the review to the places you already looked.
    - **Reproduce every finding before you accept it.** A finding is a claim; run it. A finding accepted on assertion becomes a wrong change.
    - **Fix clear defects; answer judgement calls in the PR body.** Say which is which, so the reviewer can weigh the judgement.
    - **Re-review after fixing.** A fix can introduce its own defects — a guard tightened in one place is often loosened in another. Run the review again on the fixed diff, and keep going until a pass returns no new finding.
@@ -46,7 +46,7 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
 
 ## Prove a new check fails
 
-When you add a check, break the thing it checks on purpose (change one figure, one status, one row) and confirm the check fails; then restore it. A check that has never failed may pass vacuously.
+When you add a check, break the thing it checks on purpose (change one figure, one status, one record) and confirm the check fails; then restore it. A check that has never failed may pass vacuously.
 
 Test the check against the cases it claims, not just the happy path: a guard that hashes names rather than contents, or that follows a symlink, or that reads a file named `-` as standard input, passes every ordinary run and fails none. Enumerate the cases the check claims to catch and make each one fail on purpose.
 

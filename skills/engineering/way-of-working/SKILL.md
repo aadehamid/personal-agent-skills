@@ -1,7 +1,7 @@
 ---
 name: way-of-working
 description: >-
-  Hamid's engineering standard for agent work on any repository: how decisions are recorded, how every change goes through a pull request, the checks that run before every push, the shared tools and guardrails that replace one-off scripts, and the retro loop that improves the standard. Use when starting or onboarding to a project, setting up a repo's guardrails (check script, CI, pre-push hook, review standards), recording a decision, preparing or fixing a pull request, or running a retrospective.
+  An engineering standard for agent work on any repository: how decisions are recorded, how every change goes through a pull request, the checks that run before every push, the shared tools and guardrails that replace one-off scripts, and the retro loop that improves the standard. Use when starting or onboarding to a project, setting up a repo's guardrails (check script, CI, pre-push hook, review standards), recording a decision, preparing or fixing a pull request, or running a retrospective.
 ---
 
 # Way of working
@@ -35,7 +35,7 @@ When a step cannot be done — no permission to change CI, a shared hook setup, 
 1. **On the record.** Nothing is Decided or Approved without the owner's recorded words, quoted in a decision record. A merge decides nothing. A skipped question in a decision round means "agreed with the recommendation" only if the owner has said so. Read `references/deciding.md` before recording a decision or running a decision interview.
 2. **Every change is a pull request.** One concern per PR. A reviewer merges or holds; fix holds on the same branch. Watch open PRs and finish them before starting unrelated work. Read `references/changing.md` before opening a PR. Refine the code with `ce-simplify-code` before the checks and review, so the diff you ship is the code you intend.
 3. **Check before every push**, the first push and every review fix alike. Read `references/before-push.md` before you push.
-4. **Shared, deterministic tools.** Figures, row status and repo-wide searches come from one tested tool in the repo, never from a script an agent writes for the occasion or from memory. Mechanical rules run in one check script, in CI and a pre-push hook. Read `references/guardrails.md` when a project lacks them or when you are about to write a one-off counting script.
+4. **Shared, deterministic tools.** Figures, item status and repo-wide searches come from one tested tool in the repo, never from a script an agent writes for the occasion or from memory. Mechanical rules run in one check script, in CI and a pre-push hook. Read `references/guardrails.md` when a project lacks them or when you are about to write a one-off counting script.
 5. **Claim only what has landed.** A document states as done only what is merged; anything in an open PR is pending, with its number.
 6. **One source of truth per rule.** A rule lives in one place; other documents point to it. Instruction files hold pointers, not detail. Read `references/documents.md` when writing or restructuring project documents.
 7. **Write for the reader.** Any communication with a person — every reply, status update, email, doc, README, commit and PR description, post, and any text the user asks to edit — follows the clear-writing skill. Documents for agents follow writing-for-agents.
