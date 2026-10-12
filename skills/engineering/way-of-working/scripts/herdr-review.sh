@@ -67,7 +67,7 @@ fi
 
 # Start a reviewer only if the pane has none; a reused tab keeps its reviewer.
 # Different model from the writer, no approval prompts, sandboxed with network
-# (Claude writing: Codex on gpt-6.1-sol at medium reasoning, Hamid's choice 2026-10-11).
+# (Claude writing: Codex on gpt-6.1-sol at medium reasoning, the owner's choice).
 pane_agent=$(herdr pane get "$review_pane" | jget result.pane.agent)
 if [ -z "$pane_agent" ]; then
   name="rev-$(printf '%s' "$repo" | tr 'A-Z' 'a-z' | tr -cs 'a-z0-9' '-' | cut -c1-28)"

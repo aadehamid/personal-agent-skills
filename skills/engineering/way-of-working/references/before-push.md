@@ -18,12 +18,12 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
       ~/.agents/skills/way-of-working/scripts/herdr-review.sh --branch <branch> --verify "<claims to verify>"
       ```
 
-      `scripts/herdr-review.sh` opens or reuses the `review-<repo>` tab in this agent's own workspace, starts a reviewer only in an empty pane (Codex on gpt-6.1-sol at medium reasoning, `-a never`, sandboxed with network; Hamid's choice 2026-10-11), tells it to apply the repository's review standards, waits, and prints the report. It exits 1 with recovery steps when there is no report: a blocked or busy start, a rejected or timed-out prompt, or a reviewer that stopped on a question. `scripts/test_herdr_review.py` covers each of those cases.
+      `scripts/herdr-review.sh` opens or reuses the `review-<repo>` tab in this agent's own workspace, starts a reviewer only in an empty pane (Codex on gpt-6.1-sol at medium reasoning, `-a never`, sandboxed with network; the owner's choice, set in the script), tells it to apply the repository's review standards, waits, and prints the report. It exits 1 with recovery steps when there is no report: a blocked or busy start, a rejected or timed-out prompt, or a reviewer that stopped on a question. `scripts/test_herdr_review.py` covers each of those cases.
 
       **Wait for the job's exit status and output before you push or open a pull request.** Launching it returns neither. A non-zero status stops the push: follow the recovery lines it printed. The review tab shares the working tree, so the reviewer sees the branch you have checked out. For later rounds, run it again with the new commit and say which findings you fixed or answered (see "Re-review after fixing" below). `ce-code-review` is report-only, so apply its findings yourself.
 
       Setup notes and one known gap:
-      - **The writer can drive the reviewer only with an allow rule.** Claude Code's auto mode blocks starting or prompting an agent that never asks for approval. Hamid adds `Bash(herdr agent:*)` once per machine through `/permissions`.
+      - **The writer can drive the reviewer only with an allow rule.** Claude Code's auto mode blocks starting or prompting an agent that never asks for approval. The owner adds `Bash(herdr agent:*)` once per machine through `/permissions`.
       - **`-a never` stops command-approval prompts.** Execution failures go back to the reviewer instead, so the owner is never asked to approve its commands.
       - **Known gap: the cross-model pass does not run.** Under `workspace-write`, `ce-code-review`'s Claude cross-check fails with `npm error code EPERM`. Adding `writable_roots` for `~/.npm`, `~/.claude`, `~/.cache` and `~/.config` clears that, but the transport then fails with `ETARGET`: `acpx@0.19.4` requires `@agentclientprotocol/sdk@^1.5.0`, which npm cannot find (2026-10-12). Either way the review falls back to an adversarial pass from the same model family. Say so in the PR body.
 
