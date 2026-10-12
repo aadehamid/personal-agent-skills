@@ -7,7 +7,8 @@
 #   the agent wakes up then, not on a timer.
 # Exits 0 and prints the new state when the PR merges or closes, gets a review or a
 # comment, or a check finishes. A check that only starts or queues is not a change.
-# Exits 0 at once if the PR has already merged or closed. A failed gh call is retried.
+# Exits 0 at once if the PR has already merged or closed. A failed gh call is retried;
+# ten failures in a row (a wrong number, an expired login) exit 1 with gh's error shown.
 # Tests: test_pr_scripts.py, run by the repository's scripts/check.sh.
 set -euo pipefail
 
@@ -30,13 +31,26 @@ snapshot() {
        | "\(.name // .context)=\(.conclusion // .state)"] | sort | join(","))] | @tsv'
 }
 
-until first=$(snapshot); do sleep "$interval"; done
+failures=0
+# Sets $snap. A failed call counts toward the limit; a good one resets it.
+poll() {
+  if snap=$(snapshot); then failures=0; return 0; fi
+  failures=$((failures + 1))
+  if [ "$failures" -ge 10 ]; then
+    echo "gh failed $failures times in a row; stopping" >&2
+    exit 1
+  fi
+  return 1
+}
+
+until poll; do sleep "$interval"; done
+first=$snap
 echo "start: $first"
 case "$first" in MERGED*|CLOSED*) exit 0 ;; esac
 while sleep "$interval"; do
-  now=$(snapshot) || continue
-  if [ "$now" != "$first" ]; then
-    echo "changed: $now"
+  poll || continue
+  if [ "$snap" != "$first" ]; then
+    echo "changed: $snap"
     exit 0
   fi
 done

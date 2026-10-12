@@ -17,7 +17,20 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 WATCH = os.path.join(HERE, "watch-pr.sh")
 AFTER = os.path.join(HERE, "after-merge.sh")
-JQ = "/usr/bin/jq" if os.access("/usr/bin/jq", os.X_OK) else shutil.which("jq")
+def working_jq():
+    """The first jq on PATH that runs. A machine can carry a jq built for another CPU."""
+    for directory in os.environ.get("PATH", "").split(os.pathsep):
+        candidate = os.path.join(directory, "jq")
+        if os.access(candidate, os.X_OK):
+            try:
+                subprocess.run([candidate, "--version"], capture_output=True, check=True)
+                return candidate
+            except (OSError, subprocess.CalledProcessError):
+                continue
+    return None
+
+
+JQ = working_jq()
 
 FAKE_GH = textwrap.dedent(r'''
     #!/usr/bin/env python3
@@ -47,6 +60,8 @@ def check(status, conclusion=""):
 class WatchPr(unittest.TestCase):
     def run_watch(self, seq):
         state, bindir = tempfile.mkdtemp(), tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, state, True)
+        self.addCleanup(shutil.rmtree, bindir, True)
         for name, body in (("gh", FAKE_GH), ("sleep", "#!/bin/sh\nexit 0\n")):
             path = os.path.join(bindir, name)
             with open(path, "w") as f:
@@ -87,6 +102,12 @@ class WatchPr(unittest.TestCase):
         self.assertEqual(calls, 2)
         self.assertIn("changed: MERGED", r.stdout)
 
+    def test_ten_failures_in_a_row_stop_the_watch(self):
+        r, calls = self.run_watch([None])
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(calls, 10)
+        self.assertIn("gh failed 10 times in a row", r.stderr)
+
     def test_a_failed_gh_call_is_retried(self):
         r, calls = self.run_watch([None, pr(), None, pr(comments=1)])
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -97,6 +118,7 @@ class WatchPr(unittest.TestCase):
 class AfterMerge(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
         self.env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.com",
                         GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.com",
                         GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
@@ -114,11 +136,12 @@ class AfterMerge(unittest.TestCase):
         return subprocess.run(["git", *args], cwd=cwd, env=self.env, check=True,
                               capture_output=True, text=True).stdout.strip()
 
-    def commit(self, name):
-        with open(os.path.join(self.repo, name), "w") as f:
+    def commit(self, name, repo=None):
+        repo = repo or self.repo
+        with open(os.path.join(repo, name), "w") as f:
             f.write(name)
-        self.git(self.repo, "add", name)
-        self.git(self.repo, "commit", "--quiet", "-m", name)
+        self.git(repo, "add", name)
+        self.git(repo, "commit", "--quiet", "-m", name)
 
     def merge_on_origin(self, squash=False):
         """Merge feat into main the way a review bot would, from a separate clone."""
@@ -158,10 +181,7 @@ class AfterMerge(unittest.TestCase):
         self.merge_on_origin()
         other = os.path.join(self.tmp, "late")
         self.git(self.tmp, "clone", "--quiet", "-b", "feat", self.origin, other)
-        with open(os.path.join(other, "late"), "w") as f:
-            f.write("late")
-        self.git(other, "add", "late")
-        self.git(other, "commit", "--quiet", "-m", "late")
+        self.commit("late", other)
         self.git(other, "push", "--quiet", "origin", "feat")
         r = self.run_after("feat")
         self.assertEqual(r.returncode, 1)
@@ -185,7 +205,6 @@ class AfterMerge(unittest.TestCase):
 
     def test_unreadable_origin_deletes_nothing(self):
         self.merge_on_origin()
-        # With origin unreachable the script must stop before deleting anything.
         os.rename(self.origin, self.origin + ".moved")
         r = self.run_after("feat")
         os.rename(self.origin + ".moved", self.origin)
