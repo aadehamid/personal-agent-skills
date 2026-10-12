@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Each change check.sh's guard claims to catch must change the hash."""
+import hashlib
 import importlib.util
 import os
 import subprocess
@@ -159,6 +160,21 @@ class TreeState(unittest.TestCase):
             os.chmod(self.p("a.txt"), 0o644)
 
 
+def folder_state(root):
+    """Every entry under root, with its type, mode and (for a file) content hash."""
+    state = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        for name in dirnames + filenames:
+            path = os.path.join(dirpath, name)
+            st = os.lstat(path)
+            entry = (st.st_mode,)
+            if os.path.isfile(path) and not os.path.islink(path):
+                with open(path, "rb") as f:
+                    entry += (hashlib.sha256(f.read()).hexdigest(),)
+            state[os.path.relpath(path, root)] = entry
+    return state
+
+
 class InheritedGitEnv(unittest.TestCase):
     """A pre-push hook in a worktree exports an absolute GIT_DIR. The tests must not follow it."""
 
@@ -166,8 +182,7 @@ class InheritedGitEnv(unittest.TestCase):
         decoy = tempfile.mkdtemp()
         subprocess.run(["git", "init", "-q", decoy], check=True, capture_output=True)
         decoy_git = os.path.join(decoy, ".git")
-        with open(os.path.join(decoy_git, "config")) as f:
-            config_before = f.read()
+        before = folder_state(decoy_git)
         env = dict(os.environ, GIT_DIR=decoy_git, GIT_INDEX_FILE=os.path.join(decoy_git, "index"))
         child = subprocess.run([sys.executable, __file__, "TreeState"], env=env, capture_output=True, text=True)
         # The decoy staying clean proves nothing unless the fixture tests actually ran and passed.
@@ -176,12 +191,8 @@ class InheritedGitEnv(unittest.TestCase):
         self.assertGreater(expected, 0)
         self.assertRegex(child.stderr, rf"Ran {expected} tests? ")
         self.assertNotIn("skipped", child.stderr)
-        with open(os.path.join(decoy_git, "config")) as f:
-            self.assertEqual(f.read(), config_before)
-        refs = subprocess.run(["git", "-C", decoy, "for-each-ref"], capture_output=True, text=True,
-                              env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
-        self.assertEqual(refs.returncode, 0, refs.stderr)
-        self.assertEqual(refs.stdout, "")
+        # Config, index, refs, objects, logs: nothing in the decoy repository may change.
+        self.assertEqual(folder_state(decoy_git), before)
 
 
 if __name__ == "__main__":
