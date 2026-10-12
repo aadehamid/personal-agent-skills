@@ -13,6 +13,7 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
    **With Herdr** (the working agent is inside a Herdr pane), spawn a reviewer agent in its own pane — a different kind/model from the writer — and have it run the `ce-code-review` skill, which does a structured multi-agent review (risk-based reviewer selection, parallel reviewers, a cross-model adversarial pass, a validator, and a rendered report). **Reuse the review tab for this repo rather than opening a new one for every review.** Name it `review-<repo>` (the repo's directory name) so it is findable:
 
       ```sh
+      set -euo pipefail   # a failed lookup must stop the recipe, not create a stray tab
       # Work in this agent's own workspace. An unfiltered `tab list` spans every
       # workspace, and a tab created without --workspace can open in whichever
       # one the owner is looking at.
