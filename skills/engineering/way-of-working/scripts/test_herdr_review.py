@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+"""Run herdr-review.sh against a fake herdr, once per case the review recipe met in practice.
+
+The fake herdr on PATH reads the scenario from FAKE_HERDR and records each call,
+so a test can check both the exit status and which herdr commands ran.
+"""
+import os
+import re
+import stat
+import subprocess
+import tempfile
+import textwrap
+import unittest
+
+SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "herdr-review.sh")
+
+FAKE = textwrap.dedent(r'''
+    #!/usr/bin/env python3
+    import json, os, re, sys
+    s = os.environ["FAKE_HERDR"].split(",")
+    state = os.environ["FAKE_STATE"]
+    args = sys.argv[1:]
+    cmd = " ".join(args[:2])
+    with open(os.path.join(state, "calls"), "a") as f:
+        f.write(cmd + "\n")
+    def out(obj, code=0):
+        print(json.dumps(obj)); sys.exit(code)
+    def err(code):
+        out({"error": {"code": code}}, 1)
+    if cmd == "tab list":
+        tabs = [] if "newtab" in s else [{"tab_id": "w2:t3", "label": "review-repo"}]
+        out({"result": {"tabs": tabs}})
+    if cmd == "tab create":
+        out({"result": {"tab": {"tab_id": "w2:t3"}}})
+    if cmd == "pane list":
+        out({"result": {"panes": [{"tab_id": "w2:t3", "pane_id": "w2:p3"}]}})
+    if cmd == "pane get":
+        if "paneerr" in s: err("pane_not_found")
+        out({"result": {"pane": {"agent": None if "fresh" in s else "codex"}}})
+    if cmd == "agent start":
+        n_path = os.path.join(state, "starts")
+        n = int(open(n_path).read()) + 1 if os.path.exists(n_path) else 1
+        open(n_path, "w").write(str(n))
+        if "busyall" in s or ("busy2" in s and n <= 2): err("agent_pane_busy")
+        if "notready" in s: err("agent_not_ready")
+        out({"result": {"agent": {"name": args[2]}}})
+    if cmd == "agent prompt":
+        if "blockedrej" in s: err("agent_blocked")
+        if "timeout" in s: err("timeout")
+        report = re.search(r"Markdown to (\S+) and reply", args[3]).group(1)
+        if "noreport" not in s:
+            open(report, "w").write("REVIEW FINDINGS\n")
+        out({"result": {"agent": {"agent_status": "blocked" if "noreport" in s else "idle"}}})
+    if cmd == "agent get":
+        if "getfail" in s: err("agent_not_found")
+        out({"result": {"agent": {"agent_status": "blocked"}}})
+    if cmd == "agent read":
+        if "readfail" in s: err("agent_not_found")
+        print("pane text"); sys.exit(0)
+    err("unexpected " + cmd)
+''').lstrip()
+
+
+class HerdrReview(unittest.TestCase):
+    def run_case(self, scenario, tmpdir=None):
+        state = tempfile.mkdtemp()
+        bindir = tempfile.mkdtemp()
+        fake = os.path.join(bindir, "herdr")
+        with open(fake, "w") as f:
+            f.write(FAKE)
+        os.chmod(fake, os.stat(fake).st_mode | stat.S_IEXEC)
+        # sleep is stubbed so the busy retries run instantly.
+        stub = os.path.join(bindir, "sleep")
+        with open(stub, "w") as f:
+            f.write("#!/bin/sh\nexit 0\n")
+        os.chmod(stub, 0o755)
+        repo = os.path.join(tempfile.mkdtemp(), "repo")
+        os.mkdir(repo)
+        env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"],
+                   FAKE_HERDR=scenario, FAKE_STATE=state, HERDR_WORKSPACE_ID="w2",
+                   TMPDIR=tmpdir or tempfile.mkdtemp())
+        r = subprocess.run(["bash", SCRIPT, "--branch", "b", "--verify", "v"],
+                           cwd=repo, env=env, capture_output=True, text=True)
+        calls_path = os.path.join(state, "calls")
+        calls = []
+        if os.path.exists(calls_path):
+            with open(calls_path) as f:
+                calls = f.read().splitlines()
+        return r, calls
+
+    def test_reused_reviewer_prints_the_report(self):
+        r, calls = self.run_case("ok")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("REVIEW FINDINGS", r.stdout)
+        self.assertNotIn("agent start", calls)
+
+    def test_new_tab_and_fresh_reviewer(self):
+        r, calls = self.run_case("newtab,fresh")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(calls.count("tab create"), 1)
+        self.assertEqual(calls.count("agent start"), 1)
+
+    def test_busy_shell_is_retried_until_ready(self):
+        r, calls = self.run_case("fresh,busy2")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(calls.count("agent start"), 3)
+
+    def test_shell_busy_every_time_gives_up_after_five(self):
+        r, calls = self.run_case("fresh,busyall")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(calls.count("agent start"), 5)
+        self.assertNotIn("agent prompt", calls)
+        self.assertIn("did not start", r.stdout)
+
+    def test_blocked_start_stops_at_once(self):
+        r, calls = self.run_case("fresh,notready,readfail")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(calls.count("agent start"), 1)
+        self.assertIn("did not start", r.stdout)
+
+    def test_failed_pane_lookup_starts_nothing(self):
+        r, calls = self.run_case("paneerr")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertNotIn("agent start", calls)
+        self.assertNotIn("agent prompt", calls)
+
+    def test_prompt_rejected_while_blocked(self):
+        r, _ = self.run_case("blockedrej,readfail")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("agent_blocked", r.stdout)
+
+    def test_prompt_timeout_gives_the_same_report_path(self):
+        r, _ = self.run_case("timeout")
+        self.assertEqual(r.returncode, 1)
+        self.assertRegex(r.stdout, r"herdr agent wait w2:p3 --until idle --until done .*cat '.*review-")
+
+    def test_missing_report_fails_even_if_lookups_fail(self):
+        r, _ = self.run_case("noreport,getfail,readfail")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("No report", r.stdout)
+
+    def test_report_prints_even_if_status_lookup_would_fail(self):
+        r, calls = self.run_case("getfail")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("agent get", calls)
+
+    def test_unwritable_tmpdir_stops_before_the_prompt(self):
+        r, calls = self.run_case("ok", tmpdir="/nonexistent-dir-for-test")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertNotIn("agent prompt", calls)
+
+    def test_prompt_tells_the_reviewer_to_apply_review_standards(self):
+        with open(SCRIPT) as f:
+            self.assertRegex(f.read(), r"review standards file .* first, and apply them")
+
+
+if __name__ == "__main__":
+    unittest.main()
