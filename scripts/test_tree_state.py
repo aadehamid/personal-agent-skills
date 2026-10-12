@@ -197,8 +197,11 @@ class InheritedGitEnv(unittest.TestCase):
                                capture_output=True, text=True)
         # The decoy staying clean proves nothing unless the fixture tests actually ran and passed.
         self.assertEqual(child.returncode, 0, child.stdout + child.stderr)
-        expected = len(unittest.TestLoader().getTestCaseNames(TreeState)) + 1  # plus EnvScrub
-        self.assertGreater(expected, 0)
+        loader = unittest.TestLoader()
+        fixtures, scrub = len(loader.getTestCaseNames(TreeState)), len(loader.getTestCaseNames(EnvScrub))
+        self.assertGreater(fixtures, 0)
+        self.assertGreater(scrub, 0)
+        expected = fixtures + scrub
         self.assertRegex(child.stderr, rf"Ran {expected} tests? ")
         self.assertNotIn("skipped", child.stderr)
         # Config, index, refs, objects, logs: nothing in the decoy repository may change.
