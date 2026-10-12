@@ -41,7 +41,8 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
 
       # Address the reviewer by its pane. --wait fails fast (agent_prompt_stalled) if the
       # prompt never starts work; run this in the background, since a review takes minutes.
-      report=$(mktemp "${TMPDIR:-/tmp}/review-XXXXXX") && rm -f "$report"   # unique, and absent until the reviewer writes it
+      report=$(mktemp "${TMPDIR:-/tmp}/review-XXXXXX")   # unique; a failure stops here
+      rm -f "$report"                                     # absent until the reviewer writes it
       herdr agent prompt "$review_pane" \
         "Run the ce-code-review skill on branch <branch>, diff vs main. Verify: <what to verify>. Report findings only; do not apply them. Write them as Markdown to $report and reply with the path." \
         --wait --timeout 3600000
