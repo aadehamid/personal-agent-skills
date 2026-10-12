@@ -172,7 +172,10 @@ class InheritedGitEnv(unittest.TestCase):
         child = subprocess.run([sys.executable, __file__, "TreeState"], env=env, capture_output=True, text=True)
         # The decoy staying clean proves nothing unless the fixture tests actually ran and passed.
         self.assertEqual(child.returncode, 0, child.stdout + child.stderr)
-        self.assertIn("Ran ", child.stderr)
+        expected = len(unittest.TestLoader().getTestCaseNames(TreeState))
+        self.assertGreater(expected, 0)
+        self.assertRegex(child.stderr, rf"Ran {expected} tests? ")
+        self.assertNotIn("skipped", child.stderr)
         with open(os.path.join(decoy_git, "config")) as f:
             self.assertEqual(f.read(), config_before)
         refs = subprocess.run(["git", "-C", decoy, "for-each-ref"], capture_output=True, text=True,
