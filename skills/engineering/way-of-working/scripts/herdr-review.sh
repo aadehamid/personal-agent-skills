@@ -20,17 +20,22 @@ done
 [ -n "$branch" ] && [ -n "$verify" ] || { echo "usage: $0 --branch <branch> --verify <text>" >&2; exit 2; }
 : "${HERDR_WORKSPACE_ID:?run inside a Herdr pane}"
 
-# Read one field from herdr's JSON on stdin. A missing field prints an empty line;
-# an error response ({"error": ...}) fails, so set -e stops the script.
+# Read one field from herdr's JSON on stdin. Every object on the path must exist;
+# only the last field may be missing or null (it prints an empty line). An error
+# response ({"error": ...}) or a missing object fails, so set -e stops the script.
 jget() {
   python3 -c '
 import json, sys
 data = json.load(sys.stdin)
 if "error" in data:
     sys.exit("herdr error: " + json.dumps(data["error"]))
-for key in sys.argv[1].split("."):
+*path, last = sys.argv[1].split(".")
+for key in path:
     data = data.get(key) if isinstance(data, dict) else None
-print("" if data is None else data)' "$1"
+    if not isinstance(data, dict):
+        sys.exit("herdr response has no " + key + ": " + sys.argv[1])
+value = data.get(last)
+print("" if value is None else value)' "$1"
 }
 
 # The review tab lives in this agent's own workspace. An unfiltered `tab list`
@@ -42,7 +47,9 @@ import json, sys
 label = sys.argv[1]
 tabs = json.load(sys.stdin)["result"]["tabs"]
 print(next((t["tab_id"] for t in tabs if t["label"] == label), ""))' "review-$repo")
+created=reused
 if [ -z "$review_tab" ]; then
+  created=created
   review_tab=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --label "review-$repo" --no-focus | jget result.tab.tab_id)
 fi
 # `herdr tab get` returns no pane; find it in the pane list.
@@ -51,6 +58,8 @@ import json, sys
 tab = sys.argv[1]
 panes = json.load(sys.stdin)["result"]["panes"]
 print(next(p["pane_id"] for p in panes if p["tab_id"] == tab))' "$review_tab")
+# The caller needs the tab, and whether this run created it, to close it after merge.
+echo "Review tab: $review_tab ($created)" >&2
 
 # Start a reviewer only if the pane has none; a reused tab keeps its reviewer.
 # Different model from the writer, no approval prompts, sandboxed with network

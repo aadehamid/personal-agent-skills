@@ -4,6 +4,7 @@
 The fake herdr on PATH reads the scenario from FAKE_HERDR and records each call,
 so a test can check both the exit status and which herdr commands ran.
 """
+import json
 import os
 import re
 import stat
@@ -23,19 +24,30 @@ FAKE = textwrap.dedent(r'''
     cmd = " ".join(args[:2])
     with open(os.path.join(state, "calls"), "a") as f:
         f.write(cmd + "\n")
+    with open(os.path.join(state, "argv"), "a") as f:
+        f.write(json.dumps(args) + "\n")
     def out(obj, code=0):
         print(json.dumps(obj)); sys.exit(code)
     def err(code):
         out({"error": {"code": code}}, 1)
     if cmd == "tab list":
-        tabs = [] if "newtab" in s else [{"tab_id": "w2:t3", "label": "review-repo"}]
+        # A same-named review tab in another workspace; --workspace must filter it out.
+        tabs = [{"tab_id": "w9:t1", "label": "review-repo", "workspace_id": "w9"}]
+        if "newtab" not in s:
+            tabs.append({"tab_id": "w2:t3", "label": "review-repo", "workspace_id": "w2"})
+        if "--workspace" in args:
+            ws = args[args.index("--workspace") + 1]
+            tabs = [t for t in tabs if t["workspace_id"] == ws]
         out({"result": {"tabs": tabs}})
     if cmd == "tab create":
         out({"result": {"tab": {"tab_id": "w2:t3"}}})
     if cmd == "pane list":
-        out({"result": {"panes": [{"tab_id": "w2:t3", "pane_id": "w2:p3"}]}})
+        out({"result": {"panes": [{"tab_id": "w9:t1", "pane_id": "w9:p1"},
+                                  {"tab_id": "w2:t3", "pane_id": "w2:p3"}]}})
     if cmd == "pane get":
         if "paneerr" in s: err("pane_not_found")
+        if "errpayload0" in s: out({"error": {"code": "pane_not_found"}}, 0)
+        if "nullpane" in s: out({"result": {"pane": None}})
         out({"result": {"pane": {"agent": None if "fresh" in s else "codex"}}})
     if cmd == "agent start":
         n_path = os.path.join(state, "starts")
@@ -86,6 +98,11 @@ class HerdrReview(unittest.TestCase):
         if os.path.exists(calls_path):
             with open(calls_path) as f:
                 calls = f.read().splitlines()
+        self.argv = []
+        argv_path = os.path.join(state, "argv")
+        if os.path.exists(argv_path):
+            with open(argv_path) as f:
+                self.argv = [json.loads(line) for line in f]
         return r, calls
 
     def test_reused_reviewer_prints_the_report(self):
@@ -148,6 +165,28 @@ class HerdrReview(unittest.TestCase):
         r, calls = self.run_case("ok", tmpdir="/nonexistent-dir-for-test")
         self.assertNotEqual(r.returncode, 0)
         self.assertNotIn("agent prompt", calls)
+
+    def test_error_payload_with_exit_zero_stops_before_start(self):
+        r, calls = self.run_case("errpayload0,fresh")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertNotIn("agent start", calls)
+
+    def test_missing_pane_in_a_successful_response_stops(self):
+        r, calls = self.run_case("nullpane")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertNotIn("agent start", calls)
+        self.assertNotIn("agent prompt", calls)
+
+    def test_tabs_are_listed_and_created_in_this_workspace_only(self):
+        r, _ = self.run_case("ok")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        listed = [a for a in self.argv if a[:2] == ["tab", "list"]]
+        self.assertEqual(listed[0][2:4], ["--workspace", "w2"])
+        self.assertIn("Review tab: w2:t3 (reused)", r.stderr)
+        r, _ = self.run_case("newtab,fresh")
+        created = [a for a in self.argv if a[:2] == ["tab", "create"]]
+        self.assertEqual(created[0][2:4], ["--workspace", "w2"])
+        self.assertIn("Review tab: w2:t3 (created)", r.stderr)
 
     def test_prompt_tells_the_reviewer_to_apply_review_standards(self):
         with open(SCRIPT) as f:

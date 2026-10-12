@@ -68,13 +68,38 @@ class TreeState(unittest.TestCase):
         self.assertTrue(self.changed())
 
     def test_index_blob_replaced(self):
+        # Working contents differ from both staged blobs, so status reads MM both
+        # times and only the index hash can tell the snapshots apart.
         self.write("tracked.txt", "two\n")
         git(self.repo, "add", "tracked.txt")
+        self.write("tracked.txt", "four\n")
         before = ts.tree_state(self.repo)
         self.write("tracked.txt", "three\n")
         git(self.repo, "add", "tracked.txt")
-        self.write("tracked.txt", "two\n")
+        self.write("tracked.txt", "four\n")
         self.assertNotEqual(ts.tree_state(self.repo), before)
+
+    def test_symlink_referent_contents_changed(self):
+        outside = os.path.join(tempfile.mkdtemp(), "ext.txt")
+        with open(outside, "w") as f:
+            f.write("one\n")
+        os.symlink(outside, self.p("extlink"))
+        before = ts.tree_state(self.repo)
+        with open(outside, "w") as f:
+            f.write("two\n")
+        self.assertNotEqual(ts.tree_state(self.repo), before)
+
+    def test_unreadable_symlink_referent_raises(self):
+        outside = os.path.join(tempfile.mkdtemp(), "ext.txt")
+        with open(outside, "w") as f:
+            f.write("one\n")
+        os.symlink(outside, self.p("extlink"))
+        os.chmod(outside, 0)
+        try:
+            with self.assertRaises(PermissionError):
+                ts.tree_state(self.repo)
+        finally:
+            os.chmod(outside, 0o644)
 
     def test_unreadable_file_raises(self):
         os.chmod(self.p("a.txt"), 0)

@@ -27,7 +27,7 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
       - **`-a never` stops command-approval prompts.** Execution failures go back to the reviewer instead, so the owner is never asked to approve its commands.
       - **Known gap: the cross-model pass does not run.** Under `workspace-write`, `ce-code-review`'s Claude cross-check fails with `npm error code EPERM`. Adding `writable_roots` for `~/.npm`, `~/.claude`, `~/.cache` and `~/.config` clears that, but the transport then fails with `ETARGET`: `acpx@0.19.4` requires `@agentclientprotocol/sdk@^1.5.0`, which npm cannot find (2026-10-12). Either way the review falls back to an adversarial pass from the same model family. Say so in the PR body.
 
-      **Close the review tab when the PR merges.** The originating agent sends the reviewer a "PR merged" message, then closes the tab it created: `herdr tab close "$review_tab"` (or `herdr workspace close` if the review lives in its own workspace). Do not close a tab you did not create.
+      **Close the review tab when the PR merges.** The script prints `Review tab: <tab id> (created|reused)` on standard error. If this agent's run created it, send the reviewer a "PR merged" message, then `herdr tab close <tab id>`. Do not close a tab you did not create.
 
    **Without Herdr** (the working agent is not inside a Herdr pane), use the Codex plugin:
 

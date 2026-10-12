@@ -22,6 +22,11 @@ def tree_state(cwd="."):
         h.update(name + b"\0" + oct(st.st_mode).encode())    # type and permission bits
         if stat.S_ISLNK(st.st_mode):
             h.update(b"link:" + os.fsencode(os.readlink(path)))  # exact target bytes
+            if os.path.isfile(path):                         # and what it points to; a failed read raises
+                with open(path, "rb") as f:
+                    h.update(hashlib.sha256(f.read()).digest())
+            else:
+                h.update(b"dangling-or-not-a-file")
         elif stat.S_ISREG(st.st_mode):
             with open(path, "rb") as f:                      # opened directly: '-' is never stdin
                 h.update(hashlib.sha256(f.read()).digest())
