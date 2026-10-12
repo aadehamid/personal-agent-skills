@@ -28,7 +28,8 @@ done
 [ -n "$number" ] || { echo "usage: $0 <number> [--interval <seconds>]" >&2; exit 2; }
 
 # One event per line, sorted. Inline review comments are not in `gh pr view`'s
-# comments, so they come from the pulls API.
+# comments, so they come from the pulls API; a merged or closed PR needs no second
+# call, so a failure there cannot hide the merge.
 snapshot() {
   local view inline
   view=$(gh pr view "$number" --json state,reviews,comments,statusCheckRollup --jq '
@@ -41,6 +42,10 @@ snapshot() {
         else select((.state // "") != "PENDING")
           | "status:\(.context):\(.state):\(.startedAt // .createdAt // "")"
         end)') || return 1
+  if grep -qx 'state:MERGED\|state:CLOSED' <<<"$view"; then
+    sort -u <<<"$view"
+    return 0
+  fi
   inline=$(gh api --paginate "repos/{owner}/{repo}/pulls/$number/comments" --jq '.[] | "inline:\(.id)"') || return 1
   printf '%s\n%s\n' "$view" "$inline" | sed '/^$/d' | sort -u
 }

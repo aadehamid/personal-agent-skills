@@ -51,7 +51,7 @@ FAKE_GH = textwrap.dedent(r'''
         polls += 1
         open(path, "w").write(str(polls))
     entry = seq[min(polls, len(seq)) - 1]
-    if entry is None:
+    if entry is None or (sys.argv[1] == "api" and entry.get("inline_fails")):
         sys.exit(1)                      # a failed gh call
     doc = entry["pr"] if sys.argv[1] == "pr" else [{"id": i} for i in entry["inline"]]
     jq = sys.argv[sys.argv.index("--jq") + 1]
@@ -65,7 +65,8 @@ FAKE_GIT = textwrap.dedent(r'''
     if hook == "ls-remote-fails" and args[:1] == ["ls-remote"]:
         sys.exit(128)
     if (hook == "push-races-delete" and args[:1] == ["push"] and "--delete" in args) or \
-       (hook == "commit-races-branch-d" and args[:2] == ["branch", "-d"]):
+       (hook == "commit-races-branch-delete" and args[:1] == ["branch"]
+            and any(a in ("-d", "-D", "--delete") for a in args)):
         subprocess.run(["sh", "-c", os.environ["FAKE_GIT_HOOK_CMD"]], check=True)
     os.execv(real, [real] + args)
 ''').lstrip()
@@ -151,6 +152,14 @@ class WatchPr(unittest.TestCase):
 
     def test_a_new_inline_review_comment_wakes(self):
         self.assertWakes([poll(inline=[1]), poll(inline=[1]), poll(inline=[1, 2])], 3, "inline:2")
+
+    def test_a_merge_wakes_even_if_the_inline_lookup_fails(self):
+        merged = dict(poll("MERGED"), inline_fails=True)
+        self.assertWakes([poll(), merged], 2, "state:MERGED")
+
+    def test_already_merged_exits_at_once_even_if_the_inline_lookup_fails(self):
+        r, n = self.run_watch([dict(poll("MERGED"), inline_fails=True)])
+        self.assertEqual((r.returncode, n), (0, 1), r.stderr)
 
     def test_ten_failures_in_a_row_stop_the_watch(self):
         r, n = self.run_watch([None])
@@ -261,11 +270,14 @@ class AfterMerge(unittest.TestCase):
 
     def test_commit_racing_the_local_delete_is_refused_by_branch_d(self):
         self.merge_on_origin()
-        r = self.run_after("feat", hook="commit-races-branch-d", hook_cmd=(
+        marker = os.path.join(self.tmp, "raced")
+        r = self.run_after("feat", hook="commit-races-branch-delete", hook_cmd=(
             f"cd '{self.repo}' && c=$(git commit-tree feat^{{tree}} -p feat -m race) && "
-            "git update-ref refs/heads/feat $c"))
+            f"git update-ref refs/heads/feat $c && echo $c > '{marker}'"))
+        with open(marker) as f:                      # the race happened
+            raced = f.read().strip()
         self.assertNotEqual(r.returncode, 0)
-        self.assertIn("feat", self.git(self.repo, "branch", "--format=%(refname:short)").split())
+        self.assertEqual(self.git(self.repo, "rev-parse", "refs/heads/feat"), raced)
 
     def test_local_commit_not_in_the_base_deletes_nothing(self):
         self.merge_on_origin()
@@ -300,7 +312,13 @@ class AfterMerge(unittest.TestCase):
                        env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
 
         def snapshot():
-            return sorted((root, files) for root, _, files in os.walk(decoy))
+            entries = []
+            for root, dirs, files in os.walk(decoy):
+                for name in sorted(dirs + files):
+                    path = os.path.join(root, name)
+                    content = open(path, "rb").read() if os.path.isfile(path) else None
+                    entries.append((path, content))
+            return sorted(entries)
 
         before = snapshot()
         with mock.patch.dict(os.environ, GIT_DIR=decoy, GIT_WORK_TREE=os.path.dirname(decoy),
