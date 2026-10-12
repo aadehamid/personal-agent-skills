@@ -188,6 +188,13 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(created[0][2:4], ["--workspace", "w2"])
         self.assertIn("Review tab: w2:t3 (created)", r.stderr)
 
+    def test_prompt_waits_for_the_review_with_a_timeout(self):
+        r, _ = self.run_case("ok")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        prompt = [a for a in self.argv if a[:2] == ["agent", "prompt"]][0]
+        self.assertIn("--wait", prompt)
+        self.assertEqual(prompt[prompt.index("--timeout") + 1], "3600000")
+
     def test_prompt_tells_the_reviewer_to_apply_review_standards(self):
         with open(SCRIPT) as f:
             self.assertRegex(f.read(), r"review standards file .* first, and apply them")
