@@ -47,19 +47,23 @@ import json, sys
 label = sys.argv[1]
 tabs = json.load(sys.stdin)["result"]["tabs"]
 print(next((t["tab_id"] for t in tabs if t["label"] == label), ""))' "review-$repo")
-created=reused
+# The caller needs the tab, and whether this run created it, to close it after
+# merge, so it is printed as soon as it is known, before any later step can fail.
 if [ -z "$review_tab" ]; then
-  created=created
-  review_tab=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --label "review-$repo" --no-focus | jget result.tab.tab_id)
-fi
-# `herdr tab get` returns no pane; find it in the pane list.
-review_pane=$(herdr pane list | python3 -c '
+  created_json=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --label "review-$repo" --no-focus)
+  review_tab=$(printf '%s' "$created_json" | jget result.tab.tab_id)
+  echo "Review tab: $review_tab (created)" >&2
+  review_pane=$(printf '%s' "$created_json" | jget result.root_pane.pane_id)
+else
+  echo "Review tab: $review_tab (reused)" >&2
+  # `herdr tab get` returns no pane; find it in the pane list.
+  review_pane=$(herdr pane list | python3 -c '
 import json, sys
 tab = sys.argv[1]
 panes = json.load(sys.stdin)["result"]["panes"]
 print(next(p["pane_id"] for p in panes if p["tab_id"] == tab))' "$review_tab")
-# The caller needs the tab, and whether this run created it, to close it after merge.
-echo "Review tab: $review_tab ($created)" >&2
+fi
+[ -n "$review_tab" ] && [ -n "$review_pane" ] || { echo "no review tab or pane" >&2; exit 1; }
 
 # Start a reviewer only if the pane has none; a reused tab keeps its reviewer.
 # Different model from the writer, no approval prompts, sandboxed with network

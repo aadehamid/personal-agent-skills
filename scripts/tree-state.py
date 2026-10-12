@@ -15,8 +15,13 @@ import subprocess
 
 def tree_state(cwd="."):
     h = hashlib.sha256()
-    names = subprocess.check_output(
-        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"], cwd=cwd)
+    # git ls-files exits 0 even when it cannot open a directory; its warning on
+    # stderr is the only sign a path is missing, so any stderr fails the snapshot.
+    listing = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+                             cwd=cwd, capture_output=True, check=True)
+    if listing.stderr:
+        raise RuntimeError("git ls-files: " + listing.stderr.decode(errors="replace").strip())
+    names = listing.stdout
     for name in sorted(n for n in names.split(b"\0") if n):
         path = os.path.join(cwd, os.fsdecode(name))
         st = os.lstat(path)                                  # the entry, not what it points to
@@ -27,8 +32,8 @@ def tree_state(cwd="."):
             if stat.S_ISREG(ref.st_mode):                    # and what it points to; a failed read raises
                 with open(path, "rb") as f:
                     h.update(hashlib.sha256(f.read()).digest())
-            else:
-                h.update(b"referent-mode:" + oct(ref.st_mode).encode())
+            else:                                            # a directory or device cannot be read as one file
+                raise IsADirectoryError(f"{path}: symlink to a non-regular file; the guard cannot read it")
         elif stat.S_ISREG(st.st_mode):
             with open(path, "rb") as f:                      # opened directly: '-' is never stdin
                 h.update(hashlib.sha256(f.read()).digest())

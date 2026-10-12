@@ -108,6 +108,21 @@ class TreeState(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             ts.tree_state(self.repo)
 
+    def test_symlink_to_a_directory_raises(self):
+        os.symlink(tempfile.mkdtemp(), self.p("dirlink"))
+        with self.assertRaises(IsADirectoryError):
+            ts.tree_state(self.repo)
+
+    def test_unlistable_directory_raises(self):
+        os.mkdir(self.p("secret"))
+        self.write("secret/file", "ORIGINAL\n")
+        os.chmod(self.p("secret"), 0)
+        try:
+            with self.assertRaises(RuntimeError):
+                ts.tree_state(self.repo)
+        finally:
+            os.chmod(self.p("secret"), 0o755)
+
     def test_unreadable_symlink_referent_raises(self):
         outside = os.path.join(tempfile.mkdtemp(), "ext.txt")
         with open(outside, "w") as f:

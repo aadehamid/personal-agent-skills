@@ -40,8 +40,9 @@ FAKE = textwrap.dedent(r'''
             tabs = [t for t in tabs if t["workspace_id"] == ws]
         out({"result": {"tabs": tabs}})
     if cmd == "tab create":
-        out({"result": {"tab": {"tab_id": "w2:t3"}}})
+        out({"result": {"tab": {"tab_id": "w2:t3"}, "root_pane": {"pane_id": "w2:p3"}}})
     if cmd == "pane list":
+        if "panelisterr" in s: err("pane_not_found")
         out({"result": {"panes": [{"tab_id": "w9:t1", "pane_id": "w9:p1"},
                                   {"tab_id": "w2:t3", "pane_id": "w2:p3"}]}})
     if cmd == "pane get":
@@ -187,6 +188,16 @@ class HerdrReview(unittest.TestCase):
         created = [a for a in self.argv if a[:2] == ["tab", "create"]]
         self.assertEqual(created[0][2:4], ["--workspace", "w2"])
         self.assertIn("Review tab: w2:t3 (created)", r.stderr)
+
+    def test_created_tab_is_named_even_if_a_later_step_fails(self):
+        r, calls = self.run_case("newtab,fresh,panelisterr")
+        self.assertIn("Review tab: w2:t3 (created)", r.stderr)
+        self.assertNotIn("pane list", calls)   # a new tab's pane comes from the create response
+
+    def test_reused_tab_is_named_before_pane_lookup_fails(self):
+        r, _ = self.run_case("panelisterr")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("Review tab: w2:t3 (reused)", r.stderr)
 
     def test_prompt_waits_for_the_review_with_a_timeout(self):
         r, _ = self.run_case("ok")
