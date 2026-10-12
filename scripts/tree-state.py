@@ -37,6 +37,8 @@ def tree_state(cwd="."):
         elif stat.S_ISREG(st.st_mode):
             with open(path, "rb") as f:                      # opened directly: '-' is never stdin
                 h.update(hashlib.sha256(f.read()).digest())
+        else:                                                # e.g. an untracked nested repository, listed as a directory
+            raise IsADirectoryError(f"{path}: listed by git but not a file or symlink; the guard cannot read it")
     h.update(subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"], cwd=cwd))
     h.update(subprocess.check_output(["git", "ls-files", "--stage", "-z"], cwd=cwd))
     return h.hexdigest()

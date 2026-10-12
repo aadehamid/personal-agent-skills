@@ -113,6 +113,13 @@ class TreeState(unittest.TestCase):
         with self.assertRaises(IsADirectoryError):
             ts.tree_state(self.repo)
 
+    def test_untracked_nested_repository_raises(self):
+        os.mkdir(self.p("emb"))
+        git(self.p("emb"), "init", "-q")
+        self.write("emb/inner", "one\n")
+        with self.assertRaises(IsADirectoryError):
+            ts.tree_state(self.repo)
+
     def test_unlistable_directory_raises(self):
         os.mkdir(self.p("secret"))
         self.write("secret/file", "ORIGINAL\n")
