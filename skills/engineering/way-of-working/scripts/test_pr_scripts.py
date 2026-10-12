@@ -6,9 +6,9 @@ request document and its inline review comments, or null for a failed call. The 
 applies the script's own --jq filters with jq, so the filters themselves are tested.
 
 after-merge.sh deletes branches, so each case builds a throwaway origin and clone and
-checks what is left on both sides. A git wrapper on PATH injects the failures that
-cannot be staged beforehand: an unreadable origin, a push that lands between the
-ancestry check and the delete, and a local commit that lands before `branch -d`.
+checks what is left on both sides. A git wrapper on PATH injects what cannot be
+staged beforehand: a failed lookup or fetch, or a command run just before the branch
+fetch, the remote delete or `branch -d` (a push, a commit, the branch deleted elsewhere).
 """
 import json
 import os
@@ -62,11 +62,13 @@ FAKE_GIT = textwrap.dedent(r'''
     #!/usr/bin/env python3
     import os, subprocess, sys
     real, hook, args = os.environ["REAL_GIT"], os.environ.get("FAKE_GIT_HOOK", ""), sys.argv[1:]
-    if hook == "ls-remote-fails" and args[:1] == ["ls-remote"]:
+    branch_fetch = args[:1] == ["fetch"] and any(a.startswith("refs/heads/") for a in args)
+    if (hook == "ls-remote-fails" and args[:1] == ["ls-remote"]) or (hook == "fetch-fails" and branch_fetch):
         sys.exit(128)
-    if (hook == "push-races-delete" and args[:1] == ["push"] and "--delete" in args) or \
-       (hook == "commit-races-branch-delete" and args[:1] == ["branch"]
-            and any(a in ("-d", "-D", "--delete") for a in args)):
+    before = {"before-fetch": branch_fetch,
+              "before-push-delete": args[:1] == ["push"] and "--delete" in args,
+              "before-branch-delete": args[:1] == ["branch"] and any(a in ("-d", "-D", "--delete") for a in args)}
+    if before.get(hook):
         subprocess.run(["sh", "-c", os.environ["FAKE_GIT_HOOK_CMD"]], check=True)
     os.execv(real, [real] + args)
 ''').lstrip()
@@ -261,7 +263,7 @@ class AfterMerge(unittest.TestCase):
     def test_push_racing_the_delete_is_refused_by_the_lease(self):
         self.merge_on_origin()
         late = self.clone("late", "-b", "feat")
-        r = self.run_after("feat", hook="push-races-delete", hook_cmd=(
+        r = self.run_after("feat", hook="before-push-delete", hook_cmd=(
             f"cd '{late}' && git commit --quiet --allow-empty -m race && git push --quiet origin feat"))
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("stale info", r.stderr)
@@ -271,7 +273,7 @@ class AfterMerge(unittest.TestCase):
     def test_commit_racing_the_local_delete_is_refused_by_branch_d(self):
         self.merge_on_origin()
         marker = os.path.join(self.tmp, "raced")
-        r = self.run_after("feat", hook="commit-races-branch-delete", hook_cmd=(
+        r = self.run_after("feat", hook="before-branch-delete", hook_cmd=(
             f"cd '{self.repo}' && c=$(git commit-tree feat^{{tree}} -p feat -m race) && "
             f"git update-ref refs/heads/feat $c && echo $c > '{marker}'"))
         with open(marker) as f:                      # the race happened
@@ -293,6 +295,30 @@ class AfterMerge(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("origin/feat is already gone", r.stdout)
         self.assertEqual(self.branches(), (["main"], False))
+
+    def delete_elsewhere(self):
+        return f"git --git-dir='{self.origin}' update-ref -d refs/heads/feat"
+
+    def test_remote_deleted_before_the_fetch_still_deletes_the_local_branch(self):
+        self.merge_on_origin()
+        r = self.run_after("feat", hook="before-fetch", hook_cmd=self.delete_elsewhere())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("origin/feat is already gone", r.stdout)
+        self.assertEqual(self.branches(), (["main"], False))
+
+    def test_remote_deleted_before_the_push_still_deletes_the_local_branch(self):
+        self.merge_on_origin()
+        r = self.run_after("feat", hook="before-push-delete", hook_cmd=self.delete_elsewhere())
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("origin/feat is already gone", r.stdout)
+        self.assertEqual(self.branches(), (["main"], False))
+
+    def test_failed_fetch_of_a_branch_still_there_deletes_nothing(self):
+        self.merge_on_origin()
+        r = self.run_after("feat", hook="fetch-fails")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("could not delete origin/feat", r.stderr)
+        self.assertEqual(self.branches(), (["feat", "main"], True))
 
     def test_failed_remote_lookup_is_not_taken_for_a_deleted_branch(self):
         self.merge_on_origin()
@@ -316,7 +342,10 @@ class AfterMerge(unittest.TestCase):
             for root, dirs, files in os.walk(decoy):
                 for name in sorted(dirs + files):
                     path = os.path.join(root, name)
-                    content = open(path, "rb").read() if os.path.isfile(path) else None
+                    content = None
+                    if os.path.isfile(path):
+                        with open(path, "rb") as f:
+                            content = f.read()
                     entries.append((path, content))
             return sorted(entries)
 

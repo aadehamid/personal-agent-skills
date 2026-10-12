@@ -4,7 +4,7 @@
 #
 # Usage: after-merge.sh <branch> [--base <branch>]   (default base: main)
 #   Run from the repository. Delete only a branch you opened; someone else's is theirs.
-# Exit 0: base synced, branch gone (or already gone). Exit 1: something on the branch
+# Exit 0: base synced, branch gone (or already gone, even if it went mid-run). Exit 1: something on the branch
 #   is not in the base, so nothing is deleted.
 # Tests: test_pr_scripts.py, run by the repository's scripts/check.sh.
 set -euo pipefail
@@ -36,20 +36,37 @@ fi
 
 # Read the live remote, not a cached ref, and delete under a lease on the exact
 # commit checked, so a push that lands after the check makes the delete fail.
-rc=0
-git ls-remote --exit-code --heads origin "refs/heads/$branch" >/dev/null || rc=$?
+# Someone else (a review bot, on merge) can delete the branch at any moment, so a
+# fetch or delete that fails counts as done only if the live remote then has no branch.
+remote_rc() {   # git's exit code: 0 the branch is there, 2 it is not, other an error
+  local rc=0
+  git ls-remote --exit-code --heads origin "refs/heads/$branch" >/dev/null || rc=$?
+  echo "$rc"
+}
+gone_now() {
+  [ "$(remote_rc)" = 2 ] || { echo "could not delete origin/$branch; nothing more deleted" >&2; exit 1; }
+  echo "origin/$branch is already gone"
+}
+
+rc=$(remote_rc)
 case "$rc" in
   0)
-    git fetch --quiet origin "refs/heads/$branch"
-    remote_sha=$(git rev-parse FETCH_HEAD)
-    if ! git merge-base --is-ancestor "$remote_sha" "origin/$base"; then
-      echo "origin/$branch has commits that are not in $base; nothing deleted" >&2
-      exit 1
+    if git fetch --quiet origin "refs/heads/$branch"; then
+      remote_sha=$(git rev-parse FETCH_HEAD)
+      if ! git merge-base --is-ancestor "$remote_sha" "origin/$base"; then
+        echo "origin/$branch has commits that are not in $base; nothing deleted" >&2
+        exit 1
+      fi
+      if git push --quiet origin --delete "$branch" --force-with-lease="$branch:$remote_sha"; then
+        echo "deleted origin/$branch"
+      else
+        gone_now
+      fi
+    else
+      gone_now
     fi
-    git push --quiet origin --delete "$branch" --force-with-lease="$branch:$remote_sha"
-    echo "deleted origin/$branch"
     ;;
-  2) echo "origin/$branch is already gone" ;;   # git's exit code for "no such ref"
+  2) echo "origin/$branch is already gone" ;;
   *) echo "could not read origin (git ls-remote exited $rc); nothing deleted" >&2; exit 1 ;;
 esac
 
