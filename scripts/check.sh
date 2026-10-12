@@ -49,9 +49,10 @@ echo "== project-discovery validate =="
 (cd skills/planning/project-discovery/scripts && python3 -m unittest test_validate test_subject_case)
 
 echo
-echo "== check guard and Herdr review script =="
+echo "== check guard and way-of-working scripts =="
 python3 scripts/test_tree_state.py
 python3 skills/engineering/way-of-working/scripts/test_herdr_review.py
+python3 skills/engineering/way-of-working/scripts/test_pr_scripts.py
 
 echo
 echo "== shell syntax =="

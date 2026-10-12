@@ -113,6 +113,17 @@ class HerdrReview(unittest.TestCase):
         self.assertIn("REVIEW FINDINGS", r.stdout)
         self.assertNotIn("agent start", calls)
 
+    def test_report_path_is_printed_on_stderr(self):
+        r, _ = self.run_case("ok")
+        path = re.search(r"^Report file: (\S+)$", r.stderr, re.MULTILINE).group(1)
+        with open(path) as f:
+            self.assertEqual(f.read(), "REVIEW FINDINGS\n")
+
+    def test_report_path_is_printed_even_without_a_report(self):
+        r, _ = self.run_case("noreport")
+        self.assertEqual(r.returncode, 1)
+        self.assertRegex(r.stderr, r"(?m)^Report file: \S+$")
+
     def test_new_tab_and_fresh_reviewer(self):
         r, calls = self.run_case("newtab,fresh")
         self.assertEqual(r.returncode, 0, r.stderr)
