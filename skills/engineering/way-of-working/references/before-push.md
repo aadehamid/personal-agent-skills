@@ -13,25 +13,38 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
    **With Herdr** (the working agent is inside a Herdr pane), spawn a reviewer agent in its own pane — a different kind/model from the writer — and have it run the `ce-code-review` skill, which does a structured multi-agent review (risk-based reviewer selection, parallel reviewers, a cross-model adversarial pass, a validator, and a rendered report). **Reuse the review tab for this repo rather than opening a new one for every review.** Name it `review-<repo>` (the repo's directory name) so it is findable:
 
       ```sh
-      # Find an existing review tab for this repo, or create one.
-      review_tab=$(herdr tab list --json | jq -r --arg repo "$(basename "$PWD")" \
-        '.result.tabs[] | select(.label == "review-\($repo)") | .tab_id' | head -1)
+      # Find this repo's review tab in the current workspace, or create one there.
+      # Without --workspace, herdr uses the UI-focused workspace, which may be another project's.
+      repo=$(basename "$PWD")
+      review_tab=$(herdr tab list --workspace "$HERDR_WORKSPACE_ID" | jq -r --arg l "review-$repo" \
+        '.result.tabs[] | select(.label == $l) | .tab_id' | head -1)
       if [ -z "$review_tab" ]; then
-        created=$(herdr tab create --cwd "$PWD" --label "review-$(basename "$PWD")" --no-focus)
+        created=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --label "review-$repo" --no-focus)
         review_tab=$(printf '%s\n' "$created" | jq -r '.result.tab.tab_id')
       fi
-      review_pane=$(herdr tab get "$review_tab" | jq -r '.result.tab.root_pane.pane_id')
+      # `herdr tab get` does not return the pane; find it in the pane list.
+      review_pane=$(herdr pane list | jq -r --arg t "$review_tab" '.result.panes[] | select(.tab_id == $t) | .pane_id' | head -1)
 
-      # Point the reused tab at the branch under review, then start the reviewer.
-      herdr pane run "$review_pane" "git fetch origin && git checkout <branch>"
-      herdr agent start reviewer --kind codex --pane "$review_pane" -- -m <different-model>
+      # Start the reviewer: a different model from the writer, no approval prompts, sandboxed.
+      # (Claude writing: Codex on gpt-6.1-sol at medium reasoning, Hamid's choice 2026-10-11.)
+      herdr agent start reviewer --kind codex --pane "$review_pane" -- \
+        -m gpt-6.1-sol -c model_reasoning_effort=medium \
+        -a never -s workspace-write -c sandbox_workspace_write.network_access=true
       herdr agent prompt reviewer \
-        "Run the ce-code-review skill on this branch. Review the diff vs main. Verify: <what to verify>. Report findings only; do not apply them." \
-        --wait --timeout 120000
-      herdr agent read reviewer --source recent-unwrapped --lines 120
+        "Run the ce-code-review skill on branch <branch>, diff vs main. Verify: <what to verify>. Report findings only; do not apply them. Write them as Markdown to <tmp>/review-<n>.md and reply with the path."
+
+      # A review takes minutes, longer than `prompt --wait` allows: wait in the background, then read the file.
+      until [ "$(herdr agent get reviewer | jq -r '.result.agent.agent_status')" != working ]; do sleep 30; done
       ```
 
-      Use a reviewer kind and model different from the one that wrote the change. If the reviewer is `blocked` during startup, wait until it is `idle` before prompting it. If a full response is not visible in the read, ask the reviewer to write its findings as Markdown in a temporary directory and reply with the file path, then read that file. `ce-code-review` is report-only by default, so it will not mutate the tree; apply its findings yourself, then re-run the review on the fixed diff.
+      The review tab shares the working tree, so the reviewer sees the branch you have checked out. Reuse the same reviewer for later rounds: tell it the new commit and which findings you fixed or answered.
+
+      If the reviewer is `blocked` during startup, wait until it is `idle` before prompting it. `ce-code-review` is report-only by default, so it will not mutate the tree; apply its findings yourself, then re-run the review on the fixed diff.
+
+      Setup notes and one known gap:
+      - **The writer can drive the reviewer only with an allow rule.** Claude Code's auto mode blocks starting or prompting an agent that never asks for approval. Hamid adds `Bash(herdr agent:*)` once per machine through `/permissions`.
+      - **`-a never` keeps the owner out of the loop.** Without it, the reviewer stops to ask the owner to approve each command.
+      - **Known gap: the cross-model pass does not run in the sandbox.** `ce-code-review`'s Claude cross-check fails with `npm error code EPERM` under `workspace-write`, and the review falls back to an adversarial pass from the same model family. Say so in the PR body.
 
       **Close the review tab when the PR merges.** The originating agent sends the reviewer a "PR merged" message, then closes the tab it created: `herdr tab close "$review_tab"` (or `herdr workspace close` if the review lives in its own workspace). Do not close a tab you did not create.
 
