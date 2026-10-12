@@ -71,7 +71,7 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
       cat "$report"
       ```
 
-      The review tab shares the working tree, so the reviewer sees the branch you have checked out. A `blocked` state means the reviewer is waiting on a question; read the pane and answer it. `ce-code-review` is report-only by default, so it will not mutate the tree; apply its findings yourself. For later rounds, prompt the same pane with the new commit and say which findings you fixed or answered (see "Re-review after fixing" below).
+      **Wait for the job's exit status and output before you push or open a pull request.** Launching it returns neither. A non-zero status stops the push: follow the recovery lines it printed. The review tab shares the working tree, so the reviewer sees the branch you have checked out. A `blocked` state means the reviewer is waiting on a question; read the pane and answer it. `ce-code-review` is report-only by default, so it will not mutate the tree; apply its findings yourself. For later rounds, prompt the same pane with the new commit and say which findings you fixed or answered (see "Re-review after fixing" below).
 
       Setup notes and one known gap:
       - **The writer can drive the reviewer only with an allow rule.** Claude Code's auto mode blocks starting or prompting an agent that never asks for approval. Hamid adds `Bash(herdr agent:*)` once per machine through `/permissions`.
