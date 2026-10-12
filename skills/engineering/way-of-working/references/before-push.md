@@ -38,14 +38,15 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
             -m gpt-6.1-sol -c model_reasoning_effort=medium \
             -a never -s workspace-write -c sandbox_workspace_write.network_access=true; then
           # agent_not_ready: usually Codex's trust dialog on a new directory.
-          herdr agent read "$review_pane" --source recent-unwrapped --lines 30
+          herdr agent read "$review_pane" --source recent-unwrapped --lines 30 || true
           echo "Reviewer blocked at startup. Answer it (herdr agent send-keys $review_pane <key>), then run this again."
           exit 1
         fi
       fi
 
-      # Run this whole block as one background job: a review takes minutes. Address the
-      # reviewer by its pane. --wait fails fast (agent_prompt_stalled) if the prompt never
+      # A review takes longer than a foreground tool call allows (10 minutes in Claude Code).
+      # Run the whole block as a background job the harness reports back on, with its exit
+      # status (Claude Code: run_in_background), never with `&`. Address the reviewer by its pane. --wait fails fast (agent_prompt_stalled) if the prompt never
       # starts work, and otherwise returns when the reviewer is idle, done or blocked.
       report=$(mktemp "${TMPDIR:-/tmp}/review-XXXXXX")   # unique; a failure stops here
       rm -f "$report"                                     # absent until the reviewer writes it
@@ -59,9 +60,9 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
         echo "  herdr agent wait $review_pane --until idle --until done --timeout 3600000 && cat '$report'"
         exit 1
       fi
-      state=$(herdr agent get "$review_pane" | jq -r '.result.agent.agent_status')
       if [ ! -f "$report" ]; then   # no report means no review, whatever the pane shows
-        herdr agent read "$review_pane" --source recent-unwrapped --lines 60
+        state=$(herdr agent get "$review_pane" | jq -r '.result.agent.agent_status' || true)
+        herdr agent read "$review_pane" --source recent-unwrapped --lines 60 || true
         echo "No report (state: $state). A blocked reviewer refuses new prompts: answer it"
         echo "(herdr agent send-keys $review_pane <key>), then wait for the same report:"
         echo "  herdr agent wait $review_pane --until idle --until done --timeout 3600000 && cat '$report'"
