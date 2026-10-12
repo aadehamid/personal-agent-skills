@@ -33,14 +33,20 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
       # Standalone assignment, so set -e stops the recipe if the lookup fails.
       pane_agent=$(herdr pane get "$review_pane" | jq -r 'if .result.pane then (.result.pane.agent // "") else error("pane lookup failed") end')
       if [ -z "$pane_agent" ]; then
-        herdr agent start "rev-$(printf '%s' "$repo" | tr 'A-Z' 'a-z' | tr -cs 'a-z0-9' '-' | cut -c1-28)" \
-          --kind codex --pane "$review_pane" -- \
-          -m gpt-6.1-sol -c model_reasoning_effort=medium \
-          -a never -s workspace-write -c sandbox_workspace_write.network_access=true
+        if ! herdr agent start "rev-$(printf '%s' "$repo" | tr 'A-Z' 'a-z' | tr -cs 'a-z0-9' '-' | cut -c1-28)" \
+            --kind codex --pane "$review_pane" -- \
+            -m gpt-6.1-sol -c model_reasoning_effort=medium \
+            -a never -s workspace-write -c sandbox_workspace_write.network_access=true; then
+          # agent_not_ready: usually Codex's trust dialog on a new directory.
+          herdr agent read "$review_pane" --source recent-unwrapped --lines 30
+          echo "Reviewer blocked at startup. Answer it (herdr agent send-keys $review_pane <key>), then run this again."
+          exit 1
+        fi
       fi
 
-      # Address the reviewer by its pane. --wait fails fast (agent_prompt_stalled) if the
-      # prompt never starts work; run this in the background, since a review takes minutes.
+      # Run this whole block as one background job: a review takes minutes. Address the
+      # reviewer by its pane. --wait fails fast (agent_prompt_stalled) if the prompt never
+      # starts work, and otherwise returns when the reviewer is idle, done or blocked.
       report=$(mktemp "${TMPDIR:-/tmp}/review-XXXXXX")   # unique; a failure stops here
       rm -f "$report"                                     # absent until the reviewer writes it
       herdr agent prompt "$review_pane" \
@@ -48,7 +54,10 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
         --wait --timeout 3600000
       state=$(herdr agent get "$review_pane" | jq -r '.result.agent.agent_status')
       if [ ! -f "$report" ]; then   # no report means no review, whatever the pane shows
-        echo "no report (state: $state)"; herdr agent read "$review_pane" --source recent-unwrapped --lines 60
+        herdr agent read "$review_pane" --source recent-unwrapped --lines 60
+        echo "No report (state: $state). A blocked reviewer refuses new prompts: answer it"
+        echo "(herdr agent send-keys $review_pane <key>), then wait for the same report:"
+        echo "  herdr agent wait $review_pane --until idle --until done --timeout 3600000 && cat '$report'"
         exit 1
       fi
       cat "$report"
