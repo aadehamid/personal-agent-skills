@@ -3,8 +3,9 @@
 
 Covers tracked and non-ignored files: each path's contents, its type and mode,
 a symlink's exact target, git's status, and the index (blob ids and modes).
-A path that cannot be read or stat-ed raises, so the guard fails rather than
-leaving that path out of both snapshots.
+A path that cannot be read or stat-ed, including a symlink whose referent is
+missing or cannot be reached, raises, so the guard fails rather than leaving
+that path out of both snapshots.
 """
 import hashlib
 import os
@@ -22,11 +23,12 @@ def tree_state(cwd="."):
         h.update(name + b"\0" + oct(st.st_mode).encode())    # type and permission bits
         if stat.S_ISLNK(st.st_mode):
             h.update(b"link:" + os.fsencode(os.readlink(path)))  # exact target bytes
-            if os.path.isfile(path):                         # and what it points to; a failed read raises
+            ref = os.stat(path)                              # follows the link; a missing or blocked referent raises
+            if stat.S_ISREG(ref.st_mode):                    # and what it points to; a failed read raises
                 with open(path, "rb") as f:
                     h.update(hashlib.sha256(f.read()).digest())
             else:
-                h.update(b"dangling-or-not-a-file")
+                h.update(b"referent-mode:" + oct(ref.st_mode).encode())
         elif stat.S_ISREG(st.st_mode):
             with open(path, "rb") as f:                      # opened directly: '-' is never stdin
                 h.update(hashlib.sha256(f.read()).digest())

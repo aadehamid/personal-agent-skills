@@ -29,6 +29,7 @@ class TreeState(unittest.TestCase):
         self.write("-", "dash\n")
         self.write("a.txt", "same\n")
         self.write("b.txt", "same\n")
+        self.write("a.txt\n", "same\n")    # so a newline retarget changes only the target bytes
         os.symlink("a.txt", self.p("link"))
         self.before = ts.tree_state(self.repo)
 
@@ -88,6 +89,24 @@ class TreeState(unittest.TestCase):
         with open(outside, "w") as f:
             f.write("two\n")
         self.assertNotEqual(ts.tree_state(self.repo), before)
+
+    def test_blocked_referent_directory_raises(self):
+        outdir = tempfile.mkdtemp()
+        outside = os.path.join(outdir, "ext.txt")
+        with open(outside, "w") as f:
+            f.write("one\n")
+        os.symlink(outside, self.p("extlink"))
+        os.chmod(outdir, 0)
+        try:
+            with self.assertRaises(PermissionError):
+                ts.tree_state(self.repo)
+        finally:
+            os.chmod(outdir, 0o755)
+
+    def test_dangling_symlink_raises(self):
+        os.symlink(os.path.join(self.repo, "missing.txt"), self.p("dangling"))
+        with self.assertRaises(FileNotFoundError):
+            ts.tree_state(self.repo)
 
     def test_unreadable_symlink_referent_raises(self):
         outside = os.path.join(tempfile.mkdtemp(), "ext.txt")
