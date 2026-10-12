@@ -3,8 +3,16 @@
 import importlib.util
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
+
+# Each test builds its own repository in a temporary folder. A pre-push hook
+# exports GIT_DIR (absolute in a worktree) and other GIT_* variables; inherited,
+# they point every git call here, and tree_state's, at the repository being
+# pushed, so a test's init, config and commit land there. Drop them first.
+for _name in [n for n in os.environ if n.startswith("GIT_")]:
+    del os.environ[_name]
 
 spec = importlib.util.spec_from_file_location("tree_state", os.path.join(os.path.dirname(__file__), "tree-state.py"))
 ts = importlib.util.module_from_spec(spec)
@@ -149,6 +157,28 @@ class TreeState(unittest.TestCase):
                 ts.tree_state(self.repo)
         finally:
             os.chmod(self.p("a.txt"), 0o644)
+
+
+class InheritedGitEnv(unittest.TestCase):
+    """A pre-push hook in a worktree exports an absolute GIT_DIR. The tests must not follow it."""
+
+    def test_tests_leave_the_inherited_repository_alone(self):
+        decoy = tempfile.mkdtemp()
+        subprocess.run(["git", "init", "-q", decoy], check=True, capture_output=True)
+        decoy_git = os.path.join(decoy, ".git")
+        with open(os.path.join(decoy_git, "config")) as f:
+            config_before = f.read()
+        env = dict(os.environ, GIT_DIR=decoy_git, GIT_INDEX_FILE=os.path.join(decoy_git, "index"))
+        child = subprocess.run([sys.executable, __file__, "TreeState"], env=env, capture_output=True, text=True)
+        # The decoy staying clean proves nothing unless the fixture tests actually ran and passed.
+        self.assertEqual(child.returncode, 0, child.stdout + child.stderr)
+        self.assertIn("Ran ", child.stderr)
+        with open(os.path.join(decoy_git, "config")) as f:
+            self.assertEqual(f.read(), config_before)
+        refs = subprocess.run(["git", "-C", decoy, "for-each-ref"], capture_output=True, text=True,
+                              env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
+        self.assertEqual(refs.returncode, 0, refs.stderr)
+        self.assertEqual(refs.stdout, "")
 
 
 if __name__ == "__main__":
