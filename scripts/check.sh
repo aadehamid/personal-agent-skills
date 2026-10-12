@@ -26,44 +26,12 @@ cd "$(git rev-parse --show-toplevel)"
 # which is why the test commands below are run with bytecode and the pytest
 # cache switched off. Anything the checks still write there is not covered.
 #
-# The './' prefix stops sha256sum reading a file named '-' as standard input.
-# Requires GNU coreutils (Linux); `stat -c` is not the BSD spelling.
-tracked_paths() {
-  git ls-files -z --cached --others --exclude-standard
-}
-
+# The snapshot is Python, not GNU coreutils, so it runs the same on Linux and
+# macOS. It opens each path itself, so a file named '-' is never read as stdin.
 tree_state() {
-  local contents entries
-  # A read that fails has to abort the snapshot, not vanish from it. A path that
-  # drops out of *both* snapshots compares equal, so a check that rewrote a file
-  # this guard could not read still reaches "All checks passed." That is not
-  # theory: with `2>/dev/null` here, an untracked file at mode 000 gave the same
-  # tree_state before and after its contents were replaced.
-  #
-  # The status has to be taken here. Neither pipeline is the last command in the
-  # group below, and a group's status belongs to its last command, so `set -e`
-  # never sees `xargs` exit 123 on a failed read.
-  #
-  # stderr is left alone, so the reason a path could not be read is visible.
-  # The './' prefix is what keeps a file named '-' out of standard input.
-  if ! contents="$(tracked_paths | sort -z | sed -z 's|^|./|' | xargs -0 -r sha256sum --)"; then
-    echo >&2 "FAIL: a tracked path could not be hashed."
-    return 1
-  fi
-  if ! entries="$(tracked_paths | sort -z | sed -z 's|^|./|' | xargs -0 -r stat -c '%A %F %N' --)"; then
-    echo >&2 "FAIL: a tracked path could not be stat-ed."
-    return 1
-  fi
-  {
-    # Mode, filesystem type, and — for a symlink — its target, quoted and
-    # escaped by %N, so a target ending in a newline cannot collide with a
-    # different name. One call covers what two would: fewer places to be wrong.
-    # The trailing newline the command substitution stripped is put back here,
-    # so the two snapshots are built the same way either side of the checks.
-    printf '%s\n' "$contents" "$entries"
-    git status --porcelain --untracked-files=all
-    git ls-files --stage -z
-  } | sha256sum | cut -d' ' -f1
+  # A failed read or stat raises, so the snapshot aborts instead of dropping the
+  # path from both sides and comparing equal. Tests: scripts/test_tree_state.py.
+  python3 scripts/tree-state.py
 }
 
 before="$(tree_state)"
@@ -81,11 +49,16 @@ echo "== project-discovery validate =="
 (cd skills/planning/project-discovery/scripts && python3 -m unittest test_validate test_subject_case)
 
 echo
+echo "== check guard and Herdr review script =="
+python3 scripts/test_tree_state.py
+python3 skills/engineering/way-of-working/scripts/test_herdr_review.py
+
+echo
 echo "== shell syntax =="
 while IFS= read -r script; do
   bash -n "$script"
   echo "  ok  $script"
-done < <(git ls-files 'scripts/*.sh' 'scripts/hooks/*')
+done < <(git ls-files 'scripts/*.sh' 'scripts/hooks/*' 'skills/*/*/scripts/*.sh')
 
 after="$(tree_state)"
 if [ "$before" != "$after" ]; then
