@@ -20,6 +20,6 @@ Each item in the queue runs this loop. It is the project's own pull-request loop
 ## When a tool stalls
 
 - **A reviewer stops responding, or a queued prompt never starts.** End its session and start a new one on the same commit. If it stalls a second time, switch to another reviewer of the same role, and log the switch.
-- **The PR reviewer has not answered a push within the brief's wait.** Start the stand-in on the same commit, and log the switch. The stand-in is the PR's current reviewer for every later push on this PR, and the independent reviewer switches with it, as the brief says. A late answer from the PR reviewer is read as a comment, not as the verdict.
+- **The PR reviewer is not available for a push**, by the brief's rules (by default, way-of-working's "Who reviews": no start within 8 minutes, or no verdict within 30). Start the stand-in on the same commit yourself, and log the switch. The stand-in is the PR's current reviewer for every later push on this PR, and the independent reviewer switches with it, as the brief says. A late answer from the PR reviewer is read as a comment, not as the verdict.
 - **An item depends on another open pull request.** Log the dependency and move to the next item. Come back after that PR merges.
 - **A local service dies**, for example a container killed for memory. Restart it, rerun the step that used it, and log it. Run fewer reviewers at once if it happens again.
