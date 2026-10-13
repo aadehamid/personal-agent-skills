@@ -26,7 +26,7 @@ Reviewers: default: way-of-working's "Who reviews" table (changing.md), with its
   PR reviewer: <who gives the merge verdict>; stand-in: <who gives it when the PR reviewer is not available>
   Independent reviewer while the PR reviewer is available: <...>; while the stand-in reviews: <...>
   The stand-in takes over when the PR reviewer has not started within <minutes> of a push, or not given a verdict within <minutes>
-Merge rule: default: check green, CI green, every independent-review finding fixed or answered, and a MERGE verdict on the latest push from the PR's current reviewer.
+Merge rule: default: check green, CI green, every independent-review finding fixed or answered, a MERGE verdict on the latest push from the PR's current reviewer, and the latest push's two reviews from different tools.
 Check command: <the project's check script>
 Remote and default branch: <for example origin and main>
 
