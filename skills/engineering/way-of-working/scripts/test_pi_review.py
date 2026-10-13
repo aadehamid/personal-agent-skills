@@ -56,8 +56,10 @@ FAKE_OLLAMA = textwrap.dedent(r'''
         open(os.path.join(state, "moved_head"), "w").write("e" * 40)
     if "post" in s:
         mark = re.search(r"last line is exactly (<!-- \S+ -->)", prompt).group(1)
+        reviewed = re.search(r"second line is exactly (Reviewed commit: \S+), and", prompt).group(1)
         said = "HOLD" if "postsother" in s else verdict
-        comments.append({"id": "c9", "body": said + "\nfindings\n" + mark})
+        second = "findings" if "nocommit" in s else reviewed
+        comments.append({"id": "c9", "body": said + "\n" + second + "\nfindings\n" + mark})
     json.dump(comments, open(n, "w"))
 ''').lstrip()
 
@@ -229,10 +231,28 @@ class PiReview(unittest.TestCase):
         with open(os.path.join(self.state, "clone_head")) as f:
             self.assertEqual(f.read(), self.head)
 
+    def comments(self):
+        with open(os.path.join(self.state, "comments.json")) as f:
+            return json.load(f)
+
+    def test_the_posted_verdict_names_the_reviewed_commit(self):
+        r = self.run_case("merge,post", "--role", "pr", "--pr", "7", "--head", self.head)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.comments()[-1]["body"].splitlines()[:2],
+                         ["MERGE", "Reviewed commit: " + self.head])
+
+    def test_a_verdict_that_does_not_name_the_reviewed_commit_does_not_count(self):
+        r = self.run_case("merge,post,nocommit", "--role", "pr", "--pr", "7", "--head", self.head)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("naming commit " + self.head, r.stdout)
+
     def test_a_head_that_moves_while_pi_reviews_is_not_a_current_verdict(self):
         r = self.run_case("merge,post,headmoves", "--role", "pr", "--pr", "7", "--head", self.head)
         self.assertEqual(r.returncode, 1)
         self.assertIn("head moved", r.stdout)
+        # The verdict left on the PR names the commit Pi reviewed, not the new head, so a
+        # reader of the PR sees that it is stale.
+        self.assertEqual(self.comments()[-1]["body"].splitlines()[1], "Reviewed commit: " + self.head)
 
     def test_a_passed_run_removes_its_clone_and_a_failed_one_keeps_it(self):
         r = self.run_case("ready", "--role", "independent", "--head", self.head)

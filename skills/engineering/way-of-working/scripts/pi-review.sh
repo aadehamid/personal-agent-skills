@@ -3,7 +3,8 @@
 #
 # Usage: pi-review.sh --role pr|independent --head <sha> [--pr <number>] [--since <sha>] [--verify <claims>] [--model <model>]
 #   --role pr           Pi is the PR reviewer. It posts one comment on the PR whose first
-#                       line is MERGE or HOLD. Needs --pr.
+#                       line is MERGE or HOLD and whose second names the commit it reviewed.
+#                       Needs --pr.
 #   --role independent  Pi is the independent reviewer before a push. It writes its report
 #                       to a file and posts nothing.
 #   --since <sha>       Review only <sha>..<head>, the fix since the last review. Without it,
@@ -80,7 +81,7 @@ if [ "$role" = pr ]; then
 2. Read the PR description and its earlier review comments: gh pr view $pr --comments.
 3. Read the change: $change.
 4. $look
-5. Post exactly one comment on the PR with: gh pr comment $pr --body-file <file>. Its first line is exactly MERGE or HOLD, and its last line is exactly <!-- $mark -->. For a HOLD, list each blocking finding with the file, line and a concrete input or reason. For a MERGE, list anything non-blocking in one short list.
+5. Post exactly one comment on the PR with: gh pr comment $pr --body-file <file>. Its first line is exactly MERGE or HOLD, its second line is exactly Reviewed commit: $head, and its last line is exactly <!-- $mark -->. For a HOLD, list each blocking finding with the file, line and a concrete input or reason. For a MERGE, list anything non-blocking in one short list.
 6. Write the same first line, MERGE or HOLD, to $out.
 $hands_off"
 else
@@ -182,23 +183,26 @@ case "$role:$first" in
   *) echo "Pi's result starts with '$first', not a verdict. Read $out and $clone.log."; exit 1 ;;
 esac
 # A verdict file without the comment would let a merge go ahead on a review nobody can
-# read. Only a comment carrying this run's mark counts, with the same first line.
+# read. Only a comment carrying this run's mark counts, with the same first line and the
+# reviewed commit on its second, so a reader can tell when the verdict is stale.
 if [ "$role" = pr ]; then
-  posted=$(gh pr view "$pr" --json comments | MARK="$mark" V="$first" python3 -c '
+  posted=$(gh pr view "$pr" --json comments | MARK="$mark" V="$first" HEAD_SHA="$head" python3 -c '
 import json, os, sys
 mark, v = "<!-- " + os.environ["MARK"] + " -->", os.environ["V"]
+reviewed = "Reviewed commit: " + os.environ["HEAD_SHA"]
 for c in json.load(sys.stdin)["comments"]:
     lines = c["body"].strip().splitlines()
-    if lines and lines[0].strip() == v and mark in c["body"]:
+    if len(lines) > 1 and lines[0].strip() == v and lines[1].strip() == reviewed and mark in c["body"]:
         print("found"); break' || true)
   if [ -z "$posted" ]; then
-    echo "Pi wrote '$first' but posted no new comment starting with '$first' on PR #$pr. Read $clone.log."
+    echo "Pi wrote '$first' but posted no new comment starting with '$first' and naming commit $head on PR #$pr. Read $clone.log."
     exit 1
   fi
   # A push that landed while Pi read leaves its verdict on a commit that is no longer the head.
+  # The comment names $head, so on the PR it reads as a verdict on that older commit.
   now_head=$(gh pr view "$pr" --json headRefOid --jq .headRefOid)
   if [ "$now_head" != "$head" ]; then
-    echo "PR #$pr's head moved to $now_head while Pi reviewed $head; its '$first' is not the current verdict. Review the new head."
+    echo "PR #$pr's head moved to $now_head while Pi reviewed $head; its '$first' names $head and is not the current verdict. Review the new head."
     exit 1
   fi
 fi
