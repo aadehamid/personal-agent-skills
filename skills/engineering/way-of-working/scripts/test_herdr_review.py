@@ -242,7 +242,7 @@ class HerdrReview(unittest.TestCase):
         r, _ = self.run_case("fresh", extra=("--model", "gpt-6-astra"))
         self.assertEqual(r.returncode, 0, r.stderr)
         created = [a for a in self.argv if a[:2] == ["tab", "create"]][0]
-        self.assertEqual(created[created.index("--label") + 1], "review-repo-gpt-6-astra")
+        self.assertEqual(created[created.index("--label") + 1], "review-repo-codex-gpt-6-astra")
         start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
         self.assertEqual(start[start.index("-m") + 1], "gpt-6-astra")
 
@@ -261,7 +261,7 @@ class HerdrReview(unittest.TestCase):
             r, _ = self.run_case("newtab,fresh", extra=("--model", model))
             self.assertEqual(r.returncode, 0, r.stderr)
             name = [a for a in self.argv if a[:2] == ["agent", "start"]][0][2]
-            self.assertEqual(name, "rev-repo-" + hashlib.sha1(model.encode()).hexdigest()[:8])
+            self.assertEqual(name, "rev-repo-" + hashlib.sha1(f"codex:{model}".encode()).hexdigest()[:8])
             names.setdefault(model, set()).add(name)
         self.assertEqual(len(names["gpt-6-astra"]), 1)
         self.assertNotEqual(names["gpt-6-astra"], names["gpt-6-luna"])
@@ -272,6 +272,22 @@ class HerdrReview(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             name = [a for a in self.argv if a[:2] == ["agent", "start"]][0][2]
             self.assertRegex(name, r"^[a-z][a-z0-9_-]{0,31}$", extra)
+
+    def test_kimi_reviewer_runs_k3_in_its_own_tab(self):
+        r, calls = self.run_case("fresh,defaultlive", extra=("--kind", "kimi"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        created = [a for a in self.argv if a[:2] == ["tab", "create"]][0]
+        self.assertEqual(created[created.index("--label") + 1], "review-repo-kimi-kimi-code-k3")
+        start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
+        self.assertEqual(start[start.index("--kind") + 1], "kimi")
+        self.assertEqual(start[start.index("--") + 1:], ["-m", "kimi-code/k3", "-y"])
+        self.assertRegex(start[2], r"^rev-repo-[0-9a-f]{8}$")
+        self.assertIn("agent prompt", calls)
+
+    def test_unknown_kind_is_refused(self):
+        r, calls = self.run_case("ok", extra=("--kind", "gemini"))
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(calls, [])
 
     def test_prompt_tells_the_reviewer_to_apply_review_standards(self):
         with open(SCRIPT) as f:
