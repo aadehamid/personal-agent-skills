@@ -52,22 +52,69 @@ FAKE = textwrap.dedent(r'''
         if "nullpane" in s: out({"result": {"pane": None}})
         out({"result": {"pane": {"agent": None if "fresh" in s else "codex"}}})
     if cmd == "agent start":
+        # Herdr refuses a name a live agent already holds; "defaultlive" means the
+        # default reviewer rev-repo is running in its own tab.
+        if "defaultlive" in s and args[2] == "rev-repo": err("agent_name_taken")
         n_path = os.path.join(state, "starts")
         n = int(open(n_path).read()) + 1 if os.path.exists(n_path) else 1
         open(n_path, "w").write(str(n))
         if "busyall" in s or ("busy2" in s and n <= 2): err("agent_pane_busy")
         if "notready" in s: err("agent_not_ready")
         out({"result": {"agent": {"name": args[2]}}})
+    pending = os.path.join(state, "pending")
+    rp = os.path.join(state, "report_path")
     if cmd == "agent prompt":
+        if "stalled" in s and os.path.exists(rp):
+            # The script asks an idle reviewer once more for the report at its path.
+            open(pending, "w").write("write" if "obeys" in s else "none")
+            out({"result": {}})
+        if "stalled" in s:
+            # The pane shows pasted text; the report appears after the extra Enter.
+            report = re.search(r"exactly this path: (\S+)\. This is required", args[3]).group(1)
+            open(os.path.join(state, "report_path"), "w").write(report)
+            err("agent_prompt_stalled")
         if "blockedrej" in s: err("agent_blocked")
         if "timeout" in s: err("timeout")
-        report = re.search(r"Markdown to (\S+) and reply", args[3]).group(1)
+        report = re.search(r"exactly this path: (\S+)\. This is required", args[3]).group(1)
         if "noreport" not in s:
             open(report, "w").write("REVIEW FINDINGS\n")
         out({"result": {"agent": {"agent_status": "blocked" if "noreport" in s else "idle"}}})
     if cmd == "agent get":
         if "getfail" in s: err("agent_not_found")
+        if "stalled" in s:
+            # Work the last keystroke or prompt started finishes during one "working" poll.
+            if not os.path.exists(pending):
+                g = os.path.join(state, "idle_gets")
+                n = int(open(g).read()) + 1 if os.path.exists(g) else 1
+                open(g, "w").write(str(n))
+                if "idlemidwrite" in s and n == 2:
+                    # The first idle poll came while the reviewer was still writing.
+                    open(open(rp).read(), "a").write("MORE\n")
+                out({"result": {"agent": {"agent_status": "idle"}}})
+            action = open(pending).read()
+            os.remove(pending)
+            if action == "write":
+                open(open(rp).read(), "w").write("REVIEW FINDINGS\n")
+            if action == "finish":
+                open(open(rp).read(), "a").write("EVIEW FINDINGS\n")
+            out({"result": {"agent": {"agent_status": "working"}}})
         out({"result": {"agent": {"agent_status": "blocked"}}})
+    if cmd == "agent send-keys":
+        if "stalled" in s and os.path.exists(rp) and not os.path.exists(os.path.join(state, "entered")):
+            open(os.path.join(state, "entered"), "w").write("")
+            if "skillreport" in s:
+                # The reviewer saves only the review skill's own report, then goes idle.
+                d = os.path.join(os.environ["TMPDIR"], "ce-code-review", "run1")
+                os.makedirs(d, exist_ok=True)
+                open(os.path.join(d, "report.md"), "w").write("SKILL REPORT\n")
+                open(pending, "w").write("none")
+            elif "partial" in s:
+                # The report file appears with its first byte while the reviewer works on.
+                open(open(rp).read(), "w").write("R")
+                open(pending, "w").write("finish")
+            else:
+                open(pending, "w").write("write")
+        out({"result": {}})
     if cmd == "agent read":
         if "readfail" in s: err("agent_not_found")
         print("pane text"); sys.exit(0)
@@ -75,8 +122,13 @@ FAKE = textwrap.dedent(r'''
 ''').lstrip()
 
 
+def reviewer_hash(kind_model):
+    import hashlib
+    return hashlib.sha1(kind_model.encode()).hexdigest()[:8]
+
+
 class HerdrReview(unittest.TestCase):
-    def run_case(self, scenario, tmpdir=None):
+    def run_case(self, scenario, tmpdir=None, extra=(), repo_name="repo"):
         state = tempfile.mkdtemp()
         bindir = tempfile.mkdtemp()
         fake = os.path.join(bindir, "herdr")
@@ -88,12 +140,12 @@ class HerdrReview(unittest.TestCase):
         with open(stub, "w") as f:
             f.write("#!/bin/sh\nexit 0\n")
         os.chmod(stub, 0o755)
-        repo = os.path.join(tempfile.mkdtemp(), "repo")
+        repo = os.path.join(tempfile.mkdtemp(), repo_name)
         os.mkdir(repo)
         env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"],
                    FAKE_HERDR=scenario, FAKE_STATE=state, HERDR_WORKSPACE_ID="w2",
                    TMPDIR=tmpdir or tempfile.mkdtemp())
-        r = subprocess.run(["bash", SCRIPT, "--branch", "b", "--verify", "v"],
+        r = subprocess.run(["bash", SCRIPT, "--branch", "b", "--verify", "v", *extra],
                            cwd=repo, env=env, capture_output=True, text=True)
         calls_path = os.path.join(state, "calls")
         calls = []
@@ -224,6 +276,146 @@ class HerdrReview(unittest.TestCase):
         prompt = [a for a in self.argv if a[:2] == ["agent", "prompt"]][0]
         self.assertIn("--wait", prompt)
         self.assertEqual(prompt[prompt.index("--timeout") + 1], "3600000")
+
+    def test_default_model_is_gpt_6_1_sol_in_the_review_tab(self):
+        r, _ = self.run_case("newtab,fresh")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        created = [a for a in self.argv if a[:2] == ["tab", "create"]][0]
+        self.assertEqual(created[created.index("--label") + 1], "review-repo")
+        start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
+        self.assertEqual(start[start.index("-m") + 1], "gpt-6.1-sol")
+
+    def test_another_model_gets_its_own_tab(self):
+        # The plain review-repo tab exists, but a reused tab keeps its reviewer,
+        # so another model must open review-repo-<model> instead.
+        r, _ = self.run_case("fresh", extra=("--model", "gpt-6-astra"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        created = [a for a in self.argv if a[:2] == ["tab", "create"]][0]
+        self.assertEqual(created[created.index("--label") + 1], "review-repo-codex-" + reviewer_hash("codex:gpt-6-astra"))
+        start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
+        self.assertEqual(start[start.index("-m") + 1], "gpt-6-astra")
+
+    def test_another_model_starts_beside_a_live_default_reviewer(self):
+        r, calls = self.run_case("fresh,defaultlive", extra=("--model", "gpt-6-astra"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        name = [a for a in self.argv if a[:2] == ["agent", "start"]][0][2]
+        self.assertNotEqual(name, "rev-repo")
+        self.assertRegex(name, r"^rev-repo-[0-9a-f]{8}$")
+        self.assertIn("agent prompt", calls)
+
+    def test_each_override_model_gets_its_own_stable_name(self):
+        import hashlib
+        names = {}
+        for model in ("gpt-6-astra", "gpt-6-luna", "gpt-6-astra"):
+            r, _ = self.run_case("newtab,fresh", extra=("--model", model))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            name = [a for a in self.argv if a[:2] == ["agent", "start"]][0][2]
+            self.assertEqual(name, "rev-repo-" + hashlib.sha1(f"codex:{model}".encode()).hexdigest()[:8])
+            names.setdefault(model, set()).add(name)
+        self.assertEqual(len(names["gpt-6-astra"]), 1)
+        self.assertNotEqual(names["gpt-6-astra"], names["gpt-6-luna"])
+
+    def test_agent_names_fit_herdr_limits_for_a_long_repo_name(self):
+        for extra in ((), ("--model", "gpt-6-astra")):
+            r, _ = self.run_case("newtab,fresh", extra=extra, repo_name="A Very Long Repository Name For Testing")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            name = [a for a in self.argv if a[:2] == ["agent", "start"]][0][2]
+            self.assertRegex(name, r"^[a-z][a-z0-9_-]{0,31}$", extra)
+
+    def test_kimi_reviewer_runs_k3_in_its_own_tab(self):
+        r, calls = self.run_case("fresh,defaultlive", extra=("--kind", "kimi"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        created = [a for a in self.argv if a[:2] == ["tab", "create"]][0]
+        self.assertEqual(created[created.index("--label") + 1], "review-repo-kimi-" + reviewer_hash("kimi:kimi-code/k3"))
+        start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
+        self.assertEqual(start[start.index("--kind") + 1], "kimi")
+        self.assertEqual(start[start.index("--") + 1:], ["-m", "kimi-code/k3", "-y"])
+        self.assertRegex(start[2], r"^rev-repo-[0-9a-f]{8}$")
+        self.assertIn("agent prompt", calls)
+
+    def test_kimi_model_override_reaches_label_name_and_launch(self):
+        import hashlib
+        r, _ = self.run_case("newtab,fresh", extra=("--kind", "kimi", "--model", "kimi-code/k3-256k"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        created = [a for a in self.argv if a[:2] == ["tab", "create"]][0]
+        self.assertEqual(created[created.index("--label") + 1], "review-repo-kimi-" + reviewer_hash("kimi:kimi-code/k3-256k"))
+        start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
+        self.assertEqual(start[start.index("--") + 1:], ["-m", "kimi-code/k3-256k", "-y"])
+        self.assertEqual(start[2], "rev-repo-" + hashlib.sha1(b"kimi:kimi-code/k3-256k").hexdigest()[:8])
+
+    def test_models_that_differ_only_in_punctuation_get_different_tabs(self):
+        labels = set()
+        for model in ("kimi-code/k3", "kimi-code-k3"):
+            r, _ = self.run_case("newtab,fresh", extra=("--kind", "kimi", "--model", model))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            created = [a for a in self.argv if a[:2] == ["tab", "create"]][0]
+            labels.add(created[created.index("--label") + 1])
+        self.assertEqual(len(labels), 2)
+
+    def test_prompt_names_the_review_skill_file(self):
+        r, _ = self.run_case("ok")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        prompt = [a for a in self.argv if a[:2] == ["agent", "prompt"]][0][3]
+        self.assertIn(os.path.expanduser("~/.agents/skills/ce-code-review/SKILL.md"), prompt)
+
+    def test_cursor_reviewer_runs_grok_sandboxed_in_its_own_tab(self):
+        r, calls = self.run_case("newtab,fresh", extra=("--kind", "cursor"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        created = [a for a in self.argv if a[:2] == ["tab", "create"]][0]
+        self.assertEqual(created[created.index("--label") + 1], "review-repo-cursor-" + reviewer_hash("cursor:cursor-grok-4.6-medium"))
+        start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
+        self.assertEqual(start[start.index("--kind") + 1], "cursor")
+        self.assertEqual(start[start.index("--") + 1:],
+                         ["--model", "cursor-grok-4.6-medium", "--sandbox", "enabled", "--force", "--trust"])
+        self.assertIn("agent prompt", calls)
+
+    def test_cursor_stalled_prompt_gets_an_enter_and_waits_for_the_report(self):
+        r, calls = self.run_case("newtab,fresh,stalled", extra=("--kind", "cursor"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("agent send-keys", calls)
+        self.assertIn("REVIEW FINDINGS", r.stdout)
+
+    def test_a_report_still_being_written_is_not_printed_early(self):
+        r, _ = self.run_case("newtab,fresh,stalled,partial", extra=("--kind", "cursor"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("REVIEW FINDINGS\n", r.stdout)
+
+    def test_a_report_growing_while_idle_is_printed_only_once_it_stops(self):
+        r, _ = self.run_case("newtab,fresh,stalled,idlemidwrite", extra=("--kind", "cursor"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "REVIEW FINDINGS\nMORE\n")
+
+    def test_an_idle_reviewer_without_the_report_is_asked_once_for_it(self):
+        r, calls = self.run_case("newtab,fresh,stalled,skillreport,obeys", extra=("--kind", "cursor"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(calls.count("agent prompt"), 2)
+        self.assertIn("REVIEW FINDINGS", r.stdout)
+
+    def test_another_reviews_skill_report_is_never_taken_as_this_one(self):
+        r, calls = self.run_case("newtab,fresh,stalled,skillreport", extra=("--kind", "cursor"))
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(calls.count("agent prompt"), 2)
+        self.assertNotIn("SKILL REPORT", r.stdout)
+        self.assertIn("No finished report", r.stdout)
+
+    def test_prompt_names_the_exact_report_path(self):
+        with open(SCRIPT) as f:
+            self.assertIn("write the final report as Markdown to exactly this path", f.read())
+
+    def test_a_stalled_prompt_for_another_kind_still_stops(self):
+        r, calls = self.run_case("newtab,fresh,stalled")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertNotIn("agent send-keys", calls)
+
+    def test_cursor_report_path_is_under_tmp(self):
+        r, _ = self.run_case("newtab,fresh", extra=("--kind", "cursor"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Report file: /tmp/herdr-reviews/review-", r.stderr)
+
+    def test_unknown_kind_is_refused(self):
+        r, calls = self.run_case("ok", extra=("--kind", "gemini"))
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(calls, [])
 
     def test_prompt_tells_the_reviewer_to_apply_review_standards(self):
         with open(SCRIPT) as f:
