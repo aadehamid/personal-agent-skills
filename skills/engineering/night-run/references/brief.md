@@ -41,6 +41,7 @@ Write one entry each time an item ships, stalls, changes plan, or needs a decisi
 
 - **Shipped:** `MERGED PR #<n> (<item>) as <merge commit>`, with the review rounds it took.
 - **Decided:** `Decided (under the delegation): <choice>`, with the evidence, and where the decision is recorded.
+- **Deferred:** the item, why it waits, and what it waits for.
 - **Stalled or blocked:** what blocks it, what you tried, and what you moved on to.
 - **Incident:** what went wrong, what it touched, and how you fixed it. If an earlier entry blamed the wrong cause, add a `CORRECTION` entry. Leave the earlier entry in place.
 
@@ -56,6 +57,8 @@ End the log with this section:
 | PR | What | Merge |
 |---|---|---|
 | #<n> | <item> | <commit> |
+
+Deferred: <each item and what it waits for>.
 
 Decisions made for the owner: <list, each with where it is recorded>. The owner can reverse any of them.
 
