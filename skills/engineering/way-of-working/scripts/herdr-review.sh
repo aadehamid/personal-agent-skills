@@ -120,10 +120,23 @@ if [ -z "$pane_agent" ]; then
   fi
 fi
 
+# The newest ce-code-review report.md written since a time, or nothing.
+skill_report_since() {
+  python3 - "$1" "${TMPDIR:-/tmp}" /tmp <<'PY'
+import glob, os, sys
+since, roots = float(sys.argv[1]), sys.argv[2:]
+# ce-code-review saves run artifacts under <tmp>/compound-engineering-<uid>/ce-code-review/<run>/.
+found = {p for r in roots for pat in ("compound-engineering-*/ce-code-review/*/report.md", "ce-code-review/*/report.md")
+         for p in glob.glob(os.path.join(r, pat))}
+found = [p for p in found if os.path.getmtime(p) >= since]
+print(max(found, key=os.path.getmtime) if found else "")
+PY
+}
 report=$(mktemp "${TMPDIR:-/tmp}/review-XXXXXX")   # unique; a failure stops here
+started_at=$(date +%s)
 rm -f "$report"                                     # absent until the reviewer writes it
 echo "Report file: $report" >&2                     # findable even if the output is cut short
-prompt="Read AGENTS.md and the repository's review standards file (for example REVIEW_STANDARDS.md) first, and apply them. Run the ce-code-review skill (instructions: $HOME/.agents/skills/ce-code-review/SKILL.md) on branch $branch, diff vs main. Verify: $verify. Say how this could pass review while still being wrong. Report findings only; do not apply them. Write them as Markdown to $report and reply with the path."
+prompt="Read AGENTS.md and the repository's review standards file (for example REVIEW_STANDARDS.md) first, and apply them. Run the ce-code-review skill (instructions: $HOME/.agents/skills/ce-code-review/SKILL.md) on branch $branch, diff vs main. Verify: $verify. Say how this could pass review while still being wrong. Report findings only; do not apply them. When the review is finished, write the final report as Markdown to exactly this path: $report. This is required even if the review skill also saves its own report elsewhere. Then reply with that path."
 
 # --wait fails fast (agent_prompt_stalled) if the prompt never starts work, and
 # otherwise returns when the reviewer is idle, done or blocked.
@@ -134,6 +147,11 @@ if ! prompt_out=$(herdr agent prompt "$review_pane" "$prompt" --wait --timeout 3
     herdr agent send-keys "$review_pane" Enter >/dev/null
     for _ in $(seq 1 720); do
       if [ -s "$report" ]; then sleep 5; cat "$report"; exit 0; fi
+      # A reviewer that saved only the review skill's own report, then went idle.
+      if [ "$(herdr agent get "$review_pane" | jget result.agent.agent_status || true)" = idle ]; then
+        skill_report=$(skill_report_since "$started_at")
+        if [ -n "$skill_report" ]; then cp "$skill_report" "$report"; cat "$report"; exit 0; fi
+      fi
       sleep 5
     done
     echo "No report after 60 minutes; read the pane: herdr agent read $review_pane --source recent-unwrapped --lines 60"

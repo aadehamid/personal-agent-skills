@@ -64,22 +64,29 @@ FAKE = textwrap.dedent(r'''
     if cmd == "agent prompt":
         if "stalled" in s:
             # The pane shows pasted text; the report appears after the extra Enter.
-            report = re.search(r"Markdown to (\S+) and reply", args[3]).group(1)
+            report = re.search(r"exactly this path: (\S+)\. This is required", args[3]).group(1)
             open(os.path.join(state, "report_path"), "w").write(report)
             err("agent_prompt_stalled")
         if "blockedrej" in s: err("agent_blocked")
         if "timeout" in s: err("timeout")
-        report = re.search(r"Markdown to (\S+) and reply", args[3]).group(1)
+        report = re.search(r"exactly this path: (\S+)\. This is required", args[3]).group(1)
         if "noreport" not in s:
             open(report, "w").write("REVIEW FINDINGS\n")
         out({"result": {"agent": {"agent_status": "blocked" if "noreport" in s else "idle"}}})
     if cmd == "agent get":
         if "getfail" in s: err("agent_not_found")
+        if "skillreport" in s: out({"result": {"agent": {"agent_status": "idle"}}})
         out({"result": {"agent": {"agent_status": "blocked"}}})
     if cmd == "agent send-keys":
         rp = os.path.join(state, "report_path")
         if "stalled" in s and os.path.exists(rp):
-            open(open(rp).read(), "w").write("REVIEW FINDINGS\n")
+            if "skillreport" in s:
+                # The reviewer saves only the review skill's own report, then goes idle.
+                d = os.path.join(os.environ["TMPDIR"], "ce-code-review", "run1")
+                os.makedirs(d, exist_ok=True)
+                open(os.path.join(d, "report.md"), "w").write("SKILL REPORT\n")
+            else:
+                open(open(rp).read(), "w").write("REVIEW FINDINGS\n")
         out({"result": {}})
     if cmd == "agent read":
         if "readfail" in s: err("agent_not_found")
@@ -326,6 +333,15 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("agent send-keys", calls)
         self.assertIn("REVIEW FINDINGS", r.stdout)
+
+    def test_a_skill_report_written_elsewhere_is_picked_up(self):
+        r, calls = self.run_case("newtab,fresh,stalled,skillreport", extra=("--kind", "cursor"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("SKILL REPORT", r.stdout)
+
+    def test_prompt_names_the_exact_report_path(self):
+        with open(SCRIPT) as f:
+            self.assertIn("write the final report as Markdown to exactly this path", f.read())
 
     def test_a_stalled_prompt_for_another_kind_still_stops(self):
         r, calls = self.run_case("newtab,fresh,stalled")
