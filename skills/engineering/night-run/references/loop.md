@@ -20,6 +20,6 @@ Each item in the queue runs this loop. It is the project's own pull-request loop
 ## When a tool stalls
 
 - **A reviewer stops responding, or a queued prompt never starts.** End its session and start a new one on the same commit. If it stalls a second time, switch to another reviewer of the same role, and log the switch.
-- **The PR reviewer named in the brief is down.** Use the stand-in the brief names. If the brief names none, keep the PR open, log it, and move to the next item.
+- **The PR reviewer has not answered a push within the brief's wait.** Start the brief's stand-in on the same commit. Its verdict counts for the merge rule. Log the switch, and use the stand-in for every later push until the PR reviewer answers again. If the brief names no stand-in, keep the PR open, log it, and move to the next item.
 - **An item depends on another open pull request.** Log the dependency and move to the next item. Come back after that PR merges.
 - **A local service dies**, for example a container killed for memory. Restart it, rerun the step that used it, and log it. Run fewer reviewers at once if it happens again.

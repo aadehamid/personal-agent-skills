@@ -23,7 +23,8 @@ Decisions (owner's words): "<quote of the delegation>"
 
 Independent reviewer: <agent, model, how it starts>; report file: <path the writer can read>
   Round 1 reviews the full diff. Later rounds review only the fix.
-PR reviewer: <who or what gives the merge verdict, how it starts>
+PR reviewer: <who or what gives the merge verdict, how it starts; for example the project's review bot>
+PR reviewer stand-in: <who gives the verdict when the PR reviewer has not answered a push, how it starts>; wait: <how long, default 30 minutes>
 Merge rule: <for example: check green, CI green, the PR reviewer's latest verdict is MERGE>
 Check command: <the project's check script>
 Default branch: <for example main>; remote: <for example origin>
