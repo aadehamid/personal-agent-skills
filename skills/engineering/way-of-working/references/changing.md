@@ -14,6 +14,22 @@ Read this before opening a pull request.
 
 **When a PR must merge one way, make it the only way the repository allows.** A file that pins one of the PR's own commits breaks under a squash or rebase merge, which give that commit a new SHA. A warning in the PR body is not enough: a PR that carried one at the top was squash-merged anyway, and a follow-up PR had to re-pin. Ask the owner to untick "Allow squash merging" and "Allow rebase merging" in the repository settings, so the default merge button is the right one.
 
+## Who reviews
+
+Each pull request gets two reviews from two different tools: the independent review before each push (`before-push.md`), and the PR review that gives the merge verdict. The Cursor bot decides which tool does which:
+
+| Cursor bot | Independent review | PR review |
+|---|---|---|
+| Available | Pi through Ollama: `scripts/pi-review.sh --role independent` | The Cursor bot |
+| Not available | The Cursor agent CLI: `scripts/herdr-review.sh --kind cursor` | Pi through Ollama: `scripts/pi-review.sh --role pr` |
+
+- **The bot is not available when it has not started on a push within 8 minutes.** Its check run (named "Cursor Automation" on this owner's repositories) counts as a start. `watch-pr.sh` does not wake on a check that only starts, so check at the 8-minute mark yourself: `gh pr checks <number>` lists the bot's check for the head commit once it has started.
+- **Before a pull request opens, judge by the bot's last push in this repository.** The independent review runs before the bot can answer, so use the row that held for the repository's most recent pull request. If the bot then reviews this pull request after all, while the Cursor agent CLI gave the independent review, run `pi-review.sh --role independent` on that commit before merging, so the two reviews still come from two different tools.
+- **A switch lasts for the rest of the pull request.** From then on Pi gives the merge verdict on every push, and the Cursor agent CLI gives the independent review. A late answer from the bot is read as a comment, not as the verdict.
+- **The project or the owner can name other reviewers.** The same rules then apply to the reviewers they name.
+
+`scripts/pi-review.sh` runs Pi in a fresh clone under `/tmp`, never in the working tree, because a reviewer that checks out a commit changes the files under your feet. Inside Herdr it opens its own tab, `pi-<role>-<repo>`, so the owner can watch, and closes it when Pi has answered. As the PR reviewer, Pi posts one comment whose first line is MERGE or HOLD; the script fails if no comment appears. As the independent reviewer, Pi writes a report whose first line is READY or FIX, and posts nothing. `--since <commit>` limits a later round to the fix. `scripts/test_pi_review.py` covers each case.
+
 ## What the body says
 
 The body carries these:
@@ -37,6 +53,7 @@ Watch every pull request you open, and every one already open when you start, un
 
 - **Run `~/.agents/skills/way-of-working/scripts/watch-pr.sh <number>`** from the repository as a background job the harness reports back on. It polls every 30 seconds and exits on the first new event: a merge or close, a new review, conversation comment or inline review comment, or a check that finishes, including a rerun that finishes with the same result. A check that only starts or reruns wakes nothing. It exits at once if the pull request has already merged. When it exits, read what changed, act, and start it again unless the pull request is merged or closed. Report only changes; silence is the normal case.
 - **Bound review output.** Use `gh api --jq` to select the reviewed commit, creation time, state, and relevant body text. Omit decorative HTML footers. Keep unresolved findings from earlier commits available until fixed or answered. Retrieve source text needed to judge a finding even when it is from an older round.
+- **After each push, leave the pull request alone until its reviewer answers**, with a hold or a merge. Make no other push, force-push or edit to its description in the meantime: a change that lands while the reviewer reads makes its verdict name a commit that is no longer the head, and the round is wasted. Work on something else while you wait. If the reviewer is not available (see "Who reviews"), the stand-in's run on the same commit is the answer you wait for.
 - **On a HOLD**, fix on the same branch, run the check script again, run the independent review again, within its round limit (`before-push.md`), and reply on the PR saying what changed.
 - **A review against an older commit is not the current verdict.** Read the commit the review names before acting on it.
 - **On merge, run `~/.agents/skills/way-of-working/scripts/after-merge.sh <branch>`.** It syncs `main`, then deletes the branch locally and on the remote only if every commit on it is in `main`. A squash or rebase merge, or a commit pushed after the merge, leaves work outside `main`, and the script then deletes nothing. It reads the live remote and deletes under a lease on the commit it checked, so a push landing after the check makes the delete fail rather than lose that work. If the branch vanishes mid-run, because a review bot deleted it on merge, a failed fetch or delete counts as done only when git's error says the ref is missing and the live remote then lists no such branch. The script trusts the remote to list every branch; on a server that hides refs, a hidden branch looks deleted. It reads and deletes through the remote's one push URL, and stops if there are several, deleting nothing. Locally it uses `git branch -d`, which refuses an unmerged branch. `scripts/test_pr_scripts.py` covers a squash merge, a late push, an unpushed local commit, a remote branch already deleted, one deleted before the fetch or before the delete, a failed remote lookup, a fetch that wrongly reports the ref missing, a refused delete of a hidden ref, several push URLs, a push racing the delete and a commit racing `branch -d`.
