@@ -105,8 +105,12 @@ if [ -z "$pane_agent" ]; then
     # Sandboxed, no approval prompts, workspace trusted: the Cursor match for Codex's flags.
     agent_args=(--model "$model" --sandbox enabled --force --trust)
   else
+    # The review skill's cross-model pass runs npx and the Claude CLI, which write to these
+    # folders; without them the sandbox fails it with npm EPERM and the pass is skipped.
+    roots="[\"$HOME/.npm\",\"$HOME/.claude\",\"$HOME/.cache\",\"$HOME/.config\"]"
     agent_args=(-m "$model" -c model_reasoning_effort=medium
-                -a never -s workspace-write -c sandbox_workspace_write.network_access=true)
+                -a never -s workspace-write -c sandbox_workspace_write.network_access=true
+                -c "sandbox_workspace_write.writable_roots=$roots")
   fi
   started="" out=""
   for try in 1 2 3 4 5; do   # a just-created tab's shell may not be ready yet

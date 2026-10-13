@@ -279,6 +279,15 @@ class HerdrReview(unittest.TestCase):
         self.assertIn("--wait", prompt)
         self.assertEqual(prompt[prompt.index("--timeout") + 1], "3600000")
 
+    def test_codex_sandbox_can_write_the_folders_the_cross_model_pass_needs(self):
+        r, _ = self.run_case("newtab,fresh")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
+        home = os.path.expanduser("~")
+        roots = json.dumps([f"{home}/.npm", f"{home}/.claude", f"{home}/.cache", f"{home}/.config"], separators=(",", ":"))
+        self.assertIn("sandbox_workspace_write.writable_roots=" + roots, start)
+        self.assertIn("workspace-write", start)
+
     def test_default_model_is_gpt_6_1_sol_in_the_review_tab(self):
         r, _ = self.run_case("newtab,fresh")
         self.assertEqual(r.returncode, 0, r.stderr)
