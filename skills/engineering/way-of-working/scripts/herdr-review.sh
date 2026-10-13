@@ -76,7 +76,13 @@ fi
 # --model picks another Codex model when the owner asks).
 pane_agent=$(herdr pane get "$review_pane" | jget result.pane.agent)
 if [ -z "$pane_agent" ]; then
-  name="rev-$(printf '%s' "$repo" | tr 'A-Z' 'a-z' | tr -cs 'a-z0-9' '-' | cut -c1-28)"
+  slug=$(printf '%s' "$repo" | tr 'A-Z' 'a-z' | tr -cs 'a-z0-9' '-')
+  name="rev-$(printf '%s' "$slug" | cut -c1-28)"
+  # Herdr names are unique and at most 32 characters, so another model's reviewer
+  # takes a short hash of the model name, and can run beside the default one.
+  if [ "$model" != "gpt-6.1-sol" ]; then
+    name="rev-$(printf '%s' "$slug" | cut -c1-19)-$(printf '%s' "$model" | shasum | cut -c1-8)"
+  fi
   started="" out=""
   for try in 1 2 3 4 5; do   # a just-created tab's shell may not be ready yet
     if out=$(herdr agent start "$name" --kind codex --pane "$review_pane" -- \

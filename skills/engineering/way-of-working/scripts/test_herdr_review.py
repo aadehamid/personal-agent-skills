@@ -52,6 +52,9 @@ FAKE = textwrap.dedent(r'''
         if "nullpane" in s: out({"result": {"pane": None}})
         out({"result": {"pane": {"agent": None if "fresh" in s else "codex"}}})
     if cmd == "agent start":
+        # Herdr refuses a name a live agent already holds; "defaultlive" means the
+        # default reviewer rev-repo is running in its own tab.
+        if "defaultlive" in s and args[2] == "rev-repo": err("agent_name_taken")
         n_path = os.path.join(state, "starts")
         n = int(open(n_path).read()) + 1 if os.path.exists(n_path) else 1
         open(n_path, "w").write(str(n))
@@ -76,7 +79,7 @@ FAKE = textwrap.dedent(r'''
 
 
 class HerdrReview(unittest.TestCase):
-    def run_case(self, scenario, tmpdir=None, extra=()):
+    def run_case(self, scenario, tmpdir=None, extra=(), repo_name="repo"):
         state = tempfile.mkdtemp()
         bindir = tempfile.mkdtemp()
         fake = os.path.join(bindir, "herdr")
@@ -88,7 +91,7 @@ class HerdrReview(unittest.TestCase):
         with open(stub, "w") as f:
             f.write("#!/bin/sh\nexit 0\n")
         os.chmod(stub, 0o755)
-        repo = os.path.join(tempfile.mkdtemp(), "repo")
+        repo = os.path.join(tempfile.mkdtemp(), repo_name)
         os.mkdir(repo)
         env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"],
                    FAKE_HERDR=scenario, FAKE_STATE=state, HERDR_WORKSPACE_ID="w2",
@@ -242,6 +245,21 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(created[created.index("--label") + 1], "review-repo-gpt-6-astra")
         start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
         self.assertEqual(start[start.index("-m") + 1], "gpt-6-astra")
+
+    def test_another_model_starts_beside_a_live_default_reviewer(self):
+        r, calls = self.run_case("fresh,defaultlive", extra=("--model", "gpt-6-astra"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        name = [a for a in self.argv if a[:2] == ["agent", "start"]][0][2]
+        self.assertNotEqual(name, "rev-repo")
+        self.assertRegex(name, r"^rev-repo-[0-9a-f]{8}$")
+        self.assertIn("agent prompt", calls)
+
+    def test_agent_names_fit_herdr_limits_for_a_long_repo_name(self):
+        for extra in ((), ("--model", "gpt-6-astra")):
+            r, _ = self.run_case("newtab,fresh", extra=extra, repo_name="A Very Long Repository Name For Testing")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            name = [a for a in self.argv if a[:2] == ["agent", "start"]][0][2]
+            self.assertRegex(name, r"^[a-z][a-z0-9_-]{0,31}$", extra)
 
     def test_prompt_tells_the_reviewer_to_apply_review_standards(self):
         with open(SCRIPT) as f:
