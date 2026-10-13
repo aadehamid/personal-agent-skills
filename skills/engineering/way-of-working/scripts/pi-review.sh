@@ -93,6 +93,23 @@ else
 $hands_off"
 fi
 
+# Stop a whole process group: TERM, then KILL, and return 1 if it is still alive about
+# 15 s later. `ollama launch` runs Pi as a child and does not pass a signal on, so
+# killing the parent alone leaves Pi able to post late.
+stop_group() {
+  kill -TERM -- "-$1" 2>/dev/null || return 0
+  for _ in $(seq 1 20); do
+    kill -0 -- "-$1" 2>/dev/null || return 0
+    sleep 0.5
+  done
+  kill -KILL -- "-$1" 2>/dev/null || true
+  for _ in $(seq 1 50); do
+    kill -0 -- "-$1" 2>/dev/null || return 0
+    sleep 0.1
+  done
+  return 1
+}
+
 if [ -n "${HERDR_WORKSPACE_ID:-}" ]; then
   repo=$(basename "$PWD")
   created=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$clone" --label "pi-$role-$repo" --no-focus)
@@ -111,19 +128,45 @@ if [ -n "${HERDR_WORKSPACE_ID:-}" ]; then
     echo "Pi did not start in tab $tab. Read the pane above."
     exit 1
   fi
-  herdr agent prompt "$pane" "$prompt" --wait --timeout 3600000 > "$clone.log" 2>&1 || true
+  if ! herdr agent prompt "$pane" "$prompt" --wait --timeout 3600000 > "$clone.log" 2>&1; then
+    # The prompt timed out or stalled, and Pi may still be working. Stop the pane's
+    # foreground group, which holds `ollama launch` and Pi, and leave the shell to read.
+    # When the shell's own group is in front, Pi has already exited and there is nothing to stop.
+    stopped=no
+    if group=$(herdr pane process-info --pane "$pane" | python3 -c '
+import json, sys
+p = json.load(sys.stdin)["result"]["process_info"]
+g = p.get("foreground_process_group_id")
+print(g if g and g != p.get("shell_pid") else "")'); then
+      if [ -z "$group" ] || stop_group "$group"; then stopped=yes; fi
+    fi
+    tail -n 5 "$clone.log" || true
+    if [ "$stopped" = yes ]; then
+      echo "Pi's prompt in tab $tab did not finish within an hour, or never started work; Pi is stopped. Its log is $clone.log."
+    else
+      echo "Pi's prompt in tab $tab did not finish within an hour, or never started work, and Pi could not be stopped: it may still post. Stop it in tab $tab. Its log is $clone.log."
+    fi
+    exit 1
+  fi
   herdr pane read "$pane" --lines 200 >> "$clone.log" 2>&1 || true
 else
   # Headless Pi gets the same one-hour bound as the Herdr prompt. macOS has no timeout(1).
-  (cd "$clone" && exec ollama launch pi --model "$model" -y -- -p --no-session "$prompt") > "$clone.log" 2>&1 &
+  # Job control gives the job its own process group, so the limit can stop Pi with it.
+  # A job-control job keeps the terminal as stdin, so stdin is closed explicitly.
+  set -m
+  (cd "$clone" && exec ollama launch pi --model "$model" -y -- -p --no-session "$prompt") < /dev/null > "$clone.log" 2>&1 &
   pi_pid=$!
+  set +m
   for _ in $(seq 1 "${PI_REVIEW_POLLS:-720}"); do
     kill -0 "$pi_pid" 2>/dev/null || break
     sleep 5
   done
   if kill -0 "$pi_pid" 2>/dev/null; then
-    kill "$pi_pid" 2>/dev/null || true
-    echo "Pi did not finish within an hour. Its log is $clone.log."
+    if stop_group "$pi_pid"; then
+      echo "Pi did not finish within an hour and is stopped. Its log is $clone.log."
+    else
+      echo "Pi did not finish within an hour, and its process group $pi_pid would not stop: it may still post. Its log is $clone.log."
+    fi
     exit 1
   fi
   wait "$pi_pid" || true
