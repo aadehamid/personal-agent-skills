@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Run Pi (through Ollama) as a reviewer, in a throwaway clone, and print its result.
 #
-# Usage: pi-review.sh --role pr|independent --head <sha> [--pr <number>] [--since <sha>] [--model <model>]
+# Usage: pi-review.sh --role pr|independent --head <sha> [--pr <number>] [--since <sha>] [--verify <claims>] [--model <model>]
 #   --role pr           Pi is the PR reviewer. It posts one comment on the PR whose first
 #                       line is MERGE or HOLD. Needs --pr.
 #   --role independent  Pi is the independent reviewer before a push. It writes its report
 #                       to a file and posts nothing.
 #   --since <sha>       Review only <sha>..<head>, the fix since the last review. Without it,
 #                       review the whole change against the default branch.
+#   --verify <claims>   What the reviewer must check, as for herdr-review.sh.
 #   --model             Default glm-5.3-flash:cloud.
 #   Run from the repository under review, as a background job the harness reports back
 #   on (Claude Code: run_in_background): a review outlasts a foreground call.
@@ -21,13 +22,14 @@
 # Tests: test_pi_review.py, run by the repository's scripts/check.sh.
 set -euo pipefail
 
-role="" head="" pr="" since="" model="glm-5.3-flash:cloud"
+role="" head="" pr="" since="" verify="" model="glm-5.3-flash:cloud"
 while [ $# -gt 0 ]; do
   case "$1" in
     --role) role="$2"; shift 2 ;;
     --head) head="$2"; shift 2 ;;
     --pr) pr="$2"; shift 2 ;;
     --since) since="$2"; shift 2 ;;
+    --verify) verify="$2"; shift 2 ;;
     --model) model="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -47,7 +49,9 @@ clone=$(mktemp -d /tmp/pi-review-XXXXXX)
 echo "Clone: $clone" >&2
 git clone -q "$remote" "$clone"
 git -C "$clone" fetch -q origin "+refs/pull/*/head:refs/remotes/origin/pr/*" 2>/dev/null || true
-git -C "$clone" checkout -q --detach "$head" || { echo "commit $head is not on the remote; push it first" >&2; exit 1; }
+# The independent review runs before the push it gates, so its commit may exist only here.
+if [ "$role" = independent ]; then git -C "$clone" fetch -q "$PWD" "$head" 2>/dev/null || true; fi
+git -C "$clone" checkout -q --detach "$head" || { echo "commit $head is in neither the remote nor this repository" >&2; exit 1; }
 
 if [ -n "$since" ]; then
   change="git diff $since..$head (only the fix since your last review; check that the earlier findings are closed and that the fix broke nothing next to it)"
@@ -56,6 +60,7 @@ else
 fi
 standards="Read the repository's agent instructions and review standards files if it has them (AGENTS.md, CLAUDE.md, REVIEW_STANDARDS.md), and apply them."
 look="Look for anything that lets a wrong result through, breaks a stated rule, or makes a description untrue. Do not report style."
+[ -n "$verify" ] && look="$look Verify: $verify."
 hands_off="Do not edit, create or delete any file in the repository, and do not run git commands that change it. Write scratch files under /tmp only."
 
 if [ "$role" = pr ]; then
@@ -78,7 +83,8 @@ else
 $hands_off"
 fi
 
-comments() { gh pr view "$pr" --json comments --jq '.comments | length'; }
+# Each PR comment as "<id> <first line>", so a comment Pi posts can be told from any other.
+comments() { gh pr view "$pr" --json comments --jq '.comments[] | .id + " " + (.body | split("\n")[0])'; }
 [ "$role" = pr ] && before=$(comments)
 if [ -n "${HERDR_WORKSPACE_ID:-}" ]; then
   repo=$(basename "$PWD")
@@ -100,9 +106,20 @@ if [ -n "${HERDR_WORKSPACE_ID:-}" ]; then
   fi
   herdr agent prompt "$pane" "$prompt" --wait --timeout 3600000 > "$clone.log" 2>&1 || true
   herdr pane read "$pane" --lines 200 >> "$clone.log" 2>&1 || true
-  [ -s "$out" ] && herdr tab close "$tab" > /dev/null 2>&1 || true
 else
-  (cd "$clone" && ollama launch pi --model "$model" -y -- -p --no-session "$prompt") > "$clone.log" 2>&1 || true
+  # Headless Pi gets the same one-hour bound as the Herdr prompt. macOS has no timeout(1).
+  (cd "$clone" && exec ollama launch pi --model "$model" -y -- -p --no-session "$prompt") > "$clone.log" 2>&1 &
+  pi_pid=$!
+  for _ in $(seq 1 "${PI_REVIEW_POLLS:-720}"); do
+    kill -0 "$pi_pid" 2>/dev/null || break
+    sleep 5
+  done
+  if kill -0 "$pi_pid" 2>/dev/null; then
+    kill "$pi_pid" 2>/dev/null || true
+    echo "Pi did not finish within an hour. Its log is $clone.log."
+    exit 1
+  fi
+  wait "$pi_pid" || true
 fi
 if [ ! -s "$out" ]; then
   tail -n 30 "$clone.log" || true
@@ -114,9 +131,15 @@ case "$role:$first" in
   pr:MERGE|pr:HOLD|independent:READY|independent:FIX) ;;
   *) echo "Pi's result starts with '$first', not a verdict. Read $out and $clone.log."; exit 1 ;;
 esac
-# A verdict file without the comment would let a merge go ahead on a review nobody can read.
-if [ "$role" = pr ] && [ "$(comments)" -le "$before" ]; then
-  echo "Pi wrote '$first' but posted no comment on PR #$pr. Read $clone.log."
-  exit 1
+# A verdict file without the comment would let a merge go ahead on a review nobody can
+# read. Any other new comment, such as the owner's, does not count.
+if [ "$role" = pr ]; then
+  posted=$(comments | grep -vxF -f <(printf '%s\n' "$before") | awk -v v="$first" '$2 == v && NF == 2' || true)
+  if [ -z "$posted" ]; then
+    echo "Pi wrote '$first' but posted no new comment starting with '$first' on PR #$pr. Read $clone.log."
+    exit 1
+  fi
 fi
+# The tab closes only now, after every check passed; on any failure it stays open to read.
+[ -n "${tab:-}" ] && herdr tab close "$tab" > /dev/null 2>&1 || true
 cat "$out"

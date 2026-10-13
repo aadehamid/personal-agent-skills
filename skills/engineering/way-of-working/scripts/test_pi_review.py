@@ -27,13 +27,18 @@ FAKE_OLLAMA = textwrap.dedent(r'''
     path = m.group(1) or m.group(2)
     if "crash" in s:
         print("pi: model unavailable"); sys.exit(1)
+    if "hang" in s:
+        import time; time.sleep(30); sys.exit(0)
     if "nothing" in s:
         sys.exit(0)
     verdict = next((v for v in ("MERGE", "HOLD", "READY", "FIX", "Looks") if v.lower() in s), "MERGE")
     open(path, "w").write(verdict + "\nfindings\n")
+    n = os.path.join(state, "comments")
     if "post" in s:
-        n = os.path.join(state, "comments")
-        open(n, "w").write(str(int(open(n).read()) + 1))
+        open(n, "a").write("c9 " + verdict + "\n")
+    if "other" in s:
+        # Someone else comments while Pi works; it must not count as Pi's verdict.
+        open(n, "a").write("c8 Thanks, looking now\n")
 ''').lstrip()
 
 # The fake herdr runs the same fake Pi when it is prompted, and records each call.
@@ -63,11 +68,14 @@ FAKE_HERDR = textwrap.dedent(r'''
     sys.exit("unexpected " + cmd)
 ''').lstrip()
 
+# The fake gh logs every call and lists the PR's comments as "<id> <first line>".
 FAKE_GH = textwrap.dedent(r'''
     #!/usr/bin/env python3
-    import os, sys
-    n = os.path.join(os.environ["FAKE_STATE"], "comments")
-    print(open(n).read())
+    import json, os, sys
+    state = os.environ["FAKE_STATE"]
+    with open(os.path.join(state, "gh_calls"), "a") as f:
+        f.write(json.dumps(sys.argv[1:]) + "\n")
+    sys.stdout.write(open(os.path.join(state, "comments")).read())
 ''').lstrip()
 
 
@@ -75,7 +83,7 @@ class PiReview(unittest.TestCase):
     def setUp(self):
         self.state = tempfile.mkdtemp()
         with open(os.path.join(self.state, "comments"), "w") as f:
-            f.write("2")
+            f.write("c1 HOLD\nc2 Some earlier note\n")
         self.bindir = tempfile.mkdtemp()
         for name, body in (("ollama", FAKE_OLLAMA), ("gh", FAKE_GH), ("herdr", FAKE_HERDR)):
             path = os.path.join(self.bindir, name)
@@ -109,8 +117,10 @@ class PiReview(unittest.TestCase):
                    GIT_COMMITTER_EMAIL="t@t", GIT_CONFIG_GLOBAL=os.devnull)
         return env
 
-    def run_case(self, scenario, *args, herdr=False):
+    def run_case(self, scenario, *args, herdr=False, polls=None):
         env = self.git_env()
+        if polls:
+            env["PI_REVIEW_POLLS"] = polls
         if herdr:
             env["HERDR_WORKSPACE_ID"] = "w2"
         env.update(PATH=self.bindir + os.pathsep + os.environ["PATH"], FAKE_PI=scenario,
@@ -131,7 +141,14 @@ class PiReview(unittest.TestCase):
     def test_pr_verdict_without_a_posted_comment_fails(self):
         r = self.run_case("merge", "--role", "pr", "--pr", "7", "--head", self.head)
         self.assertEqual(r.returncode, 1)
-        self.assertIn("posted no comment", r.stdout)
+        self.assertIn("posted no new comment", r.stdout)
+
+    def gh_calls(self):
+        path = os.path.join(self.state, "gh_calls")
+        if not os.path.exists(path):
+            return []
+        with open(path) as f:
+            return [json.loads(line) for line in f]
 
     def test_independent_role_writes_a_report_and_posts_nothing(self):
         r = self.run_case("fix", "--role", "independent", "--head", self.head)
@@ -139,6 +156,37 @@ class PiReview(unittest.TestCase):
         self.assertTrue(r.stdout.startswith("FIX\n"))
         self.assertIn("Post nothing anywhere", self.prompt())
         self.assertNotIn("gh pr comment", self.prompt())
+        self.assertEqual(self.gh_calls(), [])
+
+    def test_another_new_comment_is_not_taken_as_pis_verdict(self):
+        r = self.run_case("merge,other", "--role", "pr", "--pr", "7", "--head", self.head)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("posted no new comment starting with 'MERGE'", r.stdout)
+
+    def test_an_old_comment_with_the_same_verdict_does_not_count(self):
+        # c1 already says HOLD; Pi writes HOLD but posts nothing new.
+        r = self.run_case("hold", "--role", "pr", "--pr", "7", "--head", self.head)
+        self.assertEqual(r.returncode, 1)
+
+    def test_independent_review_runs_on_a_commit_not_yet_pushed(self):
+        env = self.git_env()
+        subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "local only"], cwd=self.work, env=env, check=True)
+        local = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.work, env=env, check=True,
+                               capture_output=True, text=True).stdout.strip()
+        r = self.run_case("ready", "--role", "independent", "--head", local)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        r = self.run_case("merge,post", "--role", "pr", "--pr", "7", "--head", local)
+        self.assertEqual(r.returncode, 1)
+
+    def test_a_headless_pi_that_hangs_is_stopped_at_the_limit(self):
+        r = self.run_case("hang", "--role", "independent", "--head", self.head, polls="2")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("did not finish within an hour", r.stdout)
+
+    def test_inside_herdr_a_failed_check_keeps_the_tab_open(self):
+        r = self.run_case("merge", "--role", "pr", "--pr", "7", "--head", self.head, herdr=True)
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn(["tab", "close", "w2:t5"], self.herdr_calls())
 
     def test_no_result_fails(self):
         r = self.run_case("nothing", "--role", "independent", "--head", self.head)
@@ -181,7 +229,7 @@ class PiReview(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertRegex(self.prompt(), rf"git diff origin/main\.\.\.{self.head}")
 
-    def test_an_unpushed_commit_stops_before_pi_runs(self):
+    def test_a_commit_found_nowhere_stops_before_pi_runs(self):
         r = self.run_case("ready", "--role", "independent", "--head", "0" * 40)
         self.assertEqual(r.returncode, 1)
         self.assertFalse(os.path.exists(os.path.join(self.state, "prompt")))
@@ -228,6 +276,11 @@ class PiReview(unittest.TestCase):
         r = self.run_case("nothing", "--role", "independent", "--head", self.head, herdr=True)
         self.assertEqual(r.returncode, 1)
         self.assertNotIn(["tab", "close", "w2:t5"], self.herdr_calls())
+
+    def test_verify_claims_reach_the_prompt(self):
+        r = self.run_case("ready", "--role", "independent", "--head", self.head, "--verify", "the loader refuses bad keys")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("Verify: the loader refuses bad keys.", self.prompt())
 
     def test_prompt_applies_review_standards_and_forbids_edits(self):
         self.run_case("ready", "--role", "independent", "--head", self.head)
