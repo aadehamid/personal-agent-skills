@@ -84,6 +84,12 @@ FAKE = textwrap.dedent(r'''
         if "stalled" in s:
             # Work the last keystroke or prompt started finishes during one "working" poll.
             if not os.path.exists(pending):
+                g = os.path.join(state, "idle_gets")
+                n = int(open(g).read()) + 1 if os.path.exists(g) else 1
+                open(g, "w").write(str(n))
+                if "idlemidwrite" in s and n == 2:
+                    # The first idle poll came while the reviewer was still writing.
+                    open(open(rp).read(), "a").write("MORE\n")
                 out({"result": {"agent": {"agent_status": "idle"}}})
             action = open(pending).read()
             os.remove(pending)
@@ -373,6 +379,11 @@ class HerdrReview(unittest.TestCase):
         r, _ = self.run_case("newtab,fresh,stalled,partial", extra=("--kind", "cursor"))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("REVIEW FINDINGS\n", r.stdout)
+
+    def test_a_report_growing_while_idle_is_printed_only_once_it_stops(self):
+        r, _ = self.run_case("newtab,fresh,stalled,idlemidwrite", extra=("--kind", "cursor"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "REVIEW FINDINGS\nMORE\n")
 
     def test_an_idle_reviewer_without_the_report_is_asked_once_for_it(self):
         r, calls = self.run_case("newtab,fresh,stalled,skillreport,obeys", extra=("--kind", "cursor"))

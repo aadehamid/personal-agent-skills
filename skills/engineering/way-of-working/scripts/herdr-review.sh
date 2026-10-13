@@ -145,18 +145,24 @@ if ! prompt_out=$(herdr agent prompt "$review_pane" "$prompt" --wait --timeout 3
     # (it saved only the review skill's own copy) is asked once to write it here.
     # Idle counts only after the reviewer has worked since its last prompt, because
     # it is still idle for a moment after each prompt arrives.
-    asked="" worked=""
+    # A report counts once two idle polls in a row see it at the same size, so a file
+    # still being written when the status reads idle is not printed early.
+    asked="" worked="" last_size=""
     for _ in $(seq 1 720); do
       status=$(herdr agent get "$review_pane" | jget result.agent.agent_status || true)
       if [ "$status" = idle ] || [ "$status" = done ]; then
-        if [ -s "$report" ]; then cat "$report"; exit 0; fi
+        if [ -s "$report" ]; then
+          size=$(wc -c < "$report")
+          if [ "$size" = "$last_size" ]; then cat "$report"; exit 0; fi
+          last_size=$size; sleep 5; continue
+        fi
         if [ -z "$worked" ]; then sleep 5; continue; fi
         if [ -n "$asked" ]; then break; fi
         herdr agent prompt "$review_pane" "Write your final review report as Markdown to exactly this path: $report. Then reply with that path." >/dev/null 2>&1 || true
         herdr agent send-keys "$review_pane" Enter >/dev/null
         asked=1 worked=""
       elif [ -n "$status" ]; then
-        worked=1
+        worked=1 last_size=""
       fi
       sleep 5
     done
