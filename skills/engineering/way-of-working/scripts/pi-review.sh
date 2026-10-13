@@ -40,6 +40,14 @@ case "$role" in
   *) echo "usage: $0 --role pr|independent --head <sha> [--pr <n>] [--since <sha>]" >&2; exit 2 ;;
 esac
 [ -n "$head" ] || { echo "--head <sha> is required" >&2; exit 2; }
+# A PR verdict counts only for the PR's head, so a stale --head reviews nothing useful.
+if [ "$role" = pr ]; then
+  pr_head=$(gh pr view "$pr" --json headRefOid --jq .headRefOid)
+  case "$pr_head" in
+    "$head"*) head=$pr_head ;;
+    *) echo "--head $head is not PR #$pr's head ($pr_head); review the head" >&2; exit 1 ;;
+  esac
+fi
 
 remote=$(git remote get-url origin)
 # The default branch, from origin/HEAD when the clone has one, else main.
@@ -144,7 +152,15 @@ for c in json.load(sys.stdin)["comments"]:
     echo "Pi wrote '$first' but posted no new comment starting with '$first' on PR #$pr. Read $clone.log."
     exit 1
   fi
+  # A push that landed while Pi read leaves its verdict on a commit that is no longer the head.
+  now_head=$(gh pr view "$pr" --json headRefOid --jq .headRefOid)
+  if [ "$now_head" != "$head" ]; then
+    echo "PR #$pr's head moved to $now_head while Pi reviewed $head; its '$first' is not the current verdict. Review the new head."
+    exit 1
+  fi
 fi
 # The tab closes only now, after every check passed; on any failure it stays open to read.
 [ -n "${tab:-}" ] && herdr tab close "$tab" > /dev/null 2>&1 || true
 cat "$out"
+# A passed run leaves nothing behind; a failed one keeps the clone and log to read.
+rm -rf "$clone" "$clone.log" "$out"

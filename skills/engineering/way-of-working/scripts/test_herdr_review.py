@@ -142,7 +142,9 @@ class HerdrReview(unittest.TestCase):
         os.chmod(stub, 0o755)
         repo = os.path.join(tempfile.mkdtemp(), repo_name)
         os.mkdir(repo)
-        env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"],
+        # Cursor reports go to a temporary folder, so the tests leave nothing in /tmp/herdr-reviews.
+        self.review_dir = tempfile.mkdtemp()
+        env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"], HERDR_REVIEW_DIR=self.review_dir,
                    FAKE_HERDR=scenario, FAKE_STATE=state, HERDR_WORKSPACE_ID="w2",
                    TMPDIR=tmpdir or tempfile.mkdtemp())
         r = subprocess.run(["bash", SCRIPT, "--branch", "b", "--verify", "v", *extra],
@@ -408,9 +410,12 @@ class HerdrReview(unittest.TestCase):
         self.assertNotIn("agent send-keys", calls)
 
     def test_cursor_report_path_is_under_tmp(self):
+        # The tests put Cursor reports in a temporary folder, so the default is read from the script.
+        with open(SCRIPT) as f:
+            self.assertIn('report_dir="${HERDR_REVIEW_DIR:-/tmp/herdr-reviews}"', f.read())
         r, _ = self.run_case("newtab,fresh", extra=("--kind", "cursor"))
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("Report file: /tmp/herdr-reviews/review-", r.stderr)
+        self.assertIn("Report file: " + self.review_dir + "/review-", r.stderr)
 
     def test_unknown_kind_is_refused(self):
         r, calls = self.run_case("ok", extra=("--kind", "gemini"))
