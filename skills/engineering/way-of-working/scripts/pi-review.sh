@@ -93,8 +93,9 @@ else
 $hands_off"
 fi
 
-# Stop a whole process group and wait until it is gone. `ollama launch` runs Pi as a child
-# and does not pass a signal on, so killing the parent alone leaves Pi able to post late.
+# Stop a whole process group: TERM, then KILL, and return 1 if it is still alive about
+# 15 s later. `ollama launch` runs Pi as a child and does not pass a signal on, so
+# killing the parent alone leaves Pi able to post late.
 stop_group() {
   kill -TERM -- "-$1" 2>/dev/null || return 0
   for _ in $(seq 1 20); do
