@@ -17,7 +17,7 @@ SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pi-review.sh"
 
 FAKE_OLLAMA = textwrap.dedent(r'''
     #!/usr/bin/env python3
-    import os, re, sys
+    import json, os, re, sys
     s = os.environ["FAKE_PI"].split(",")
     state = os.environ["FAKE_STATE"]
     prompt = sys.argv[-1]
@@ -33,12 +33,18 @@ FAKE_OLLAMA = textwrap.dedent(r'''
         sys.exit(0)
     verdict = next((v for v in ("MERGE", "HOLD", "READY", "FIX", "Looks") if v.lower() in s), "MERGE")
     open(path, "w").write(verdict + "\nfindings\n")
-    n = os.path.join(state, "comments")
-    if "post" in s:
-        open(n, "a").write("c9 " + verdict + "\n")
+    n = os.path.join(state, "comments.json")
+    comments = json.load(open(n))
     if "other" in s:
         # Someone else comments while Pi works; it must not count as Pi's verdict.
-        open(n, "a").write("c8 Thanks, looking now\n")
+        comments.append({"id": "c8", "body": "Thanks, looking now"})
+    if "collide" in s:
+        # Someone else posts the same one-word verdict, without Pi's mark.
+        comments.append({"id": "c7", "body": verdict})
+    if "post" in s:
+        mark = re.search(r"last line is exactly (<!-- \S+ -->)", prompt).group(1)
+        comments.append({"id": "c9", "body": verdict + "\nfindings\n" + mark})
+    json.dump(comments, open(n, "w"))
 ''').lstrip()
 
 # The fake herdr runs the same fake Pi when it is prompted, and records each call.
@@ -75,15 +81,16 @@ FAKE_GH = textwrap.dedent(r'''
     state = os.environ["FAKE_STATE"]
     with open(os.path.join(state, "gh_calls"), "a") as f:
         f.write(json.dumps(sys.argv[1:]) + "\n")
-    sys.stdout.write(open(os.path.join(state, "comments")).read())
+    sys.stdout.write(json.dumps({"comments": json.load(open(os.path.join(state, "comments.json")))}))
 ''').lstrip()
 
 
 class PiReview(unittest.TestCase):
     def setUp(self):
         self.state = tempfile.mkdtemp()
-        with open(os.path.join(self.state, "comments"), "w") as f:
-            f.write("c1 HOLD\nc2 Some earlier note\n")
+        with open(os.path.join(self.state, "comments.json"), "w") as f:
+            json.dump([{"id": "c1", "body": "HOLD\nan earlier round"},
+                       {"id": "c2", "body": "Some earlier note"}], f)
         self.bindir = tempfile.mkdtemp()
         for name, body in (("ollama", FAKE_OLLAMA), ("gh", FAKE_GH), ("herdr", FAKE_HERDR)):
             path = os.path.join(self.bindir, name)
@@ -162,6 +169,10 @@ class PiReview(unittest.TestCase):
         r = self.run_case("merge,other", "--role", "pr", "--pr", "7", "--head", self.head)
         self.assertEqual(r.returncode, 1)
         self.assertIn("posted no new comment starting with 'MERGE'", r.stdout)
+
+    def test_someone_elses_matching_verdict_does_not_count_as_pis(self):
+        r = self.run_case("merge,collide", "--role", "pr", "--pr", "7", "--head", self.head)
+        self.assertEqual(r.returncode, 1)
 
     def test_an_old_comment_with_the_same_verdict_does_not_count(self):
         # c1 already says HOLD; Pi writes HOLD but posts nothing new.

@@ -63,6 +63,8 @@ look="Look for anything that lets a wrong result through, breaks a stated rule, 
 [ -n "$verify" ] && look="$look Verify: $verify."
 hands_off="Do not edit, create or delete any file in the repository, and do not run git commands that change it. Write scratch files under /tmp only."
 
+# A mark only this run knows, so Pi's comment can be told from anyone else's.
+mark="pi-review:$(basename "$clone")"
 if [ "$role" = pr ]; then
   out="$clone.verdict"
   prompt="You are the pull request reviewer for PR #$pr. Review alone, with no subagents.
@@ -70,7 +72,7 @@ if [ "$role" = pr ]; then
 2. Read the PR description and its earlier review comments: gh pr view $pr --comments.
 3. Read the change: $change.
 4. $look
-5. Post exactly one comment on the PR with: gh pr comment $pr --body-file <file>. Its first line is exactly MERGE or HOLD. For a HOLD, list each blocking finding with the file, line and a concrete input or reason. For a MERGE, list anything non-blocking in one short list.
+5. Post exactly one comment on the PR with: gh pr comment $pr --body-file <file>. Its first line is exactly MERGE or HOLD, and its last line is exactly <!-- $mark -->. For a HOLD, list each blocking finding with the file, line and a concrete input or reason. For a MERGE, list anything non-blocking in one short list.
 6. Write the same first line, MERGE or HOLD, to $out.
 $hands_off"
 else
@@ -83,9 +85,6 @@ else
 $hands_off"
 fi
 
-# Each PR comment as "<id> <first line>", so a comment Pi posts can be told from any other.
-comments() { gh pr view "$pr" --json comments --jq '.comments[] | .id + " " + (.body | split("\n")[0])'; }
-[ "$role" = pr ] && before=$(comments)
 if [ -n "${HERDR_WORKSPACE_ID:-}" ]; then
   repo=$(basename "$PWD")
   created=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$clone" --label "pi-$role-$repo" --no-focus)
@@ -132,9 +131,15 @@ case "$role:$first" in
   *) echo "Pi's result starts with '$first', not a verdict. Read $out and $clone.log."; exit 1 ;;
 esac
 # A verdict file without the comment would let a merge go ahead on a review nobody can
-# read. Any other new comment, such as the owner's, does not count.
+# read. Only a comment carrying this run's mark counts, with the same first line.
 if [ "$role" = pr ]; then
-  posted=$(comments | grep -vxF -f <(printf '%s\n' "$before") | awk -v v="$first" '$2 == v && NF == 2' || true)
+  posted=$(gh pr view "$pr" --json comments | MARK="$mark" V="$first" python3 -c '
+import json, os, sys
+mark, v = "<!-- " + os.environ["MARK"] + " -->", os.environ["V"]
+for c in json.load(sys.stdin)["comments"]:
+    lines = c["body"].strip().splitlines()
+    if lines and lines[0].strip() == v and mark in c["body"]:
+        print("found"); break' || true)
   if [ -z "$posted" ]; then
     echo "Pi wrote '$first' but posted no new comment starting with '$first' on PR #$pr. Read $clone.log."
     exit 1
