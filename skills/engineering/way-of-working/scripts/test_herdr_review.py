@@ -128,7 +128,7 @@ def reviewer_hash(kind_model):
 
 
 class HerdrReview(unittest.TestCase):
-    def run_case(self, scenario, tmpdir=None, extra=(), repo_name="repo"):
+    def run_case(self, scenario, tmpdir=None, extra=(), repo_name="repo", home=None):
         state = tempfile.mkdtemp()
         bindir = tempfile.mkdtemp()
         fake = os.path.join(bindir, "herdr")
@@ -147,6 +147,8 @@ class HerdrReview(unittest.TestCase):
         env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"], HERDR_REVIEW_DIR=self.review_dir,
                    FAKE_HERDR=scenario, FAKE_STATE=state, HERDR_WORKSPACE_ID="w2",
                    TMPDIR=tmpdir or tempfile.mkdtemp())
+        if home:
+            env["HOME"] = home
         r = subprocess.run(["bash", SCRIPT, "--branch", "b", "--verify", "v", *extra],
                            cwd=repo, env=env, capture_output=True, text=True)
         calls_path = os.path.join(state, "calls")
@@ -278,6 +280,30 @@ class HerdrReview(unittest.TestCase):
         prompt = [a for a in self.argv if a[:2] == ["agent", "prompt"]][0]
         self.assertIn("--wait", prompt)
         self.assertEqual(prompt[prompt.index("--timeout") + 1], "3600000")
+
+    def test_codex_sandbox_can_write_the_folders_the_cross_model_pass_needs(self):
+        r, _ = self.run_case("newtab,fresh")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
+        home = os.path.expanduser("~")
+        roots = json.dumps([f"{home}/.npm", f"{home}/.claude", f"{home}/.cache", f"{home}/.config"], separators=(",", ":"))
+        token = "sandbox_workspace_write.writable_roots=" + roots
+        self.assertIn(token, start)
+        self.assertEqual(start[start.index(token) - 1], "-c")
+        self.assertIn("workspace-write", start)
+
+    def test_the_writable_folders_exist_before_codex_starts(self):
+        home = tempfile.mkdtemp()
+        r, _ = self.run_case("newtab,fresh", home=home)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        for name in (".npm", ".claude", ".cache", ".config"):
+            self.assertTrue(os.path.isdir(os.path.join(home, name)), name)
+
+    def test_a_reused_reviewer_is_reported_as_keeping_its_old_flags(self):
+        r, calls = self.run_case("ok")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("agent start", calls)
+        self.assertIn("keeps the flags it started with", r.stderr)
 
     def test_default_model_is_gpt_6_1_sol_in_the_review_tab(self):
         r, _ = self.run_case("newtab,fresh")

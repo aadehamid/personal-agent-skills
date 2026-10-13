@@ -91,6 +91,10 @@ fi
 # so it runs with -y: routine commands run, risky actions still ask, and a question
 # leaves the pane blocked, which the prompt step below reports.
 pane_agent=$(herdr pane get "$review_pane" | jget result.pane.agent)
+if [ -n "$pane_agent" ]; then
+  # A running reviewer keeps the flags it started with, such as the sandbox's writable folders.
+  echo "Reusing the running reviewer in $review_tab: it keeps the flags it started with. To apply this script's current flags, close the tab once (herdr tab close $review_tab) and run again." >&2
+fi
 if [ -z "$pane_agent" ]; then
   slug=$(printf '%s' "$repo" | tr 'A-Z' 'a-z' | tr -cs 'a-z0-9' '-')
   name="rev-$(printf '%s' "$slug" | cut -c1-28)"
@@ -105,8 +109,14 @@ if [ -z "$pane_agent" ]; then
     # Sandboxed, no approval prompts, workspace trusted: the Cursor match for Codex's flags.
     agent_args=(--model "$model" --sandbox enabled --force --trust)
   else
+    # The review skill's cross-model pass runs npx and the Claude CLI, which write to these
+    # folders; without them the sandbox fails it with npm EPERM and the pass is skipped.
+    # Codex skips a writable root that is not already a directory, so make them first.
+    mkdir -p "$HOME/.npm" "$HOME/.claude" "$HOME/.cache" "$HOME/.config"
+    roots="[\"$HOME/.npm\",\"$HOME/.claude\",\"$HOME/.cache\",\"$HOME/.config\"]"
     agent_args=(-m "$model" -c model_reasoning_effort=medium
-                -a never -s workspace-write -c sandbox_workspace_write.network_access=true)
+                -a never -s workspace-write -c sandbox_workspace_write.network_access=true
+                -c "sandbox_workspace_write.writable_roots=$roots")
   fi
   started="" out=""
   for try in 1 2 3 4 5; do   # a just-created tab's shell may not be ready yet

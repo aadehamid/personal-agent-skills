@@ -19,7 +19,7 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
       ```
 
       `scripts/herdr-review.sh` opens or reuses the `review-<repo>` tab in this agent's own workspace and starts a reviewer only in an empty pane. The default reviewer is Codex on gpt-6.1-sol at medium reasoning, the owner's choice, set in the script. When the owner asks for another reviewer, `--kind` and `--model` pick it, and it runs in its own `review-<repo>-<kind>-<hash>` tab, where the hash comes from the kind and model. Each kind starts with its own flags:
-      - **Codex:** `-a never` (no approval prompts) and the `workspace-write` sandbox with network.
+      - **Codex:** `-a never` (no approval prompts) and the `workspace-write` sandbox with network. The sandbox may also write to `~/.npm`, `~/.claude`, `~/.cache` and `~/.config`, which the review skill's cross-model pass needs.
       - **Cursor** (`--kind cursor`, default model cursor-grok-4.6-medium): `--sandbox enabled --force --trust`, which is sandboxed, with no approval prompts and the workspace trusted.
       - **Kimi** (`--kind kimi`, default model kimi-code/k3): `-y`. Kimi has no sandbox, and `-y` still asks before risky actions. A fresh Kimi can ask a one-time setup question, such as migrating `kimi-cli` data, that blocks the first prompt. Leave that choice to the owner, answer it with `herdr agent send-keys`, and run the script again.
 
@@ -27,10 +27,11 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
 
       **Wait for the job's exit status and output before you push or open a pull request.** Launching it returns neither. A non-zero status stops the push: follow the recovery lines it printed. The review tab shares the working tree, so the reviewer sees the branch you have checked out. For later rounds, run it again with the new commit and say which findings you fixed or answered (see "Re-review after fixing" below). `ce-code-review` is report-only, so apply its findings yourself.
 
-      Setup notes and one known gap:
+      Setup notes:
       - **The writer can drive the reviewer only with an allow rule.** Claude Code's auto mode blocks starting or prompting an agent that never asks for approval. The owner adds `Bash(herdr agent:*)` once per machine through `/permissions`.
       - **`-a never` stops command-approval prompts.** Execution failures go back to the reviewer instead, so the owner is never asked to approve its commands.
-      - **Known gap: the cross-model pass does not run.** Under `workspace-write`, `ce-code-review`'s Claude cross-check fails with `npm error code EPERM`. Adding `writable_roots` for `~/.npm`, `~/.claude`, `~/.cache` and `~/.config` clears that, but the transport then fails with `ETARGET`: `acpx@0.19.4` requires `@agentclientprotocol/sdk@^1.5.0`, which npm cannot find (2026-10-12). Either way the review falls back to an adversarial pass from the same model family. Say so in the PR body.
+      - **The cross-model pass needs those writable folders.** Under plain `workspace-write`, `ce-code-review`'s Claude cross-check failed with `npm error code EPERM` on `~/.npm`, so the review fell back to an adversarial pass from the same model family. The folders clear that error: on 2026-10-13, `npx -y acpx@0.19.4 --version` failed with EPERM in the plain sandbox and printed `0.19.4` with the folders. That check does not prove the whole cross-model pass runs. If a report says it did not run, say so in the PR body.
+      - **A review tab opened before this setting keeps its old sandbox.** The script says so when it reuses a running reviewer. Close that tab once (`herdr tab close <tab id>`), and the next run starts a reviewer with the current flags.
 
       **Close the review tab when the PR merges.** The script prints `Review tab: <tab id> (created|reused)` on standard error. If this agent's run created it, send the reviewer a "PR merged" message, then `herdr tab close <tab id>`. Do not close a tab you did not create.
 
