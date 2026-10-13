@@ -62,6 +62,11 @@ FAKE = textwrap.dedent(r'''
         if "notready" in s: err("agent_not_ready")
         out({"result": {"agent": {"name": args[2]}}})
     if cmd == "agent prompt":
+        if "stalled" in s:
+            # The pane shows pasted text; the report appears after the extra Enter.
+            report = re.search(r"Markdown to (\S+) and reply", args[3]).group(1)
+            open(os.path.join(state, "report_path"), "w").write(report)
+            err("agent_prompt_stalled")
         if "blockedrej" in s: err("agent_blocked")
         if "timeout" in s: err("timeout")
         report = re.search(r"Markdown to (\S+) and reply", args[3]).group(1)
@@ -71,6 +76,11 @@ FAKE = textwrap.dedent(r'''
     if cmd == "agent get":
         if "getfail" in s: err("agent_not_found")
         out({"result": {"agent": {"agent_status": "blocked"}}})
+    if cmd == "agent send-keys":
+        rp = os.path.join(state, "report_path")
+        if "stalled" in s and os.path.exists(rp):
+            open(open(rp).read(), "w").write("REVIEW FINDINGS\n")
+        out({"result": {}})
     if cmd == "agent read":
         if "readfail" in s: err("agent_not_found")
         print("pane text"); sys.exit(0)
@@ -310,6 +320,17 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(start[start.index("--") + 1:],
                          ["--model", "cursor-grok-4.6-medium", "--sandbox", "enabled", "--force", "--trust"])
         self.assertIn("agent prompt", calls)
+
+    def test_cursor_stalled_prompt_gets_an_enter_and_waits_for_the_report(self):
+        r, calls = self.run_case("newtab,fresh,stalled", extra=("--kind", "cursor"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("agent send-keys", calls)
+        self.assertIn("REVIEW FINDINGS", r.stdout)
+
+    def test_a_stalled_prompt_for_another_kind_still_stops(self):
+        r, calls = self.run_case("newtab,fresh,stalled")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertNotIn("agent send-keys", calls)
 
     def test_unknown_kind_is_refused(self):
         r, calls = self.run_case("ok", extra=("--kind", "gemini"))

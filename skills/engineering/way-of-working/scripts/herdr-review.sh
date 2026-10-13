@@ -127,7 +127,19 @@ prompt="Read AGENTS.md and the repository's review standards file (for example R
 
 # --wait fails fast (agent_prompt_stalled) if the prompt never starts work, and
 # otherwise returns when the reviewer is idle, done or blocked.
-if ! herdr agent prompt "$review_pane" "$prompt" --wait --timeout 3600000 >/dev/null; then
+if ! prompt_out=$(herdr agent prompt "$review_pane" "$prompt" --wait --timeout 3600000 2>&1); then
+  # The Cursor agent shows a long prompt as pasted text and waits for one more Enter,
+  # so the prompt stalls. Send that Enter, then wait for the report itself.
+  if [ "$kind" = cursor ] && [[ "$prompt_out" == *agent_prompt_stalled* ]]; then
+    herdr agent send-keys "$review_pane" Enter >/dev/null
+    for _ in $(seq 1 720); do
+      if [ -s "$report" ]; then sleep 5; cat "$report"; exit 0; fi
+      sleep 5
+    done
+    echo "No report after 60 minutes; read the pane: herdr agent read $review_pane --source recent-unwrapped --lines 60"
+    exit 1
+  fi
+  printf '%s\n' "$prompt_out"
   herdr agent read "$review_pane" --source recent-unwrapped --lines 60 || true
   echo "Prompt not completed. agent_blocked: the reviewer was already waiting on a question and"
   echo "got nothing; answer it (herdr agent send-keys $review_pane <key>), then run this again."
