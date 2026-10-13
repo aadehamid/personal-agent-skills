@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Run the independent review in a Herdr pane, wait for it, and print its report.
 #
-# Usage: herdr-review.sh --branch <branch> --verify "<claims to verify>" [--kind codex|kimi] [--model <model>]
+# Usage: herdr-review.sh --branch <branch> --verify "<claims to verify>" [--kind codex|kimi|cursor] [--model <model>]
 #   The default reviewer is Codex on gpt-6.1-sol. --kind kimi runs Kimi Code (model default
-#   kimi-code/k3). Any other reviewer gets its own tab, review-<repo>-<kind>-<model>, because
+#   kimi-code/k3); --kind cursor runs the Cursor agent CLI (default cursor-grok-4.6-medium). Any other reviewer gets its own tab, review-<repo>-<kind>-<model>, because
 #   a reused tab keeps the reviewer it started with.
 #   Run from the repository under review, inside a Herdr pane (HERDR_WORKSPACE_ID set).
 #   A review takes longer than a foreground tool call allows: run this as a background
@@ -27,7 +27,8 @@ done
 case "$kind" in
   codex) model="${model:-gpt-6.1-sol}" ;;
   kimi) model="${model:-kimi-code/k3}" ;;
-  *) echo "--kind must be codex or kimi, got: $kind" >&2; exit 2 ;;
+  cursor) model="${model:-cursor-grok-4.6-medium}" ;;
+  *) echo "--kind must be codex, kimi or cursor, got: $kind" >&2; exit 2 ;;
 esac
 default_reviewer=""
 [ "$kind:$model" = "codex:gpt-6.1-sol" ] && default_reviewer=1
@@ -96,6 +97,9 @@ if [ -z "$pane_agent" ]; then
   fi
   if [ "$kind" = kimi ]; then
     agent_args=(-m "$model" -y)
+  elif [ "$kind" = cursor ]; then
+    # Sandboxed, no approval prompts, workspace trusted: the Cursor match for Codex's flags.
+    agent_args=(--model "$model" --sandbox enabled --force --trust)
   else
     agent_args=(-m "$model" -c model_reasoning_effort=medium
                 -a never -s workspace-write -c sandbox_workspace_write.network_access=true)

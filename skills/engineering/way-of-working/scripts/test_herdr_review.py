@@ -300,6 +300,17 @@ class HerdrReview(unittest.TestCase):
         prompt = [a for a in self.argv if a[:2] == ["agent", "prompt"]][0][3]
         self.assertIn(os.path.expanduser("~/.agents/skills/ce-code-review/SKILL.md"), prompt)
 
+    def test_cursor_reviewer_runs_grok_sandboxed_in_its_own_tab(self):
+        r, calls = self.run_case("newtab,fresh", extra=("--kind", "cursor"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        created = [a for a in self.argv if a[:2] == ["tab", "create"]][0]
+        self.assertEqual(created[created.index("--label") + 1], "review-repo-cursor-cursor-grok-4.6-medium")
+        start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
+        self.assertEqual(start[start.index("--kind") + 1], "cursor")
+        self.assertEqual(start[start.index("--") + 1:],
+                         ["--model", "cursor-grok-4.6-medium", "--sandbox", "enabled", "--force", "--trust"])
+        self.assertIn("agent prompt", calls)
+
     def test_unknown_kind_is_refused(self):
         r, calls = self.run_case("ok", extra=("--kind", "gemini"))
         self.assertEqual(r.returncode, 2)
