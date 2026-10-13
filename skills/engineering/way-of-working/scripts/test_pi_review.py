@@ -31,7 +31,14 @@ FAKE_OLLAMA = textwrap.dedent(r'''
     if "crash" in s:
         print("pi: model unavailable"); sys.exit(1)
     if "hang" in s:
-        import time; time.sleep(30); sys.exit(0)
+        # Like `ollama launch`, the parent runs Pi as a child and waits for it, and does
+        # not pass a signal on. The child would post its verdict late.
+        import time
+        child = os.fork()
+        if child == 0:
+            open(os.path.join(state, "pi_child"), "w").write(str(os.getpid()))
+            time.sleep(30); open(path, "w").write("MERGE\nlate\n"); os._exit(0)
+        os.waitpid(child, 0); sys.exit(0)
     if "nothing" in s:
         sys.exit(0)
     verdict = next((v for v in ("MERGE", "HOLD", "READY", "FIX", "Looks") if v.lower() in s), "MERGE")
@@ -71,8 +78,20 @@ FAKE_HERDR = textwrap.dedent(r'''
     if cmd == "pane get":
         out({"result": {"pane": {"agent": None if "nostart" in s else "pi"}}})
     if cmd == "agent prompt":
-        subprocess.run(["ollama", "launch", "pi", args[3]], cwd=open(os.path.join(state, "clone")).read())
+        cwd = open(os.path.join(state, "clone")).read()
+        if "hang" in s:
+            # Pi runs on in the pane's foreground group while the prompt times out.
+            import time
+            pi = subprocess.Popen(["ollama", "launch", "pi", args[3]], cwd=cwd, start_new_session=True)
+            open(os.path.join(state, "pane_group"), "w").write(str(pi.pid))
+            while not os.path.exists(os.path.join(state, "pi_child")):
+                time.sleep(0.05)
+            print("timeout"); sys.exit(1)
+        subprocess.run(["ollama", "launch", "pi", args[3]], cwd=cwd)
         out({"result": {}})
+    if cmd == "pane process-info":
+        group = open(os.path.join(state, "pane_group")).read()
+        out({"result": {"process_info": {"foreground_process_group_id": int(group), "shell_pid": 1}}})
     if cmd == "pane run":
         open(os.path.join(state, "clone"), "w").write(json.loads(open(os.path.join(state, "herdr_calls")).read().splitlines()[0])[5])
         out({"result": {}})
@@ -107,10 +126,12 @@ class PiReview(unittest.TestCase):
             with open(path, "w") as f:
                 f.write(body)
             os.chmod(path, os.stat(path).st_mode | stat.S_IEXEC)
-        # sleep is stubbed so waiting for Pi to start runs instantly.
+        # sleep is stubbed so waiting for Pi to start runs instantly. FAKE_SLEEP makes it
+        # real for the hang cases: Pi's child must exist before the script stops the group,
+        # or the case would pass without a child to stop.
         stub = os.path.join(self.bindir, "sleep")
         with open(stub, "w") as f:
-            f.write("#!/bin/sh\nexit 0\n")
+            f.write('#!/bin/sh\n[ -n "$FAKE_SLEEP" ] && exec /bin/sleep "$FAKE_SLEEP"\nexit 0\n')
         os.chmod(stub, 0o755)
         # A bare origin with main and one pushed commit, and a working clone of it.
         root = tempfile.mkdtemp()
@@ -136,10 +157,12 @@ class PiReview(unittest.TestCase):
                    GIT_COMMITTER_EMAIL="t@t", GIT_CONFIG_GLOBAL=os.devnull)
         return env
 
-    def run_case(self, scenario, *args, herdr=False, polls=None):
+    def run_case(self, scenario, *args, herdr=False, polls=None, sleep=None):
         env = self.git_env()
         if polls:
             env["PI_REVIEW_POLLS"] = polls
+        if sleep:
+            env["FAKE_SLEEP"] = sleep
         env.setdefault("FAKE_PR_HEAD", self.pr_head or self.head)
         if herdr:
             env["HERDR_WORKSPACE_ID"] = "w2"
@@ -242,10 +265,26 @@ class PiReview(unittest.TestCase):
         r = self.run_case("merge,post", "--role", "pr", "--pr", "7", "--head", local)
         self.assertEqual(r.returncode, 1)
 
+    def assert_pi_child_stopped(self):
+        # The child exists, so the case tested a running Pi, and is gone, so it cannot post.
+        with open(os.path.join(self.state, "pi_child")) as f:
+            child = int(f.read())
+        with self.assertRaises(ProcessLookupError):
+            os.kill(child, 0)
+
     def test_a_headless_pi_that_hangs_is_stopped_at_the_limit(self):
-        r = self.run_case("hang", "--role", "independent", "--head", self.head, polls="2")
+        r = self.run_case("hang", "--role", "independent", "--head", self.head, polls="10", sleep="0.2")
         self.assertEqual(r.returncode, 1)
         self.assertIn("did not finish within an hour", r.stdout)
+        self.assert_pi_child_stopped()
+
+    def test_inside_herdr_a_prompt_that_times_out_stops_pi(self):
+        r = self.run_case("hang", "--role", "independent", "--head", self.head, herdr=True, sleep="0.05")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("Pi is stopped", r.stdout)
+        self.assert_pi_child_stopped()
+        self.assertNotIn(["tab", "close", "w2:t5"], self.herdr_calls())
+        self.assertIn(["pane", "process-info", "--pane", "w2:p5"], self.herdr_calls())
 
     def test_inside_herdr_a_failed_check_keeps_the_tab_open(self):
         r = self.run_case("merge", "--role", "pr", "--pr", "7", "--head", self.head, herdr=True)
