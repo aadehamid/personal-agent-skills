@@ -111,6 +111,8 @@ if [ -z "$pane_agent" ]; then
   else
     # The review skill's cross-model pass runs npx and the Claude CLI, which write to these
     # folders; without them the sandbox fails it with npm EPERM and the pass is skipped.
+    # Codex skips a writable root that is not already a directory, so make them first.
+    mkdir -p "$HOME/.npm" "$HOME/.claude" "$HOME/.cache" "$HOME/.config"
     roots="[\"$HOME/.npm\",\"$HOME/.claude\",\"$HOME/.cache\",\"$HOME/.config\"]"
     agent_args=(-m "$model" -c model_reasoning_effort=medium
                 -a never -s workspace-write -c sandbox_workspace_write.network_access=true
