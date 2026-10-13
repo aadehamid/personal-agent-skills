@@ -254,6 +254,18 @@ class HerdrReview(unittest.TestCase):
         self.assertRegex(name, r"^rev-repo-[0-9a-f]{8}$")
         self.assertIn("agent prompt", calls)
 
+    def test_each_override_model_gets_its_own_stable_name(self):
+        import hashlib
+        names = {}
+        for model in ("gpt-6-astra", "gpt-6-luna", "gpt-6-astra"):
+            r, _ = self.run_case("newtab,fresh", extra=("--model", model))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            name = [a for a in self.argv if a[:2] == ["agent", "start"]][0][2]
+            self.assertEqual(name, "rev-repo-" + hashlib.sha1(model.encode()).hexdigest()[:8])
+            names.setdefault(model, set()).add(name)
+        self.assertEqual(len(names["gpt-6-astra"]), 1)
+        self.assertNotEqual(names["gpt-6-astra"], names["gpt-6-luna"])
+
     def test_agent_names_fit_herdr_limits_for_a_long_repo_name(self):
         for extra in ((), ("--model", "gpt-6-astra")):
             r, _ = self.run_case("newtab,fresh", extra=extra, repo_name="A Very Long Repository Name For Testing")
