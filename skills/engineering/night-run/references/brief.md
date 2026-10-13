@@ -21,13 +21,14 @@ Decisions (owner's words): "<quote of the delegation>"
   3. Sources the project has already recorded, such as a reference register.
   4. Light external search, registered as a source when used.
 
-Independent reviewer: <agent, model, how it starts>; report file: <path the writer can read>
-  Round 1 reviews the full diff. Later rounds review only the fix.
-PR reviewer: <who or what gives the merge verdict, how it starts; for example the project's review bot>
-PR reviewer stand-in: <who gives the verdict when the PR reviewer has not answered a push, how it starts>; wait: <how long, default 30 minutes>
-Merge rule: <for example: check green, CI green, the PR reviewer's latest verdict is MERGE>
+Reviewers: default: way-of-working's "Who reviews" table (changing.md), with its wait.
+  Otherwise, name each one and how it starts:
+  PR reviewer: <who gives the merge verdict>; stand-in: <who gives it when the PR reviewer is not available>
+  Independent reviewer while the PR reviewer is available: <...>; while the stand-in reviews: <...>
+  Wait before the stand-in takes over: <minutes>
+Merge rule: default: check green, CI green, and a MERGE verdict on the latest push from the PR's current reviewer.
 Check command: <the project's check script>
-Default branch: <for example main>; remote: <for example origin>
+Remote and default branch: <for example origin and main>
 
 Log: <path>
 Stop conditions: a question the evidence cannot settle; anything irreversible outside the repository; <any the owner adds>
