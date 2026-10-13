@@ -3,7 +3,8 @@
 #
 # Usage: herdr-review.sh --branch <branch> --verify "<claims to verify>" [--kind codex|kimi|cursor] [--model <model>]
 #   The default reviewer is Codex on gpt-6.1-sol. --kind kimi runs Kimi Code (model default
-#   kimi-code/k3); --kind cursor runs the Cursor agent CLI (default cursor-grok-4.6-medium). Any other reviewer gets its own tab, review-<repo>-<kind>-<model>, because
+#   kimi-code/k3); --kind cursor runs the Cursor agent CLI (default cursor-grok-4.6-medium).
+#   Any other reviewer gets its own tab, review-<repo>-<kind>-<hash of kind:model>, because
 #   a reused tab keeps the reviewer it started with.
 #   Run from the repository under review, inside a Herdr pane (HERDR_WORKSPACE_ID set).
 #   A review takes longer than a foreground tool call allows: run this as a background
@@ -32,6 +33,9 @@ case "$kind" in
 esac
 default_reviewer=""
 [ "$kind:$model" = "codex:gpt-6.1-sol" ] && default_reviewer=1
+# The tab label and the agent name both carry this hash, so two models never share a
+# tab, even when their names differ only in punctuation (kimi-code/k3, kimi-code-k3).
+reviewer_hash=$(printf '%s' "$kind:$model" | shasum | cut -c1-8)
 
 # Read one field from herdr's JSON on stdin. Every object on the path must exist;
 # only the last field may be missing or null (it prints an empty line). An error
@@ -56,7 +60,7 @@ print("" if value is None else value)' "$1"
 # whichever one the owner is looking at.
 repo=$(basename "$PWD")
 label="review-$repo"
-[ -n "$default_reviewer" ] || label="review-$repo-$kind-$(printf '%s' "$model" | tr '/' '-')"
+[ -n "$default_reviewer" ] || label="review-$repo-$kind-$reviewer_hash"
 review_tab=$(herdr tab list --workspace "$HERDR_WORKSPACE_ID" | python3 -c '
 import json, sys
 label = sys.argv[1]
@@ -93,7 +97,7 @@ if [ -z "$pane_agent" ]; then
   # Herdr names are unique and at most 32 characters, so another reviewer takes a
   # short hash of its kind and model, and can run beside the default one.
   if [ -z "$default_reviewer" ]; then
-    name="rev-$(printf '%s' "$slug" | cut -c1-19)-$(printf '%s' "$kind:$model" | shasum | cut -c1-8)"
+    name="rev-$(printf '%s' "$slug" | cut -c1-19)-$reviewer_hash"
   fi
   if [ "$kind" = kimi ]; then
     agent_args=(-m "$model" -y)
@@ -120,24 +124,11 @@ if [ -z "$pane_agent" ]; then
   fi
 fi
 
-# The newest ce-code-review report.md written since a time, or nothing.
-skill_report_since() {
-  python3 - "$1" "${TMPDIR:-/tmp}" /tmp <<'PY'
-import glob, os, sys
-since, roots = float(sys.argv[1]), sys.argv[2:]
-# ce-code-review saves run artifacts under <tmp>/compound-engineering-<uid>/ce-code-review/<run>/.
-found = {p for r in roots for pat in ("compound-engineering-*/ce-code-review/*/report.md", "ce-code-review/*/report.md")
-         for p in glob.glob(os.path.join(r, pat))}
-found = [p for p in found if os.path.getmtime(p) >= since]
-print(max(found, key=os.path.getmtime) if found else "")
-PY
-}
 # Cursor's sandbox may block the macOS temporary folder ($TMPDIR, under /var/folders) but
 # allows /tmp, so a Cursor reviewer gets its report path there.
 report_dir="${TMPDIR:-/tmp}"
 if [ "$kind" = cursor ]; then report_dir=/tmp/herdr-reviews; mkdir -p "$report_dir"; fi
 report=$(mktemp "$report_dir/review-XXXXXX")   # unique; a failure stops here
-started_at=$(date +%s)
 rm -f "$report"                                     # absent until the reviewer writes it
 echo "Report file: $report" >&2                     # findable even if the output is cut short
 prompt="Read AGENTS.md and the repository's review standards file (for example REVIEW_STANDARDS.md) first, and apply them. Run the ce-code-review skill (instructions: $HOME/.agents/skills/ce-code-review/SKILL.md) on branch $branch, diff vs main. Verify: $verify. Say how this could pass review while still being wrong. Report findings only; do not apply them. When the review is finished, write the final report as Markdown to exactly this path: $report. This is required even if the review skill also saves its own report elsewhere. Then reply with that path."
@@ -149,16 +140,29 @@ if ! prompt_out=$(herdr agent prompt "$review_pane" "$prompt" --wait --timeout 3
   # so the prompt stalls. Send that Enter, then wait for the report itself.
   if [ "$kind" = cursor ] && [[ "$prompt_out" == *agent_prompt_stalled* ]]; then
     herdr agent send-keys "$review_pane" Enter >/dev/null
+    # The report counts only once the reviewer is idle: a file can appear before the
+    # reviewer has finished writing it. A reviewer that goes idle without the report
+    # (it saved only the review skill's own copy) is asked once to write it here.
+    # Idle counts only after the reviewer has worked since its last prompt, because
+    # it is still idle for a moment after each prompt arrives.
+    asked="" worked=""
     for _ in $(seq 1 720); do
-      if [ -s "$report" ]; then sleep 5; cat "$report"; exit 0; fi
-      # A reviewer that saved only the review skill's own report, then went idle.
-      if [ "$(herdr agent get "$review_pane" | jget result.agent.agent_status || true)" = idle ]; then
-        skill_report=$(skill_report_since "$started_at")
-        if [ -n "$skill_report" ]; then cp "$skill_report" "$report"; cat "$report"; exit 0; fi
+      status=$(herdr agent get "$review_pane" | jget result.agent.agent_status || true)
+      if [ "$status" = idle ] || [ "$status" = done ]; then
+        if [ -s "$report" ]; then cat "$report"; exit 0; fi
+        if [ -z "$worked" ]; then sleep 5; continue; fi
+        if [ -n "$asked" ]; then break; fi
+        herdr agent prompt "$review_pane" "Write your final review report as Markdown to exactly this path: $report. Then reply with that path." >/dev/null 2>&1 || true
+        herdr agent send-keys "$review_pane" Enter >/dev/null
+        asked=1 worked=""
+      elif [ -n "$status" ]; then
+        worked=1
       fi
       sleep 5
     done
-    echo "No report after 60 minutes; read the pane: herdr agent read $review_pane --source recent-unwrapped --lines 60"
+    herdr agent read "$review_pane" --source recent-unwrapped --lines 60 || true
+    echo "No finished report at $report (60 minutes, or the reviewer went idle twice without one)."
+    echo "Read the pane above; when the reviewer has written the report, run: cat '$report'"
     exit 1
   fi
   printf '%s\n' "$prompt_out"
