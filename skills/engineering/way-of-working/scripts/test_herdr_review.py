@@ -348,6 +348,11 @@ class HerdrReview(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertNotIn("agent send-keys", calls)
 
+    def test_cursor_report_path_is_under_tmp(self):
+        r, _ = self.run_case("newtab,fresh", extra=("--kind", "cursor"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Report file: /tmp/herdr-reviews/review-", r.stderr)
+
     def test_unknown_kind_is_refused(self):
         r, calls = self.run_case("ok", extra=("--kind", "gemini"))
         self.assertEqual(r.returncode, 2)

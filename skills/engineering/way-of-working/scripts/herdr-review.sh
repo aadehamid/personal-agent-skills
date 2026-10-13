@@ -132,7 +132,11 @@ found = [p for p in found if os.path.getmtime(p) >= since]
 print(max(found, key=os.path.getmtime) if found else "")
 PY
 }
-report=$(mktemp "${TMPDIR:-/tmp}/review-XXXXXX")   # unique; a failure stops here
+# Cursor's sandbox may block the macOS temporary folder ($TMPDIR, under /var/folders) but
+# allows /tmp, so a Cursor reviewer gets its report path there.
+report_dir="${TMPDIR:-/tmp}"
+if [ "$kind" = cursor ]; then report_dir=/tmp/herdr-reviews; mkdir -p "$report_dir"; fi
+report=$(mktemp "$report_dir/review-XXXXXX")   # unique; a failure stops here
 started_at=$(date +%s)
 rm -f "$report"                                     # absent until the reviewer writes it
 echo "Report file: $report" >&2                     # findable even if the output is cut short
