@@ -284,6 +284,22 @@ class HerdrReview(unittest.TestCase):
         self.assertRegex(start[2], r"^rev-repo-[0-9a-f]{8}$")
         self.assertIn("agent prompt", calls)
 
+    def test_kimi_model_override_reaches_label_name_and_launch(self):
+        import hashlib
+        r, _ = self.run_case("newtab,fresh", extra=("--kind", "kimi", "--model", "kimi-code/k3-256k"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        created = [a for a in self.argv if a[:2] == ["tab", "create"]][0]
+        self.assertEqual(created[created.index("--label") + 1], "review-repo-kimi-kimi-code-k3-256k")
+        start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
+        self.assertEqual(start[start.index("--") + 1:], ["-m", "kimi-code/k3-256k", "-y"])
+        self.assertEqual(start[2], "rev-repo-" + hashlib.sha1(b"kimi:kimi-code/k3-256k").hexdigest()[:8])
+
+    def test_prompt_names_the_review_skill_file(self):
+        r, _ = self.run_case("ok")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        prompt = [a for a in self.argv if a[:2] == ["agent", "prompt"]][0][3]
+        self.assertIn(os.path.expanduser("~/.agents/skills/ce-code-review/SKILL.md"), prompt)
+
     def test_unknown_kind_is_refused(self):
         r, calls = self.run_case("ok", extra=("--kind", "gemini"))
         self.assertEqual(r.returncode, 2)
