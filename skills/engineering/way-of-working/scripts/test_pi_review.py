@@ -23,6 +23,9 @@ FAKE_OLLAMA = textwrap.dedent(r'''
     prompt = sys.argv[-1]
     open(os.path.join(state, "prompt"), "w").write(prompt)
     open(os.path.join(state, "cwd"), "w").write(os.getcwd())
+    import subprocess
+    head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+    open(os.path.join(state, "clone_head"), "w").write(head)
     m = re.search(r"to exactly this path: (\S+)\. Its first line|Write the same first line, MERGE or HOLD, to (\S+)\.", prompt)
     path = m.group(1) or m.group(2)
     if "crash" in s:
@@ -43,7 +46,8 @@ FAKE_OLLAMA = textwrap.dedent(r'''
         comments.append({"id": "c7", "body": verdict})
     if "post" in s:
         mark = re.search(r"last line is exactly (<!-- \S+ -->)", prompt).group(1)
-        comments.append({"id": "c9", "body": verdict + "\nfindings\n" + mark})
+        said = "HOLD" if "postsother" in s else verdict
+        comments.append({"id": "c9", "body": said + "\nfindings\n" + mark})
     json.dump(comments, open(n, "w"))
 ''').lstrip()
 
@@ -81,6 +85,8 @@ FAKE_GH = textwrap.dedent(r'''
     state = os.environ["FAKE_STATE"]
     with open(os.path.join(state, "gh_calls"), "a") as f:
         f.write(json.dumps(sys.argv[1:]) + "\n")
+    if "headRefOid" in sys.argv:
+        print(os.environ["FAKE_PR_HEAD"]); sys.exit(0)
     sys.stdout.write(json.dumps({"comments": json.load(open(os.path.join(state, "comments.json")))}))
 ''').lstrip()
 
@@ -117,6 +123,8 @@ class PiReview(unittest.TestCase):
         self.head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.work, env=env,
                                    check=True, capture_output=True, text=True).stdout.strip()
 
+    pr_head = None
+
     def git_env(self):
         # HERDR_* is dropped so a headless case never drives the real Herdr.
         env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "HERDR_"))}
@@ -128,6 +136,7 @@ class PiReview(unittest.TestCase):
         env = self.git_env()
         if polls:
             env["PI_REVIEW_POLLS"] = polls
+        env.setdefault("FAKE_PR_HEAD", self.pr_head or self.head)
         if herdr:
             env["HERDR_WORKSPACE_ID"] = "w2"
         env.update(PATH=self.bindir + os.pathsep + os.environ["PATH"], FAKE_PI=scenario,
@@ -169,6 +178,32 @@ class PiReview(unittest.TestCase):
         r = self.run_case("merge,other", "--role", "pr", "--pr", "7", "--head", self.head)
         self.assertEqual(r.returncode, 1)
         self.assertIn("posted no new comment starting with 'MERGE'", r.stdout)
+
+    def test_a_posted_verdict_that_differs_from_pis_file_does_not_count(self):
+        r = self.run_case("merge,post,postsother", "--role", "pr", "--pr", "7", "--head", self.head)
+        self.assertEqual(r.returncode, 1)
+
+    def test_a_head_that_is_not_the_prs_head_stops_before_pi_runs(self):
+        self.pr_head = "f" * 40
+        r = self.run_case("merge,post", "--role", "pr", "--pr", "7", "--head", self.head)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("is not PR #7's head", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.state, "prompt")))
+
+    def test_a_short_head_is_accepted_as_the_prs_head(self):
+        r = self.run_case("merge,post", "--role", "pr", "--pr", "7", "--head", self.head[:7])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_a_passed_run_removes_its_clone_and_a_failed_one_keeps_it(self):
+        r = self.run_case("ready", "--role", "independent", "--head", self.head)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        clone = re.search(r"Clone: (\S+)", r.stderr).group(1)
+        self.assertFalse(os.path.exists(clone))
+        self.assertFalse(os.path.exists(clone + ".log"))
+        r = self.run_case("nothing", "--role", "independent", "--head", self.head)
+        clone = re.search(r"Clone: (\S+)", r.stderr).group(1)
+        self.assertTrue(os.path.exists(clone))
+        self.assertTrue(os.path.exists(clone + ".log"))
 
     def test_someone_elses_matching_verdict_does_not_count_as_pis(self):
         r = self.run_case("merge,collide", "--role", "pr", "--pr", "7", "--head", self.head)
@@ -226,9 +261,8 @@ class PiReview(unittest.TestCase):
             cwd = f.read()
         self.assertNotEqual(os.path.realpath(cwd), os.path.realpath(self.work))
         self.assertTrue(os.path.basename(cwd).startswith("pi-review-"))
-        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=cwd, env=self.git_env(),
-                              capture_output=True, text=True).stdout.strip()
-        self.assertEqual(head, self.head)
+        with open(os.path.join(self.state, "clone_head")) as f:
+            self.assertEqual(f.read(), self.head)
 
     def test_since_limits_the_review_to_the_fix(self):
         r = self.run_case("ready", "--role", "independent", "--head", self.head, "--since", "abc123")

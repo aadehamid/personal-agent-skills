@@ -40,6 +40,14 @@ case "$role" in
   *) echo "usage: $0 --role pr|independent --head <sha> [--pr <n>] [--since <sha>]" >&2; exit 2 ;;
 esac
 [ -n "$head" ] || { echo "--head <sha> is required" >&2; exit 2; }
+# A PR verdict counts only for the PR's head, so a stale --head reviews nothing useful.
+if [ "$role" = pr ]; then
+  pr_head=$(gh pr view "$pr" --json headRefOid --jq .headRefOid)
+  case "$pr_head" in
+    "$head"*) head=$pr_head ;;
+    *) echo "--head $head is not PR #$pr's head ($pr_head); review the head" >&2; exit 1 ;;
+  esac
+fi
 
 remote=$(git remote get-url origin)
 # The default branch, from origin/HEAD when the clone has one, else main.
@@ -148,3 +156,5 @@ fi
 # The tab closes only now, after every check passed; on any failure it stays open to read.
 [ -n "${tab:-}" ] && herdr tab close "$tab" > /dev/null 2>&1 || true
 cat "$out"
+# A passed run leaves nothing behind; a failed one keeps the clone and log to read.
+rm -rf "$clone" "$clone.log" "$out"
