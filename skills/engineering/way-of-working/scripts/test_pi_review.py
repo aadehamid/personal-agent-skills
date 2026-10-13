@@ -90,8 +90,12 @@ FAKE_HERDR = textwrap.dedent(r'''
         subprocess.run(["ollama", "launch", "pi", args[3]], cwd=cwd)
         out({"result": {}})
     if cmd == "pane process-info":
-        group = open(os.path.join(state, "pane_group")).read()
-        out({"result": {"process_info": {"foreground_process_group_id": int(group), "shell_pid": 1}}})
+        if "infofail" in s:
+            sys.exit("error: pane not found")
+        group = int(open(os.path.join(state, "pane_group")).read())
+        # With "shellfront", the pane's shell is in front, as when Pi has already exited.
+        out({"result": {"process_info": {"foreground_process_group_id": group,
+                                         "shell_pid": group if "shellfront" in s else 1}}})
     if cmd == "pane run":
         open(os.path.join(state, "clone"), "w").write(json.loads(open(os.path.join(state, "herdr_calls")).read().splitlines()[0])[5])
         out({"result": {}})
@@ -285,6 +289,28 @@ class PiReview(unittest.TestCase):
         self.assert_pi_child_stopped()
         self.assertNotIn(["tab", "close", "w2:t5"], self.herdr_calls())
         self.assertIn(["pane", "process-info", "--pane", "w2:p5"], self.herdr_calls())
+
+    def pane_group(self):
+        with open(os.path.join(self.state, "pane_group")) as f:
+            return int(f.read())
+
+    def test_inside_herdr_pi_that_cannot_be_found_is_not_reported_stopped(self):
+        r = self.run_case("hang,infofail", "--role", "independent", "--head", self.head, herdr=True, sleep="0.05")
+        try:
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("could not be stopped: it may still post", r.stdout)
+            self.assertNotIn("Pi is stopped", r.stdout)
+        finally:
+            os.killpg(self.pane_group(), 9)
+
+    def test_inside_herdr_the_panes_own_shell_is_never_stopped(self):
+        r = self.run_case("hang,shellfront", "--role", "independent", "--head", self.head, herdr=True, sleep="0.05")
+        try:
+            self.assertEqual(r.returncode, 1)
+            # The group the fake reports as the shell's is left running.
+            os.killpg(self.pane_group(), 0)
+        finally:
+            os.killpg(self.pane_group(), 9)
 
     def test_inside_herdr_a_failed_check_keeps_the_tab_open(self):
         r = self.run_case("merge", "--role", "pr", "--pr", "7", "--head", self.head, herdr=True)

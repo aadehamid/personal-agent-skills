@@ -102,7 +102,11 @@ stop_group() {
     sleep 0.5
   done
   kill -KILL -- "-$1" 2>/dev/null || true
-  while kill -0 -- "-$1" 2>/dev/null; do sleep 0.1; done
+  for _ in $(seq 1 50); do
+    kill -0 -- "-$1" 2>/dev/null || return 0
+    sleep 0.1
+  done
+  return 1
 }
 
 if [ -n "${HERDR_WORKSPACE_ID:-}" ]; then
@@ -127,14 +131,20 @@ if [ -n "${HERDR_WORKSPACE_ID:-}" ]; then
     # The prompt timed out or stalled, and Pi may still be working. Stop the pane's
     # foreground group, which holds `ollama launch` and Pi, and leave the shell to read.
     # When the shell's own group is in front, Pi has already exited and there is nothing to stop.
-    group=$(herdr pane process-info --pane "$pane" | python3 -c '
+    stopped=no
+    if group=$(herdr pane process-info --pane "$pane" | python3 -c '
 import json, sys
 p = json.load(sys.stdin)["result"]["process_info"]
 g = p.get("foreground_process_group_id")
-print(g if g and g != p.get("shell_pid") else "")' || true)
-    [ -n "$group" ] && stop_group "$group"
+print(g if g and g != p.get("shell_pid") else "")'); then
+      if [ -z "$group" ] || stop_group "$group"; then stopped=yes; fi
+    fi
     tail -n 5 "$clone.log" || true
-    echo "Pi's prompt in tab $tab did not finish within an hour, or never started work; Pi is stopped. Its log is $clone.log."
+    if [ "$stopped" = yes ]; then
+      echo "Pi's prompt in tab $tab did not finish within an hour, or never started work; Pi is stopped. Its log is $clone.log."
+    else
+      echo "Pi's prompt in tab $tab did not finish within an hour, or never started work, and Pi could not be stopped: it may still post. Stop it in tab $tab. Its log is $clone.log."
+    fi
     exit 1
   fi
   herdr pane read "$pane" --lines 200 >> "$clone.log" 2>&1 || true
@@ -151,8 +161,11 @@ else
     sleep 5
   done
   if kill -0 "$pi_pid" 2>/dev/null; then
-    stop_group "$pi_pid"
-    echo "Pi did not finish within an hour. Its log is $clone.log."
+    if stop_group "$pi_pid"; then
+      echo "Pi did not finish within an hour and is stopped. Its log is $clone.log."
+    else
+      echo "Pi did not finish within an hour, and its process group $pi_pid would not stop: it may still post. Its log is $clone.log."
+    fi
     exit 1
   fi
   wait "$pi_pid" || true
