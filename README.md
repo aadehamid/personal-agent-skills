@@ -7,6 +7,7 @@ My own skills for Claude Code and other agents. Each skill is a folder with a `S
 | Category | Skill | What it does |
 |---|---|---|
 | engineering | [way-of-working](skills/engineering/way-of-working/SKILL.md) | Hamid's engineering standard for agent work on any repo: recorded decisions, PRs for every change, checks before every push, shared deterministic tools and guardrails, and a retro loop that improves the standard. |
+| engineering | [night-run](skills/engineering/night-run/SKILL.md) | Lets an agent work through a goal while you are away. You approve a written brief before you leave; the agent ships each item through the pull-request loop, logs each decision it makes for you, and ends with a morning summary. |
 | planning | [project-discovery](skills/planning/project-discovery/SKILL.md) | Turns an idea or existing project into a tailored documentation package, with guided discovery, reference assessment, interactive or batch drafting, approval tracking, and review. |
 | writing | [clear-writing](skills/writing/clear-writing/SKILL.md) | Writes and edits plain, clear prose for people. Uses a subset of ASD-STE100, an anti-AI-tell pattern list, a re-pitch mode for messages that did not land, and a calibrate mode that tunes the rules from past sessions. |
 | writing | [unslop](skills/writing/unslop/SKILL.md) | Alias: catches calls to unslop (for example from pstack) and routes them to clear-writing. |
