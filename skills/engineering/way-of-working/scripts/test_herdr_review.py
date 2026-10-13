@@ -76,7 +76,7 @@ FAKE = textwrap.dedent(r'''
 
 
 class HerdrReview(unittest.TestCase):
-    def run_case(self, scenario, tmpdir=None):
+    def run_case(self, scenario, tmpdir=None, extra=()):
         state = tempfile.mkdtemp()
         bindir = tempfile.mkdtemp()
         fake = os.path.join(bindir, "herdr")
@@ -93,7 +93,7 @@ class HerdrReview(unittest.TestCase):
         env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"],
                    FAKE_HERDR=scenario, FAKE_STATE=state, HERDR_WORKSPACE_ID="w2",
                    TMPDIR=tmpdir or tempfile.mkdtemp())
-        r = subprocess.run(["bash", SCRIPT, "--branch", "b", "--verify", "v"],
+        r = subprocess.run(["bash", SCRIPT, "--branch", "b", "--verify", "v", *extra],
                            cwd=repo, env=env, capture_output=True, text=True)
         calls_path = os.path.join(state, "calls")
         calls = []
@@ -224,6 +224,24 @@ class HerdrReview(unittest.TestCase):
         prompt = [a for a in self.argv if a[:2] == ["agent", "prompt"]][0]
         self.assertIn("--wait", prompt)
         self.assertEqual(prompt[prompt.index("--timeout") + 1], "3600000")
+
+    def test_default_model_is_gpt_6_1_sol_in_the_review_tab(self):
+        r, _ = self.run_case("newtab,fresh")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        created = [a for a in self.argv if a[:2] == ["tab", "create"]][0]
+        self.assertEqual(created[created.index("--label") + 1], "review-repo")
+        start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
+        self.assertEqual(start[start.index("-m") + 1], "gpt-6.1-sol")
+
+    def test_another_model_gets_its_own_tab(self):
+        # The plain review-repo tab exists, but a reused tab keeps its reviewer,
+        # so another model must open review-repo-<model> instead.
+        r, _ = self.run_case("fresh", extra=("--model", "gpt-6-astra"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        created = [a for a in self.argv if a[:2] == ["tab", "create"]][0]
+        self.assertEqual(created[created.index("--label") + 1], "review-repo-gpt-6-astra")
+        start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
+        self.assertEqual(start[start.index("-m") + 1], "gpt-6-astra")
 
     def test_prompt_tells_the_reviewer_to_apply_review_standards(self):
         with open(SCRIPT) as f:
