@@ -91,6 +91,10 @@ fi
 # so it runs with -y: routine commands run, risky actions still ask, and a question
 # leaves the pane blocked, which the prompt step below reports.
 pane_agent=$(herdr pane get "$review_pane" | jget result.pane.agent)
+if [ -n "$pane_agent" ]; then
+  # A running reviewer keeps the flags it started with, such as the sandbox's writable folders.
+  echo "Reusing the running reviewer in $review_tab: it keeps the flags it started with. To apply this script's current flags, close the tab once (herdr tab close $review_tab) and run again." >&2
+fi
 if [ -z "$pane_agent" ]; then
   slug=$(printf '%s' "$repo" | tr 'A-Z' 'a-z' | tr -cs 'a-z0-9' '-')
   name="rev-$(printf '%s' "$slug" | cut -c1-28)"

@@ -285,8 +285,16 @@ class HerdrReview(unittest.TestCase):
         start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
         home = os.path.expanduser("~")
         roots = json.dumps([f"{home}/.npm", f"{home}/.claude", f"{home}/.cache", f"{home}/.config"], separators=(",", ":"))
-        self.assertIn("sandbox_workspace_write.writable_roots=" + roots, start)
+        token = "sandbox_workspace_write.writable_roots=" + roots
+        self.assertIn(token, start)
+        self.assertEqual(start[start.index(token) - 1], "-c")
         self.assertIn("workspace-write", start)
+
+    def test_a_reused_reviewer_is_reported_as_keeping_its_old_flags(self):
+        r, calls = self.run_case("ok")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("agent start", calls)
+        self.assertIn("keeps the flags it started with", r.stderr)
 
     def test_default_model_is_gpt_6_1_sol_in_the_review_tab(self):
         r, _ = self.run_case("newtab,fresh")
