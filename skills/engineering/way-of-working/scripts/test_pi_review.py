@@ -44,6 +44,9 @@ FAKE_OLLAMA = textwrap.dedent(r'''
     if "collide" in s:
         # Someone else posts the same one-word verdict, without Pi's mark.
         comments.append({"id": "c7", "body": verdict})
+    if "headmoves" in s:
+        # Someone pushes to the PR while Pi reviews.
+        open(os.path.join(state, "moved_head"), "w").write("e" * 40)
     if "post" in s:
         mark = re.search(r"last line is exactly (<!-- \S+ -->)", prompt).group(1)
         said = "HOLD" if "postsother" in s else verdict
@@ -86,7 +89,8 @@ FAKE_GH = textwrap.dedent(r'''
     with open(os.path.join(state, "gh_calls"), "a") as f:
         f.write(json.dumps(sys.argv[1:]) + "\n")
     if "headRefOid" in sys.argv:
-        print(os.environ["FAKE_PR_HEAD"]); sys.exit(0)
+        moved = os.path.join(state, "moved_head")
+        print(open(moved).read() if os.path.exists(moved) else os.environ["FAKE_PR_HEAD"]); sys.exit(0)
     sys.stdout.write(json.dumps({"comments": json.load(open(os.path.join(state, "comments.json")))}))
 ''').lstrip()
 
@@ -193,13 +197,27 @@ class PiReview(unittest.TestCase):
     def test_a_short_head_is_accepted_as_the_prs_head(self):
         r = self.run_case("merge,post", "--role", "pr", "--pr", "7", "--head", self.head[:7])
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        # The short SHA is expanded to the PR's full head before checkout and the prompt.
+        self.assertIn(self.head, self.prompt())
+        with open(os.path.join(self.state, "clone_head")) as f:
+            self.assertEqual(f.read(), self.head)
+
+    def test_a_head_that_moves_while_pi_reviews_is_not_a_current_verdict(self):
+        r = self.run_case("merge,post,headmoves", "--role", "pr", "--pr", "7", "--head", self.head)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("head moved", r.stdout)
 
     def test_a_passed_run_removes_its_clone_and_a_failed_one_keeps_it(self):
         r = self.run_case("ready", "--role", "independent", "--head", self.head)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         clone = re.search(r"Clone: (\S+)", r.stderr).group(1)
-        self.assertFalse(os.path.exists(clone))
-        self.assertFalse(os.path.exists(clone + ".log"))
+        for leftover in (clone, clone + ".log", clone + ".report.md"):
+            self.assertFalse(os.path.exists(leftover), leftover)
+        r = self.run_case("merge,post", "--role", "pr", "--pr", "7", "--head", self.head)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        clone = re.search(r"Clone: (\S+)", r.stderr).group(1)
+        for leftover in (clone, clone + ".log", clone + ".verdict"):
+            self.assertFalse(os.path.exists(leftover), leftover)
         r = self.run_case("nothing", "--role", "independent", "--head", self.head)
         clone = re.search(r"Clone: (\S+)", r.stderr).group(1)
         self.assertTrue(os.path.exists(clone))
