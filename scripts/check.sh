@@ -52,6 +52,7 @@ echo
 echo "== check guard and way-of-working scripts =="
 python3 scripts/test_tree_state.py
 python3 skills/engineering/way-of-working/scripts/test_herdr_review.py
+python3 skills/engineering/way-of-working/scripts/test_pi_review.py
 python3 skills/engineering/way-of-working/scripts/test_pr_scripts.py
 
 echo

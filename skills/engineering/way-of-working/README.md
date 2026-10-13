@@ -17,9 +17,10 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 | `references/tools.md` | agent, when locating helper skills | Focused search of installed roots, then plugin caches if needed. |
 | `references/improving.md` | agent, after a costly session | The retro loop and where each lesson goes. |
 | `scripts/herdr-review.sh` | agent, before a push | Runs the independent review in a Herdr pane, waits, and prints the report and its file path. |
+| `scripts/pi-review.sh` | agent, before a push or as the PR reviewer | Runs Pi through Ollama in a fresh clone, as the independent reviewer (a report file) or the PR reviewer (a MERGE or HOLD comment). Inside Herdr it runs in its own tab. |
 | `scripts/watch-pr.sh` | agent, while a PR is open | Polls a pull request every 30 seconds and exits on its first new event: a merge or close, a review or comment of any kind, or a finished check. |
 | `scripts/after-merge.sh` | agent, after a merge | Syncs `main` and deletes the merged branch on both sides, only if all its commits are in `main`. |
-| `scripts/test_herdr_review.py`, `scripts/test_pr_scripts.py` | the repo's `scripts/check.sh` | Run the three scripts against fake `herdr` and `gh` commands and real throwaway git repositories. |
+| `scripts/test_herdr_review.py`, `scripts/test_pi_review.py`, `scripts/test_pr_scripts.py` | the repo's `scripts/check.sh` | Run the four scripts against fake `herdr`, `gh` and `ollama` commands and real throwaway git repositories. |
 | `SOURCES.md` | you | Where each rule came from. |
 | `README.md` | you | This file. |
 
