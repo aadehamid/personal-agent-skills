@@ -19,7 +19,7 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 
 ## Using it
 
-Tell the agent you are leaving it to work alone, or type `/night-run`. Stay until the brief is written and you have approved it. In the morning, read the summary at the end of the log first.
+Tell the agent you are leaving it to work alone. In agents that run skills as commands, such as Claude Code, you can also type `/night-run`. Stay until the brief is written and you have approved it. In the morning, read the summary at the end of the log first.
 
 The skill relies on `way-of-working` for the pull-request loop and on `clear-writing` for the log. Both are in this repository.
 

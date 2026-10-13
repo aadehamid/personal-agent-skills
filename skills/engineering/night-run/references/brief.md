@@ -17,8 +17,8 @@ Order: <item 1>, <item 2>, ... (the queue, in the owner's order)
 Decisions (owner's words): "<quote of the delegation>"
   Decide unless the evidence leaves the choice unclear. Evidence order:
   1. Recorded, approved decisions.
-  2. Project documents, by the project's own authority order.
-  3. The project's registered sources.
+  2. Project documents, ranked by the project's index or instruction file if it ranks them.
+  3. Sources the project has already recorded, such as a reference register.
   4. Light external search, registered as a source when used.
 
 Independent reviewer: <agent, model, how it starts>; report file: <path the writer can read>
@@ -26,6 +26,7 @@ Independent reviewer: <agent, model, how it starts>; report file: <path the writ
 PR reviewer: <who or what gives the merge verdict, how it starts>
 Merge rule: <for example: check green, CI green, the PR reviewer's latest verdict is MERGE>
 Check command: <the project's check script>
+Default branch: <for example main>; remote: <for example origin>
 
 Log: <path>
 Stop conditions: a question the evidence cannot settle; anything irreversible outside the repository; <any the owner adds>
