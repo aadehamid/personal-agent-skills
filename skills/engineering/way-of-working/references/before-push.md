@@ -60,6 +60,10 @@ When you add a check, break the thing it checks on purpose (change one figure, o
 
 Test the check against the cases it claims, not just the happy path: a guard that hashes names rather than contents, or that follows a symlink, or that reads a file named `-` as standard input, passes every ordinary run and fails none. Enumerate the cases the check claims to catch and make each one fail on purpose.
 
+When the cases form a class of input, such as any character or any spelling a renderer accepts, state the rule on what the renderer produces, not on the source text. Then generate the class in the test: every candidate character at every position. A list of the spellings you thought of is what a reviewer extends one round at a time. One check that a quoted answer renders as plain text took nine review rounds this way, each round finding another way to hide markup (indentation, a nested quote, zero-width and control characters). It converged only once the rule read the parser's output and the test covered every code point.
+
+Confirm the test run finished before you read its result. A run cut off by a timeout reports no failures: a test meant to fail on the unfixed code showed zero failures under a 100-second limit, and twenty when it ran to the end.
+
 A test that **reproduces a defect** is held to the same standard: run it against the unfixed code and confirm it fails, for the reason you expect. That is not a rule for every new test. A compatibility or invariant test — a valid input still works, the same answer survives reformatting — passes both versions, and forcing it to fail would delete exactly the coverage `guardrails.md` asks for. But that holds only while the invariant already holds on the unfixed code. When the defect *is* that it does not — reformatting changes the answer — the test must fail there, and it is a defect test like any other.
 
 Watch too for a test that passes for the wrong reason: the input that looks like the bug is not always the one that exercises it.
