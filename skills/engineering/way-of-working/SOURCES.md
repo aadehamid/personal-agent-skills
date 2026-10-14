@@ -24,7 +24,7 @@ Last review: 2026-10-13.
 ## 1d. The GATE-001 and GATE-003 decisions (2026-10-13)
 
 - **Link:** https://github.com/aadehamid/Engineering_Drawing_to_Graph PRs #32 and #33.
-- **What we took:** three lessons from #33, where a check that the owner's quoted answer renders as plain text took nine independent-review rounds and four bot holds. Stating a check on a class of input against the renderer's output and generating the class in its test. Confirming a test run finished before reading its result, after a run cut off by a timeout printed no failure count. Confirming a pull request is still open before pushing to it, after the bot merged #32 while fixes for it were still being written.
+- **What we took:** three lessons from #33, where a check that the owner's quoted answer renders as plain text took nine independent-review rounds and four bot holds. Stating a check on a class of input against the renderer's output and generating the class in its test. Confirming a test run finished before reading its result, after a test run that never started read as zero failures through `grep -c`. Confirming a pull request is still open before pushing to it, after the bot merged #32 while fixes for it were still being written.
 
 ## 2. mattpocock-skills (marketplace `mattpocock`, v1.3.1)
 
