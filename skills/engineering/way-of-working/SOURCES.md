@@ -31,6 +31,11 @@ Last review: 2026-10-19.
 - **Link:** https://github.com/aadehamid/Engineering_Drawing_to_Graph PRs #38 and #40.
 - **What we took:** one lesson, fixing every place a finding applies. On #38 the Cursor bot held three times, each time on how a named reference crosses DEC-064's validation stage boundaries, and the fix converged only after a sweep of every stage. On #40 the bot held because a gate's scope was fixed in README and LIONG-003 but left in LIONG-011.
 
+## 1f. The MILESTONE-001b night run (2026-10-19)
+
+- **Link:** https://github.com/aadehamid/Engineering_Drawing_to_Graph PRs #48 and #49, and the item 5 work before #46.
+- **What we took:** two lessons. On #48 and #49 the Cursor bot reviewed the head while CI was still running, named CI as its only blocker, and did not run again after CI passed; an empty commit re-triggered it, and a hand merge was rightly refused by the agent's guard. While proving a test on item 5, a same-length mutation restored within the same second left a cached `.pyc` that made the check fail on correct code until `__pycache__` was cleared.
+
 ## 2. mattpocock-skills (marketplace `mattpocock`, v1.3.1)
 
 - **What we took:** the retro loop (`retro`), decision interviews (`grill-with-docs`, `grilling`), the rules for writing documents agents read (`writing-for-agents`), and the shape of a PR body (`pr`) — the smallest view that makes the point, evidence before and after, and merge danger as a one-way or two-way door. That shape is adapted into `references/changing.md`, not adopted as a template: `changing.md` already owns what a PR body says, and a second authority for one rule is what rule 6 forbids. The `pr` skill credits Humanlayer's `show-me`.
