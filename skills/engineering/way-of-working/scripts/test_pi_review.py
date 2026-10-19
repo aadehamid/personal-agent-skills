@@ -259,8 +259,13 @@ class PiReview(unittest.TestCase):
         r = self.run_case("ready", "--role", "independent", "--head", self.head)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         clone = re.search(r"Clone: (\S+)", r.stderr).group(1)
-        for leftover in (clone, clone + ".log", clone + ".report.md"):
+        for leftover in (clone, clone + ".log"):
             self.assertFalse(os.path.exists(leftover), leftover)
+        # The independent report stays, so a reader whose output was cut short can reread it.
+        report = re.search(r"Report: (\S+)", r.stderr).group(1)
+        self.assertEqual(report, clone + ".report.md")
+        with open(report) as f:
+            self.assertEqual(f.read(), r.stdout)
         r = self.run_case("merge,post", "--role", "pr", "--pr", "7", "--head", self.head)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         clone = re.search(r"Clone: (\S+)", r.stderr).group(1)
@@ -368,10 +373,32 @@ class PiReview(unittest.TestCase):
         with open(os.path.join(self.state, "clone_head")) as f:
             self.assertEqual(f.read(), self.head)
 
+    def base(self):
+        return subprocess.run(["git", "rev-parse", "HEAD~1"], cwd=self.work, env=self.git_env(),
+                              check=True, capture_output=True, text=True).stdout.strip()
+
     def test_since_limits_the_review_to_the_fix(self):
-        r = self.run_case("ready", "--role", "independent", "--head", self.head, "--since", "abc123")
+        r = self.run_case("ready", "--role", "independent", "--head", self.head, "--since", self.base())
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn(f"git diff abc123..{self.head}", self.prompt())
+        self.assertIn(f"git diff {self.base()}..{self.head}", self.prompt())
+
+    def test_short_hashes_are_expanded_before_the_review(self):
+        env = self.git_env()
+        subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "local only"], cwd=self.work, env=env, check=True)
+        local = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.work, env=env, check=True,
+                               capture_output=True, text=True).stdout.strip()
+        # A short hash of a commit not yet pushed: the clone can fetch it only by full name.
+        r = self.run_case("ready", "--role", "independent", "--head", local[:7], "--since", self.head[:7])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with open(os.path.join(self.state, "clone_head")) as f:
+            self.assertEqual(f.read(), local)
+        self.assertIn(f"git diff {self.head}..{local}", self.prompt())
+
+    def test_a_since_that_names_no_commit_stops_before_pi_runs(self):
+        r = self.run_case("ready", "--role", "independent", "--head", self.head, "--since", "fcd8461f")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("names no commit", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.state, "prompt")))
 
     def test_without_since_the_whole_change_is_reviewed_against_the_default_branch(self):
         r = self.run_case("ready", "--role", "independent", "--head", self.head)

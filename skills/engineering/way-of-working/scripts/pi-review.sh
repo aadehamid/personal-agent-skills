@@ -19,6 +19,7 @@
 # the owner can watch it; the script closes the tab when Pi has answered. Elsewhere Pi
 # runs headless.
 # Exit 0: the result is printed (the verdict line for pr, the report for independent).
+#   The independent report is also kept, and its path printed on stderr as "Report:".
 # Exit 1: no result; the output says why.
 # Tests: test_pi_review.py, run by the repository's scripts/check.sh.
 set -euo pipefail
@@ -41,6 +42,13 @@ case "$role" in
   *) echo "usage: $0 --role pr|independent --head <sha> [--pr <n>] [--since <sha>]" >&2; exit 2 ;;
 esac
 [ -n "$head" ] || { echo "--head <sha> is required" >&2; exit 2; }
+# A short hash cannot be fetched from this repository into the clone, so expand each
+# commit here first. A --since that names no commit would review a diff that fails.
+full() { git rev-parse --verify --quiet "$1^{commit}" 2>/dev/null; }
+if [ "$role" = independent ] && h=$(full "$head"); then head=$h; fi
+if [ -n "$since" ]; then
+  since=$(full "$since") || { echo "--since $since names no commit in this repository" >&2; exit 1; }
+fi
 # A PR verdict counts only for the PR's head, so a stale --head reviews nothing useful.
 if [ "$role" = pr ]; then
   pr_head=$(gh pr view "$pr" --json headRefOid --jq .headRefOid)
@@ -209,5 +217,7 @@ fi
 # The tab closes only now, after every check passed; on any failure it stays open to read.
 [ -n "${tab:-}" ] && herdr tab close "$tab" > /dev/null 2>&1 || true
 cat "$out"
-# A passed run leaves nothing behind; a failed one keeps the clone and log to read.
-rm -rf "$clone" "$clone.log" "$out"
+# A passed run keeps only the independent report, so output cut short can be read again;
+# a failed one keeps the clone and log to read.
+rm -rf "$clone" "$clone.log"
+if [ "$role" = independent ]; then echo "Report: $out" >&2; else rm -f "$out"; fi
