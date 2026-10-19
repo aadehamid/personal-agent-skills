@@ -435,6 +435,11 @@ class PiReview(unittest.TestCase):
         self.assertRegex(self.prompt(), r"review standards files .* and apply them")
         self.assertIn("Do not edit, create or delete any file", self.prompt())
 
+    def test_prompt_asks_for_every_place_a_finding_applies(self):
+        for args in (("--role", "independent"), ("--role", "pr", "--pr", "7")):
+            self.run_case("ready,post" if "independent" in args else "merge,post", *args, "--head", self.head)
+            self.assertIn("list every place in the repository that has it", self.prompt())
+
 
 if __name__ == "__main__":
     unittest.main()
