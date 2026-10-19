@@ -14,6 +14,7 @@ import textwrap
 import unittest
 
 SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pi-review.sh")
+EVERY_PLACE = "For each finding, name the kind of defect and list every place in the repository that has it, including places outside the diff."
 
 FAKE_OLLAMA = textwrap.dedent(r'''
     #!/usr/bin/env python3
@@ -438,7 +439,14 @@ class PiReview(unittest.TestCase):
     def test_prompt_asks_for_every_place_a_finding_applies(self):
         for args in (("--role", "independent"), ("--role", "pr", "--pr", "7")):
             self.run_case("ready,post" if "independent" in args else "merge,post", *args, "--head", self.head)
-            self.assertIn("list every place in the repository that has it", self.prompt())
+            self.assertIn(EVERY_PLACE, self.prompt())
+
+    def test_both_review_scripts_ask_for_every_place_in_the_same_words(self):
+        # before-push.md says the two scripts ask for the same list.
+        here = os.path.dirname(SCRIPT)
+        for name in ("pi-review.sh", "herdr-review.sh"):
+            with open(os.path.join(here, name)) as f:
+                self.assertIn(EVERY_PLACE, f.read(), name)
 
 
 if __name__ == "__main__":
