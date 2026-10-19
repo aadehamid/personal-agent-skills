@@ -59,6 +59,8 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
 
 When you add a check, break the thing it checks on purpose (change one figure, one status, one record) and confirm the check fails; then restore it. A check that has never failed may pass vacuously.
 
+Clear the interpreter's bytecode cache (`__pycache__` for Python) before each run of a mutation and after restoring it. A mutation the same length as the line it replaces, restored within the same second, can leave a cached copy of the mutant that the next run executes, so a correct tree fails or a broken one passes.
+
 Test the check against the cases it claims, not just the happy path: a guard that hashes names rather than contents, or that follows a symlink, or that reads a file named `-` as standard input, passes every ordinary run and fails none. Enumerate the cases the check claims to catch and make each one fail on purpose.
 
 When the cases form a class of input, such as any character or any spelling a renderer accepts, state the rule on what the renderer produces, not on the source text. Then generate the class in the test: every candidate character at every position. A list of the spellings you thought of is what a reviewer extends one round at a time. One check that a quoted answer renders as plain text took nine review rounds this way, most rounds finding another way to hide markup (indentation, a nested quote, zero-width and control characters). It converged only once the rule read the parser's output. The review that passed it tried every code point at nine positions, a probe the test should have run from the start.
