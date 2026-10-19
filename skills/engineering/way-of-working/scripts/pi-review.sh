@@ -69,7 +69,7 @@ git clone -q "$remote" "$clone"
 git -C "$clone" fetch -q origin "+refs/pull/*/head:refs/remotes/origin/pr/*" 2>/dev/null || true
 # The independent review runs before the push it gates, so its commit may exist only here.
 # Fetch from the work tree's top: started from a subdirectory, $PWD is no repository.
-top=$(git rev-parse --show-toplevel)
+top=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 if [ "$role" = independent ]; then git -C "$clone" fetch -q "$top" "$head" 2>/dev/null || true; fi
 # The fix's base may exist only here too, such as a commit amended away before the push.
 if [ -n "$since" ]; then
@@ -129,7 +129,7 @@ stop_group() {
 }
 
 if [ -n "${HERDR_WORKSPACE_ID:-}" ]; then
-  repo=$(basename "$PWD")
+  repo=$(basename "$top")
   created=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$clone" --label "pi-$role-$repo" --no-focus)
   pane=$(printf '%s' "$created" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["root_pane"]["pane_id"])')
   tab=$(printf '%s' "$created" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["tab"]["tab_id"])')

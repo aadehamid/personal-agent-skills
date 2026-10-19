@@ -7,6 +7,7 @@ prompt, and writes what the scenario says. The fake gh counts PR comments.
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -430,6 +431,25 @@ class PiReview(unittest.TestCase):
         with open(os.path.join(self.state, "since_in_clone")) as f:
             self.assertEqual(f.read(), "yes")
 
+    def test_a_since_that_does_not_reach_the_clone_stops_before_pi_runs(self):
+        env = self.git_env()
+        run = lambda *a: subprocess.run(a, cwd=self.work, env=env, check=True, capture_output=True, text=True).stdout.strip()
+        run("git", "commit", "-q", "--allow-empty", "-m", "first try")
+        old = run("git", "rev-parse", "HEAD")
+        run("git", "commit", "-q", "--amend", "--allow-empty", "-m", "second try")
+        new = run("git", "rev-parse", "HEAD")
+        # A git whose fetch of the base fails, as a stricter git or a broken source would.
+        real = shutil.which("git")
+        with open(os.path.join(self.bindir, "git"), "w") as f:
+            f.write("#!/bin/sh\nfor a; do last=$a; done\n"
+                    f'if [ "$1" = -C ] && [ "$3" = fetch ] && [ "$last" = {old} ]; then exit 1; fi\n'
+                    f'exec {real} "$@"\n')
+        os.chmod(os.path.join(self.bindir, "git"), 0o755)
+        r = self.run_case("ready", "--role", "independent", "--head", new, "--since", old)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("did not reach the clone", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.state, "prompt")))
+
     def test_a_since_that_names_no_commit_stops_before_pi_runs(self):
         r = self.run_case("ready", "--role", "independent", "--head", self.head, "--since", "fcd8461f")
         self.assertEqual(r.returncode, 1)
@@ -461,6 +481,14 @@ class PiReview(unittest.TestCase):
         r = self.run_case("ready", "--role", "independent", "--head", self.head)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.herdr_calls(), [])
+
+    def test_inside_herdr_a_run_from_a_subdirectory_names_the_tab_after_the_repository(self):
+        sub = os.path.join(self.work, "sub", "dir")
+        os.makedirs(sub)
+        r = self.run_case("ready", "--role", "independent", "--head", self.head, herdr=True, cwd=sub)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        create = self.herdr_calls()[0]
+        self.assertEqual(create[create.index("--label") + 1], "pi-independent-work")
 
     def test_inside_herdr_pi_runs_interactively_in_its_own_tab(self):
         r = self.run_case("hold,post", "--role", "pr", "--pr", "7", "--head", self.head, herdr=True)

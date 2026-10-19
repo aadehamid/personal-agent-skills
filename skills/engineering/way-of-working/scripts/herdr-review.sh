@@ -58,7 +58,9 @@ print("" if value is None else value)' "$1"
 # The review tab lives in this agent's own workspace. An unfiltered `tab list`
 # spans every workspace, and a tab created without --workspace can open in
 # whichever one the owner is looking at.
-repo=$(basename "$PWD")
+# Name and start from the work tree's top, so a run from a subdirectory finds the same tab.
+top=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+repo=$(basename "$top")
 label="review-$repo"
 [ -n "$default_reviewer" ] || label="review-$repo-$kind-$reviewer_hash"
 review_tab=$(herdr tab list --workspace "$HERDR_WORKSPACE_ID" | python3 -c '
@@ -69,7 +71,7 @@ print(next((t["tab_id"] for t in tabs if t["label"] == label), ""))' "$label")
 # The caller needs the tab, and whether this run created it, to close it after
 # merge, so it is printed as soon as it is known, before any later step can fail.
 if [ -z "$review_tab" ]; then
-  created_json=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --label "$label" --no-focus)
+  created_json=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$top" --label "$label" --no-focus)
   review_tab=$(printf '%s' "$created_json" | jget result.tab.tab_id)
   echo "Review tab: $review_tab (created)" >&2
   review_pane=$(printf '%s' "$created_json" | jget result.root_pane.pane_id)
