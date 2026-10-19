@@ -168,7 +168,7 @@ class PiReview(unittest.TestCase):
                    GIT_COMMITTER_EMAIL="t@t", GIT_CONFIG_GLOBAL=os.devnull)
         return env
 
-    def run_case(self, scenario, *args, herdr=False, polls=None, sleep=None):
+    def run_case(self, scenario, *args, herdr=False, polls=None, sleep=None, cwd=None):
         env = self.git_env()
         if polls:
             env["PI_REVIEW_POLLS"] = polls
@@ -179,7 +179,7 @@ class PiReview(unittest.TestCase):
             env["HERDR_WORKSPACE_ID"] = "w2"
         env.update(PATH=self.bindir + os.pathsep + os.environ["PATH"], FAKE_PI=scenario,
                    FAKE_STATE=self.state)
-        return subprocess.run(["bash", SCRIPT, *args], cwd=self.work, env=env,
+        return subprocess.run(["bash", SCRIPT, *args], cwd=cwd or self.work, env=env,
                               capture_output=True, text=True)
 
     def prompt(self):
@@ -413,6 +413,20 @@ class PiReview(unittest.TestCase):
             clone = f.read()
         self.assertFalse(os.path.exists(clone))
         self.assertIn(f"git diff {old}..{new}", self.prompt())
+        with open(os.path.join(self.state, "since_in_clone")) as f:
+            self.assertEqual(f.read(), "yes")
+
+    def test_a_local_only_since_reaches_the_clone_from_a_subdirectory(self):
+        env = self.git_env()
+        run = lambda *a: subprocess.run(a, cwd=self.work, env=env, check=True, capture_output=True, text=True).stdout.strip()
+        run("git", "commit", "-q", "--allow-empty", "-m", "first try")
+        old = run("git", "rev-parse", "HEAD")
+        run("git", "commit", "-q", "--amend", "--allow-empty", "-m", "second try")
+        new = run("git", "rev-parse", "HEAD")
+        sub = os.path.join(self.work, "sub", "dir")
+        os.makedirs(sub)
+        r = self.run_case("ready", "--role", "independent", "--head", new, "--since", old, cwd=sub)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         with open(os.path.join(self.state, "since_in_clone")) as f:
             self.assertEqual(f.read(), "yes")
 

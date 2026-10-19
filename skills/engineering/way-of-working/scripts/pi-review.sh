@@ -68,9 +68,15 @@ echo "Clone: $clone" >&2
 git clone -q "$remote" "$clone"
 git -C "$clone" fetch -q origin "+refs/pull/*/head:refs/remotes/origin/pr/*" 2>/dev/null || true
 # The independent review runs before the push it gates, so its commit may exist only here.
-if [ "$role" = independent ]; then git -C "$clone" fetch -q "$PWD" "$head" 2>/dev/null || true; fi
+# Fetch from the work tree's top: started from a subdirectory, $PWD is no repository.
+top=$(git rev-parse --show-toplevel)
+if [ "$role" = independent ]; then git -C "$clone" fetch -q "$top" "$head" 2>/dev/null || true; fi
 # The fix's base may exist only here too, such as a commit amended away before the push.
-if [ -n "$since" ]; then git -C "$clone" fetch -q "$PWD" "$since" 2>/dev/null || true; fi
+if [ -n "$since" ]; then
+  git -C "$clone" fetch -q "$top" "$since" 2>/dev/null || true
+  git -C "$clone" cat-file -e "$since^{commit}" 2>/dev/null \
+    || { echo "--since $since did not reach the clone $clone; Pi would review a diff that fails" >&2; exit 1; }
+fi
 git -C "$clone" checkout -q --detach "$head" || { echo "commit $head is in neither the remote nor this repository" >&2; exit 1; }
 
 if [ -n "$since" ]; then
