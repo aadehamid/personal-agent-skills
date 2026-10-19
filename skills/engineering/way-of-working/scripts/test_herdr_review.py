@@ -385,6 +385,7 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         prompt = [a for a in self.argv if a[:2] == ["agent", "prompt"]][0][3]
         self.assertIn(os.path.expanduser("~/.agents/skills/ce-code-review/SKILL.md"), prompt)
+        self.assertIn("For each finding, name the kind of defect and list every place in the repository that has it, including places outside the diff.", prompt)
 
     def test_cursor_reviewer_runs_grok_sandboxed_in_its_own_tab(self):
         r, calls = self.run_case("newtab,fresh", extra=("--kind", "cursor"))

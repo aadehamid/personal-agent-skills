@@ -68,7 +68,7 @@ else
   change="git diff origin/$default...$head (the whole change)"
 fi
 standards="Read the repository's agent instructions and review standards files if it has them (AGENTS.md, CLAUDE.md, REVIEW_STANDARDS.md), and apply them."
-look="Look for anything that lets a wrong result through, breaks a stated rule, or makes a description untrue. Do not report style."
+look="Look for anything that lets a wrong result through, breaks a stated rule, or makes a description untrue. Do not report style. For each finding, name the kind of defect and list every place in the repository that has it, including places outside the diff."
 [ -n "$verify" ] && look="$look Verify: $verify."
 hands_off="Do not edit, create or delete any file in the repository, and do not run git commands that change it. Write scratch files under /tmp only."
 

@@ -2,7 +2,7 @@
 
 What the way-of-working skill was built from. Agents do not read this file.
 
-Last review: 2026-10-13.
+Last review: 2026-10-19.
 
 ## 1. The enterprise-performance-model ontology build (2026-10-05 and 06)
 
@@ -25,6 +25,11 @@ Last review: 2026-10-13.
 
 - **Link:** https://github.com/aadehamid/Engineering_Drawing_to_Graph PRs #32 and #33.
 - **What we took:** three lessons from #33, where a check that the owner's quoted answer renders as plain text took nine independent-review rounds and four bot holds. Stating a check on a class of input against the renderer's output and generating the class in its test. Confirming a test run finished before reading its result, after a test run that never started read as zero failures through `grep -c`. Confirming a pull request is still open before pushing to it, after the bot merged #32 while fixes for it were still being written.
+
+## 1e. The slice build and the gate closure (2026-10-14 and 18)
+
+- **Link:** https://github.com/aadehamid/Engineering_Drawing_to_Graph PRs #38 and #40.
+- **What we took:** one lesson, fixing every place a finding applies. On #38 the Cursor bot held three times, each time on how a named reference crosses DEC-064's validation stage boundaries, and the fix converged only after a sweep of every stage. On #40 the bot held because a gate's scope was fixed in README and LIONG-003 but left in LIONG-011.
 
 ## 2. mattpocock-skills (marketplace `mattpocock`, v1.3.1)
 
