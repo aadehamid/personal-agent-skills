@@ -47,7 +47,8 @@ esac
 full() { git rev-parse --verify --quiet "$1^{commit}" 2>/dev/null; }
 if [ "$role" = independent ] && h=$(full "$head"); then head=$h; fi
 if [ -n "$since" ]; then
-  since=$(full "$since") || { echo "--since $since names no commit in this repository" >&2; exit 1; }
+  s=$(full "$since") || { echo "--since $since names no commit in this repository" >&2; exit 1; }
+  since=$s
 fi
 # A PR verdict counts only for the PR's head, so a stale --head reviews nothing useful.
 if [ "$role" = pr ]; then
@@ -68,6 +69,8 @@ git clone -q "$remote" "$clone"
 git -C "$clone" fetch -q origin "+refs/pull/*/head:refs/remotes/origin/pr/*" 2>/dev/null || true
 # The independent review runs before the push it gates, so its commit may exist only here.
 if [ "$role" = independent ]; then git -C "$clone" fetch -q "$PWD" "$head" 2>/dev/null || true; fi
+# The fix's base may exist only here too, such as a commit amended away before the push.
+if [ -n "$since" ]; then git -C "$clone" fetch -q "$PWD" "$since" 2>/dev/null || true; fi
 git -C "$clone" checkout -q --detach "$head" || { echo "commit $head is in neither the remote nor this repository" >&2; exit 1; }
 
 if [ -n "$since" ]; then

@@ -27,6 +27,10 @@ FAKE_OLLAMA = textwrap.dedent(r'''
     import subprocess
     head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     open(os.path.join(state, "clone_head"), "w").write(head)
+    since = re.search(r"git diff (\w+)\.\.", prompt)
+    if since:
+        ok = subprocess.run(["git", "cat-file", "-e", since.group(1) + "^{commit}"], capture_output=True).returncode == 0
+        open(os.path.join(state, "since_in_clone"), "w").write("yes" if ok else "no")
     m = re.search(r"to exactly this path: (\S+)\. Its first line|Write the same first line, MERGE or HOLD, to (\S+)\.", prompt)
     path = m.group(1) or m.group(2)
     if "crash" in s:
@@ -394,10 +398,28 @@ class PiReview(unittest.TestCase):
             self.assertEqual(f.read(), local)
         self.assertIn(f"git diff {self.head}..{local}", self.prompt())
 
+    def test_a_since_that_exists_only_locally_reaches_the_clone(self):
+        env = self.git_env()
+        run = lambda *a: subprocess.run(a, cwd=self.work, env=env, check=True, capture_output=True, text=True).stdout.strip()
+        # A commit amended away before any push: it exists here, never on the remote.
+        run("git", "commit", "-q", "--allow-empty", "-m", "first try")
+        old = run("git", "rev-parse", "HEAD")
+        run("git", "commit", "-q", "--amend", "--allow-empty", "-m", "second try")
+        new = run("git", "rev-parse", "HEAD")
+        # The fake Pi records whether the base resolves in its clone.
+        r = self.run_case("ready", "--role", "independent", "--head", new, "--since", old)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with open(os.path.join(self.state, "cwd")) as f:
+            clone = f.read()
+        self.assertFalse(os.path.exists(clone))
+        self.assertIn(f"git diff {old}..{new}", self.prompt())
+        with open(os.path.join(self.state, "since_in_clone")) as f:
+            self.assertEqual(f.read(), "yes")
+
     def test_a_since_that_names_no_commit_stops_before_pi_runs(self):
         r = self.run_case("ready", "--role", "independent", "--head", self.head, "--since", "fcd8461f")
         self.assertEqual(r.returncode, 1)
-        self.assertIn("names no commit", r.stderr)
+        self.assertIn("--since fcd8461f names no commit", r.stderr)
         self.assertFalse(os.path.exists(os.path.join(self.state, "prompt")))
 
     def test_without_since_the_whole_change_is_reviewed_against_the_default_branch(self):
