@@ -128,7 +128,7 @@ def reviewer_hash(kind_model):
 
 
 class HerdrReview(unittest.TestCase):
-    def run_case(self, scenario, tmpdir=None, extra=(), repo_name="repo", home=None):
+    def run_case(self, scenario, tmpdir=None, extra=(), repo_name="repo", home=None, subdir=False):
         state = tempfile.mkdtemp()
         bindir = tempfile.mkdtemp()
         fake = os.path.join(bindir, "herdr")
@@ -149,8 +149,17 @@ class HerdrReview(unittest.TestCase):
                    TMPDIR=tmpdir or tempfile.mkdtemp())
         if home:
             env["HOME"] = home
+        start = repo
+        if subdir:
+            # A git work tree, started from deep inside it.
+            subprocess.run(["git", "init", "-q", repo], check=True,
+                           env={k: v for k, v in env.items() if not k.startswith("GIT_")})
+            start = os.path.join(repo, "sub", "dir")
+            os.makedirs(start)
+        self.repo = os.path.realpath(repo)
         r = subprocess.run(["bash", SCRIPT, "--branch", "b", "--verify", "v", *extra],
-                           cwd=repo, env=env, capture_output=True, text=True)
+                           cwd=start, env={k: v for k, v in env.items() if not k.startswith("GIT_")} if subdir else env,
+                           capture_output=True, text=True)
         calls_path = os.path.join(state, "calls")
         calls = []
         if os.path.exists(calls_path):
@@ -304,6 +313,13 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertNotIn("agent start", calls)
         self.assertIn("keeps the flags it started with", r.stderr)
+
+    def test_a_run_from_a_subdirectory_names_and_starts_the_tab_at_the_top(self):
+        r, _ = self.run_case("newtab,fresh", subdir=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        created = [a for a in self.argv if a[:2] == ["tab", "create"]][0]
+        self.assertEqual(created[created.index("--label") + 1], "review-repo")
+        self.assertEqual(os.path.realpath(created[created.index("--cwd") + 1]), self.repo)
 
     def test_default_model_is_gpt_6_1_sol_in_the_review_tab(self):
         r, _ = self.run_case("newtab,fresh")

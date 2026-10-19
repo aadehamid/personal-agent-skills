@@ -7,6 +7,7 @@ prompt, and writes what the scenario says. The fake gh counts PR comments.
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -27,6 +28,10 @@ FAKE_OLLAMA = textwrap.dedent(r'''
     import subprocess
     head = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     open(os.path.join(state, "clone_head"), "w").write(head)
+    since = re.search(r"git diff (\w+)\.\.", prompt)
+    if since:
+        ok = subprocess.run(["git", "cat-file", "-e", since.group(1) + "^{commit}"], capture_output=True).returncode == 0
+        open(os.path.join(state, "since_in_clone"), "w").write("yes" if ok else "no")
     m = re.search(r"to exactly this path: (\S+)\. Its first line|Write the same first line, MERGE or HOLD, to (\S+)\.", prompt)
     path = m.group(1) or m.group(2)
     if "crash" in s:
@@ -164,7 +169,7 @@ class PiReview(unittest.TestCase):
                    GIT_COMMITTER_EMAIL="t@t", GIT_CONFIG_GLOBAL=os.devnull)
         return env
 
-    def run_case(self, scenario, *args, herdr=False, polls=None, sleep=None):
+    def run_case(self, scenario, *args, herdr=False, polls=None, sleep=None, cwd=None):
         env = self.git_env()
         if polls:
             env["PI_REVIEW_POLLS"] = polls
@@ -175,7 +180,7 @@ class PiReview(unittest.TestCase):
             env["HERDR_WORKSPACE_ID"] = "w2"
         env.update(PATH=self.bindir + os.pathsep + os.environ["PATH"], FAKE_PI=scenario,
                    FAKE_STATE=self.state)
-        return subprocess.run(["bash", SCRIPT, *args], cwd=self.work, env=env,
+        return subprocess.run(["bash", SCRIPT, *args], cwd=cwd or self.work, env=env,
                               capture_output=True, text=True)
 
     def prompt(self):
@@ -259,8 +264,13 @@ class PiReview(unittest.TestCase):
         r = self.run_case("ready", "--role", "independent", "--head", self.head)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         clone = re.search(r"Clone: (\S+)", r.stderr).group(1)
-        for leftover in (clone, clone + ".log", clone + ".report.md"):
+        for leftover in (clone, clone + ".log"):
             self.assertFalse(os.path.exists(leftover), leftover)
+        # The independent report stays, so a reader whose output was cut short can reread it.
+        report = re.search(r"Report: (\S+)", r.stderr).group(1)
+        self.assertEqual(report, clone + ".report.md")
+        with open(report) as f:
+            self.assertEqual(f.read(), r.stdout)
         r = self.run_case("merge,post", "--role", "pr", "--pr", "7", "--head", self.head)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         clone = re.search(r"Clone: (\S+)", r.stderr).group(1)
@@ -368,10 +378,83 @@ class PiReview(unittest.TestCase):
         with open(os.path.join(self.state, "clone_head")) as f:
             self.assertEqual(f.read(), self.head)
 
+    def base(self):
+        return subprocess.run(["git", "rev-parse", "HEAD~1"], cwd=self.work, env=self.git_env(),
+                              check=True, capture_output=True, text=True).stdout.strip()
+
     def test_since_limits_the_review_to_the_fix(self):
-        r = self.run_case("ready", "--role", "independent", "--head", self.head, "--since", "abc123")
+        r = self.run_case("ready", "--role", "independent", "--head", self.head, "--since", self.base())
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn(f"git diff abc123..{self.head}", self.prompt())
+        self.assertIn(f"git diff {self.base()}..{self.head}", self.prompt())
+
+    def test_short_hashes_are_expanded_before_the_review(self):
+        env = self.git_env()
+        subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "local only"], cwd=self.work, env=env, check=True)
+        local = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.work, env=env, check=True,
+                               capture_output=True, text=True).stdout.strip()
+        # A short hash of a commit not yet pushed: the clone can fetch it only by full name.
+        r = self.run_case("ready", "--role", "independent", "--head", local[:7], "--since", self.head[:7])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with open(os.path.join(self.state, "clone_head")) as f:
+            self.assertEqual(f.read(), local)
+        self.assertIn(f"git diff {self.head}..{local}", self.prompt())
+
+    def test_a_since_that_exists_only_locally_reaches_the_clone(self):
+        env = self.git_env()
+        run = lambda *a: subprocess.run(a, cwd=self.work, env=env, check=True, capture_output=True, text=True).stdout.strip()
+        # A commit amended away before any push: it exists here, never on the remote.
+        run("git", "commit", "-q", "--allow-empty", "-m", "first try")
+        old = run("git", "rev-parse", "HEAD")
+        run("git", "commit", "-q", "--amend", "--allow-empty", "-m", "second try")
+        new = run("git", "rev-parse", "HEAD")
+        # The fake Pi records whether the base resolves in its clone.
+        r = self.run_case("ready", "--role", "independent", "--head", new, "--since", old)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with open(os.path.join(self.state, "cwd")) as f:
+            clone = f.read()
+        self.assertFalse(os.path.exists(clone))
+        self.assertIn(f"git diff {old}..{new}", self.prompt())
+        with open(os.path.join(self.state, "since_in_clone")) as f:
+            self.assertEqual(f.read(), "yes")
+
+    def test_a_local_only_since_reaches_the_clone_from_a_subdirectory(self):
+        env = self.git_env()
+        run = lambda *a: subprocess.run(a, cwd=self.work, env=env, check=True, capture_output=True, text=True).stdout.strip()
+        run("git", "commit", "-q", "--allow-empty", "-m", "first try")
+        old = run("git", "rev-parse", "HEAD")
+        run("git", "commit", "-q", "--amend", "--allow-empty", "-m", "second try")
+        new = run("git", "rev-parse", "HEAD")
+        sub = os.path.join(self.work, "sub", "dir")
+        os.makedirs(sub)
+        r = self.run_case("ready", "--role", "independent", "--head", new, "--since", old, cwd=sub)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with open(os.path.join(self.state, "since_in_clone")) as f:
+            self.assertEqual(f.read(), "yes")
+
+    def test_a_since_that_does_not_reach_the_clone_stops_before_pi_runs(self):
+        env = self.git_env()
+        run = lambda *a: subprocess.run(a, cwd=self.work, env=env, check=True, capture_output=True, text=True).stdout.strip()
+        run("git", "commit", "-q", "--allow-empty", "-m", "first try")
+        old = run("git", "rev-parse", "HEAD")
+        run("git", "commit", "-q", "--amend", "--allow-empty", "-m", "second try")
+        new = run("git", "rev-parse", "HEAD")
+        # A git whose fetch of the base fails, as a stricter git or a broken source would.
+        real = shutil.which("git")
+        with open(os.path.join(self.bindir, "git"), "w") as f:
+            f.write("#!/bin/sh\nfor a; do last=$a; done\n"
+                    f'if [ "$1" = -C ] && [ "$3" = fetch ] && [ "$last" = {old} ]; then exit 1; fi\n'
+                    f'exec {real} "$@"\n')
+        os.chmod(os.path.join(self.bindir, "git"), 0o755)
+        r = self.run_case("ready", "--role", "independent", "--head", new, "--since", old)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("did not reach the clone", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.state, "prompt")))
+
+    def test_a_since_that_names_no_commit_stops_before_pi_runs(self):
+        r = self.run_case("ready", "--role", "independent", "--head", self.head, "--since", "fcd8461f")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("--since fcd8461f names no commit", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.state, "prompt")))
 
     def test_without_since_the_whole_change_is_reviewed_against_the_default_branch(self):
         r = self.run_case("ready", "--role", "independent", "--head", self.head)
@@ -398,6 +481,14 @@ class PiReview(unittest.TestCase):
         r = self.run_case("ready", "--role", "independent", "--head", self.head)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(self.herdr_calls(), [])
+
+    def test_inside_herdr_a_run_from_a_subdirectory_names_the_tab_after_the_repository(self):
+        sub = os.path.join(self.work, "sub", "dir")
+        os.makedirs(sub)
+        r = self.run_case("ready", "--role", "independent", "--head", self.head, herdr=True, cwd=sub)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        create = self.herdr_calls()[0]
+        self.assertEqual(create[create.index("--label") + 1], "pi-independent-work")
 
     def test_inside_herdr_pi_runs_interactively_in_its_own_tab(self):
         r = self.run_case("hold,post", "--role", "pr", "--pr", "7", "--head", self.head, herdr=True)
