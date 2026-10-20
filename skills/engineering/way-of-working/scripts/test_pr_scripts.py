@@ -294,7 +294,7 @@ class MergeOnVerdict(unittest.TestCase):
         self.assertEqual(r.returncode, 5)
         self.assertNotIn("--admin", " ".join(merges))
 
-    def test_no_admin_merge_past_another_check_a_stale_branch_or_an_open_thread(self):
+    def test_no_admin_merge_past_another_check_a_required_update_or_an_open_thread(self):
         # A review is required, but so is something --admin would also skip.
         lint_failed = {"name": "lint", "status": "COMPLETED", "conclusion": "FAILURE"}
         lint_running = {"name": "lint", "status": "IN_PROGRESS", "conclusion": ""}

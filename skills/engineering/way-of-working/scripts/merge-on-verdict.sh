@@ -16,8 +16,10 @@
 # (reviewDecision REVIEW_REQUIRED), and nothing else --admin would skip is open (every check
 # on the head passed, mergeStateStatus is BLOCKED rather than BEHIND, and no current review
 # thread is unresolved), it merges with --admin and says so in a comment on the pull request.
+# GitHub reports BEHIND only where the rules require an up-to-date branch; elsewhere a branch
+# behind its base merges without --admin too, so the flag skips no rule by merging it.
 # Use the flag only where the project's owner has authorized it; it never merges past a HOLD,
-# a failed or pending check, a stale branch, an open thread or a new head.
+# a failed or pending check, a required update from the base, an open thread or a new head.
 # Exit codes:
 #   0  merged, by this script or by someone else (it prints who)
 #   1  the pull request was closed without a merge, or a gh call kept failing
@@ -126,7 +128,7 @@ while :; do
           if gh pr merge "$number" --merge --match-head-commit "$current"; then
             echo "merged by this script at head $current"; exit 0
           fi
-          # An admin merge would also pass a failed or pending check, a branch behind its base,
+          # An admin merge would also pass a failed or pending check, a required update from the base,
           # and an unresolved conversation, so each of those must be clear first.
           if [ -n "$admin" ] && [ "$review_decision" = "REVIEW_REQUIRED" ] && [ "$merge_state" = "BLOCKED" ] \
              && [ "$all_green" = "yes" ] && [ "$(unresolved_threads)" = "0" ] \
