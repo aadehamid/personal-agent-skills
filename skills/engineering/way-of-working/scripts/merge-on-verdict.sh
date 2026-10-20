@@ -87,12 +87,14 @@ verdict() {
   REPLY=$(printf '%s\n' "$REPLY" | sed '/^$/d' | tail -n 1)
 }
 
-# Prints how many review threads on the pull request are unresolved and not outdated, or
-# nothing when the call fails.
+# Prints how many review threads on the pull request are unresolved and not outdated, "more
+# than 100" when it cannot see them all, or nothing when the call fails.
 unresolved_threads() {
   gh api graphql -F owner='{owner}' -F repo='{repo}' -F n="$number" -f query='query($owner: String!, $repo: String!, $n: Int!) { repository(owner: $owner, name: $repo) {
-    pullRequest(number: $n) { reviewThreads(first: 100) { nodes { isResolved isOutdated } } } } }' \
-    --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not) | select(.isOutdated | not)] | length' || true
+    pullRequest(number: $n) { reviewThreads(first: 100) { pageInfo { hasNextPage } nodes { isResolved isOutdated } } } } }' \
+    --jq '.data.repository.pullRequest.reviewThreads
+      | if .pageInfo.hasNextPage then "more than 100"
+        else [.nodes[] | select(.isResolved | not) | select(.isOutdated | not)] | length end' || true
 }
 
 deadline=$(( $(date +%s) + timeout ))

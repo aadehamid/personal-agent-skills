@@ -86,7 +86,7 @@ FAKE_GH_MERGE = textwrap.dedent(r'''
     jq = sys.argv[sys.argv.index("--jq") + 1]
     if sys.argv[1:3] == ["api", "graphql"]:
         threads = [{"isResolved": False, "isOutdated": False}] * entry.get("unresolved", 0)
-        doc = {"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": threads}}}}}
+        doc = {"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": threads, "pageInfo": {"hasNextPage": entry.get("more_threads", False)}}}}}}
         sys.exit(subprocess.run([os.environ["FAKE_JQ"], "-r", jq], input=json.dumps(doc), text=True).returncode)
     if sys.argv[1] == "pr":
         docs = [entry["pr"]]
@@ -301,7 +301,8 @@ class MergeOnVerdict(unittest.TestCase):
         for blocker in (step(pr(checks=[PASSED, lint_failed], review_decision="REVIEW_REQUIRED"), [review("MERGE")], plain_merge_fails=True),
                         step(pr(checks=[PASSED, lint_running], review_decision="REVIEW_REQUIRED"), [review("MERGE")], plain_merge_fails=True),
                         step(pr(checks=[PASSED], review_decision="REVIEW_REQUIRED", merge_state="BEHIND"), [review("MERGE")], plain_merge_fails=True),
-                        step(pr(checks=[PASSED], review_decision="REVIEW_REQUIRED"), [review("MERGE")], plain_merge_fails=True, unresolved=1)):
+                        step(pr(checks=[PASSED], review_decision="REVIEW_REQUIRED"), [review("MERGE")], plain_merge_fails=True, unresolved=1),
+                        step(pr(checks=[PASSED], review_decision="REVIEW_REQUIRED"), [review("MERGE")], plain_merge_fails=True, more_threads=True)):
             r, merges = self.run_merge([blocker], "--admin-if-only-review", "--timeout", "0")
             self.assertEqual(r.returncode, 5, r.stderr)
             self.assertNotIn("--admin", " ".join(merges))
