@@ -14,10 +14,10 @@
 # head moved in between. It never bypasses branch rules, unless --admin-if-only-review is
 # given: then, when GitHub refuses that merge, a required approving review is missing
 # (reviewDecision REVIEW_REQUIRED), and nothing else --admin would skip is open (every check
-# on the head passed, mergeStateStatus is BLOCKED rather than BEHIND, and no current review
-# thread is unresolved), it merges with --admin and says so in a comment on the pull request.
-# GitHub reports BEHIND only where the rules require an up-to-date branch; elsewhere a branch
-# behind its base merges without --admin too, so the flag skips no rule by merging it.
+# on the head passed, mergeStateStatus is BLOCKED, the head is not behind its base where the
+# base's rules require an up-to-date branch, and no current review thread is unresolved), it
+# merges with --admin and says so in a comment on the pull request. Where the rules do not
+# require it, a branch behind its base merges without --admin too, so the flag skips no rule.
 # Use the flag only where the project's owner has authorized it; it never merges past a HOLD,
 # a failed or pending check, a required update from the base, an open thread or a new head.
 # Exit codes:
@@ -59,12 +59,12 @@ call() {
   return 1
 }
 
-# "<state> <head> <merged-by> <check-state> <review-decision> <merge-state> <all-green>", where
+# "<state> <head> <merged-by> <check-state> <review-decision> <merge-state> <all-green> <base>", where
 # check-state is PENDING, SUCCESS or the check's failing conclusion, and all-green is yes when
 # every check on the head, not only $check, passed. A check run reports status and conclusion;
 # a commit status reports state.
 pr_state() {
-  call gh pr view "$number" --json state,headRefOid,mergedBy,statusCheckRollup,reviewDecision,mergeStateStatus --jq "
+  call gh pr view "$number" --json state,headRefOid,mergedBy,statusCheckRollup,reviewDecision,mergeStateStatus,baseRefName --jq "
     (.statusCheckRollup // [] | map(select((.name // .context) == \"$check\")) | last) as \$c
     | (if \$c == null then \"PENDING\"
        elif (\$c | has(\"status\")) then (if \$c.status == \"COMPLETED\" then \$c.conclusion else \"PENDING\" end)
@@ -72,7 +72,7 @@ pr_state() {
     | (.statusCheckRollup // [] | all(if has(\"status\") then .status == \"COMPLETED\" and
          (.conclusion == \"SUCCESS\" or .conclusion == \"NEUTRAL\" or .conclusion == \"SKIPPED\")
          else .state == \"SUCCESS\" end) | if . then \"yes\" else \"no\" end) as \$g
-    | \"\(.state) \(.headRefOid) \(.mergedBy.login // \"-\") \(\$s) \(.reviewDecision // \"-\") \(.mergeStateStatus // \"-\") \(\$g)\""
+    | \"\(.state) \(.headRefOid) \(.mergedBy.login // \"-\") \(\$s) \(.reviewDecision // \"-\") \(.mergeStateStatus // \"-\") \(\$g) \(.baseRefName)\""
 }
 
 # Leading HTML comments, which the bot puts before its verdict.
@@ -99,10 +99,26 @@ unresolved_threads() {
         else [.nodes[] | select(.isResolved | not) | select(.isOutdated | not)] | length end' || true
 }
 
+# Prints "yes" when the base's rules require an up-to-date branch and the head is behind it,
+# "no" when they do not or it is not, or nothing when a call fails. While a review is also
+# missing GitHub reports BLOCKED, not BEHIND, so mergeStateStatus alone cannot show this.
+required_update_missing() {
+  local strict behind
+  strict=$(gh api "repos/{owner}/{repo}/rules/branches/$base" \
+    --jq 'any(.[]; .type == "required_status_checks" and .parameters.strict_required_status_checks_policy)') || return 0
+  if [ "$strict" != "true" ]; then
+    strict=$(gh api "repos/{owner}/{repo}/branches/$base/protection" --jq '.required_status_checks.strict // false' 2>/dev/null) \
+      || strict=false                    # 404: the branch has no classic protection
+  fi
+  if [ "$strict" != "true" ]; then echo no; return 0; fi
+  behind=$(gh api "repos/{owner}/{repo}/compare/$base...$current" --jq '.behind_by') || return 0
+  if [ "$behind" = "0" ]; then echo no; else echo yes; fi
+}
+
 deadline=$(( $(date +%s) + timeout ))
 while :; do
   if pr_state; then
-    read -r state current merged_by check_state review_decision merge_state all_green <<<"$REPLY"
+    read -r state current merged_by check_state review_decision merge_state all_green base <<<"$REPLY"
     case "$state" in
       MERGED) echo "merged by $merged_by"; exit 0 ;;
       CLOSED) echo "closed without a merge" >&2; exit 1 ;;
@@ -131,7 +147,7 @@ while :; do
           # An admin merge would also pass a failed or pending check, a required update from the base,
           # and an unresolved conversation, so each of those must be clear first.
           if [ -n "$admin" ] && [ "$review_decision" = "REVIEW_REQUIRED" ] && [ "$merge_state" = "BLOCKED" ] \
-             && [ "$all_green" = "yes" ] && [ "$(unresolved_threads)" = "0" ] \
+             && [ "$all_green" = "yes" ] && [ "$(unresolved_threads)" = "0" ] && [ "$(required_update_missing)" = "no" ] \
              && gh pr merge "$number" --merge --admin --match-head-commit "$current"; then
             gh pr comment "$number" --body "Merged with admin privileges at $current: the PR reviewer's verdict on this head is MERGE and \`$check\` passed; the only unmet rule was a required approving review (merge-on-verdict.sh --admin-if-only-review, as the owner authorized)." >/dev/null || true
             echo "merged with admin privileges by this script at head $current (only a required review was missing)"; exit 0

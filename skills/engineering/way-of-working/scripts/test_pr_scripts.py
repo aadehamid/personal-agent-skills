@@ -84,6 +84,14 @@ FAKE_GH_MERGE = textwrap.dedent(r'''
     if entry is None:
         sys.exit(1)                      # a failed gh call
     jq = sys.argv[sys.argv.index("--jq") + 1]
+    target = next((a for a in sys.argv if a.startswith("repos/")), "")
+    if "/rules/branches/" in target or target.endswith("/protection") or "/compare/" in target:
+        if target.endswith("/protection"):
+            sys.exit(1)                  # no classic protection: gh exits non-zero on the 404
+        doc = ({"behind_by": entry.get("behind", 0)} if "/compare/" in target else
+               [{"type": "required_status_checks",
+                 "parameters": {"strict_required_status_checks_policy": entry.get("strict", False)}}])
+        sys.exit(subprocess.run([os.environ["FAKE_JQ"], "-r", jq], input=json.dumps(doc), text=True).returncode)
     if sys.argv[1:3] == ["api", "graphql"]:
         threads = [{"isResolved": False, "isOutdated": False}] * entry.get("unresolved", 0)
         doc = {"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": threads, "pageInfo": {"hasNextPage": entry.get("more_threads", False)}}}}}}
@@ -227,7 +235,7 @@ HEAD = "abc1234def5678"
 def pr(state="OPEN", head=HEAD, merged_by=None, checks=(), review_decision=None, merge_state="BLOCKED"):
     return {"state": state, "headRefOid": head, "statusCheckRollup": list(checks),
             "mergedBy": {"login": merged_by} if merged_by else None, "reviewDecision": review_decision,
-            "mergeStateStatus": merge_state}
+            "mergeStateStatus": merge_state, "baseRefName": "main"}
 
 
 _ids = iter(range(1, 10**6))
@@ -287,6 +295,15 @@ class MergeOnVerdict(unittest.TestCase):
         self.assertEqual(r.returncode, 5)
         self.assertNotIn("--admin", " ".join(merges))
 
+    def test_admin_merge_of_a_branch_behind_its_base_only_where_no_update_is_required(self):
+        blocked = pr(checks=[PASSED], review_decision="REVIEW_REQUIRED")
+        r, merges = self.run_merge([step(blocked, [review("MERGE")], plain_merge_fails=True, behind=3)], "--admin-if-only-review")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("--admin", merges[-1])
+        r, merges = self.run_merge([step(blocked, [review("MERGE")], plain_merge_fails=True, strict=True, behind=0)], "--admin-if-only-review")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("--admin", merges[-1])
+
     def test_no_admin_merge_when_something_else_blocks(self):
         # The review is not what is missing (e.g. a conflict or another required check), so no admin merge.
         other = pr(checks=[PASSED], review_decision="APPROVED")
@@ -302,7 +319,8 @@ class MergeOnVerdict(unittest.TestCase):
                         step(pr(checks=[PASSED, lint_running], review_decision="REVIEW_REQUIRED"), [review("MERGE")], plain_merge_fails=True),
                         step(pr(checks=[PASSED], review_decision="REVIEW_REQUIRED", merge_state="BEHIND"), [review("MERGE")], plain_merge_fails=True),
                         step(pr(checks=[PASSED], review_decision="REVIEW_REQUIRED"), [review("MERGE")], plain_merge_fails=True, unresolved=1),
-                        step(pr(checks=[PASSED], review_decision="REVIEW_REQUIRED"), [review("MERGE")], plain_merge_fails=True, more_threads=True)):
+                        step(pr(checks=[PASSED], review_decision="REVIEW_REQUIRED"), [review("MERGE")], plain_merge_fails=True, more_threads=True),
+                        step(pr(checks=[PASSED], review_decision="REVIEW_REQUIRED"), [review("MERGE")], plain_merge_fails=True, strict=True, behind=3)):
             r, merges = self.run_merge([blocker], "--admin-if-only-review", "--timeout", "0")
             self.assertEqual(r.returncode, 5, r.stderr)
             self.assertNotIn("--admin", " ".join(merges))
