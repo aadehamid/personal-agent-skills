@@ -75,7 +75,12 @@ FAKE_GH_MERGE = textwrap.dedent(r'''
     if sys.argv[1:3] == ["pr", "merge"]:
         with open(os.path.join(state, "merges"), "a") as f:
             f.write(" ".join(sys.argv[3:]) + "\n")
-        sys.exit(1 if entry.get("merge_fails") else 0)
+        plain_fails = entry.get("plain_merge_fails") and "--admin" not in sys.argv
+        sys.exit(1 if entry.get("merge_fails") or plain_fails else 0)
+    if sys.argv[1:3] == ["pr", "comment"]:
+        with open(os.path.join(state, "comments"), "a") as f:
+            f.write(" ".join(sys.argv[3:]) + "\n")
+        sys.exit(0)
     if entry is None:
         sys.exit(1)                      # a failed gh call
     jq = sys.argv[sys.argv.index("--jq") + 1]
@@ -215,9 +220,9 @@ class WatchPr(unittest.TestCase):
 HEAD = "abc1234def5678"
 
 
-def pr(state="OPEN", head=HEAD, merged_by=None, checks=()):
+def pr(state="OPEN", head=HEAD, merged_by=None, checks=(), review_decision=None):
     return {"state": state, "headRefOid": head, "statusCheckRollup": list(checks),
-            "mergedBy": {"login": merged_by} if merged_by else None}
+            "mergedBy": {"login": merged_by} if merged_by else None, "reviewDecision": review_decision}
 
 
 _ids = iter(range(1, 10**6))
@@ -249,6 +254,8 @@ class MergeOnVerdict(unittest.TestCase):
         r = subprocess.run(["bash", MERGE, "7", HEAD[:7], *args], env=env, capture_output=True, text=True, timeout=30)
         merges_path = os.path.join(state, "merges")
         merges = open(merges_path).read().splitlines() if os.path.exists(merges_path) else []
+        comments_path = os.path.join(state, "comments")
+        self.comments = open(comments_path).read().splitlines() if os.path.exists(comments_path) else []
         polls_path = os.path.join(state, "polls")
         self.polls = int(open(polls_path).read()) if os.path.exists(polls_path) else 0
         return r, merges
@@ -260,6 +267,35 @@ class MergeOnVerdict(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(merges, [f"7 --merge --match-head-commit {HEAD}"])
         self.assertNotIn("--admin", " ".join(merges))
+
+    def test_admin_merge_only_when_only_a_review_is_missing(self):
+        blocked = pr(checks=[PASSED], review_decision="REVIEW_REQUIRED")
+        r, merges = self.run_merge([step(blocked, [review("MERGE")], plain_merge_fails=True)], "--admin-if-only-review")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(merges, [f"7 --merge --match-head-commit {HEAD}", f"7 --merge --admin --match-head-commit {HEAD}"])
+        self.assertEqual(len(self.comments), 1)
+        self.assertIn("admin privileges", self.comments[0])
+
+    def test_no_admin_merge_without_the_flag(self):
+        blocked = pr(checks=[PASSED], review_decision="REVIEW_REQUIRED")
+        r, merges = self.run_merge([step(blocked, [review("MERGE")], plain_merge_fails=True)], "--timeout", "0")
+        self.assertEqual(r.returncode, 5)
+        self.assertNotIn("--admin", " ".join(merges))
+
+    def test_no_admin_merge_when_something_else_blocks(self):
+        # The review is not what is missing (e.g. a conflict or another required check), so no admin merge.
+        other = pr(checks=[PASSED], review_decision="APPROVED")
+        r, merges = self.run_merge([step(other, [review("MERGE")], plain_merge_fails=True)], "--admin-if-only-review", "--timeout", "0")
+        self.assertEqual(r.returncode, 5)
+        self.assertNotIn("--admin", " ".join(merges))
+
+    def test_no_admin_merge_past_a_hold_or_a_failed_check(self):
+        blocked = pr(checks=[PASSED], review_decision="REVIEW_REQUIRED")
+        r, merges = self.run_merge([step(blocked, [review("HOLD. No.")], plain_merge_fails=True)], "--admin-if-only-review")
+        self.assertEqual((r.returncode, merges), (2, []))
+        failed = pr(checks=[FAILED], review_decision="REVIEW_REQUIRED")
+        r, merges = self.run_merge([step(failed, [review("MERGE")], plain_merge_fails=True)], "--admin-if-only-review")
+        self.assertEqual((r.returncode, merges), (3, []))
 
     def test_hold_prints_the_review_and_merges_nothing(self):
         r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("HOLD. Fix the row.")])])

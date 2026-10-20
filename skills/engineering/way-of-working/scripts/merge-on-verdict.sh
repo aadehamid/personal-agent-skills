@@ -2,7 +2,7 @@
 # Merge a pull request once its review bot says MERGE on a given head and its required check passes.
 #
 # Usage: merge-on-verdict.sh <number> <head-sha> [--check <name>] [--bot <login>]
-#                            [--timeout <seconds>] [--interval <seconds>]
+#                            [--timeout <seconds>] [--interval <seconds>] [--admin-if-only-review]
 #   Defaults: --check checks, --bot cursor[bot], --timeout 3600, --interval 30.
 #   Run from the repository, as a background job the harness reports back on
 #   (Claude Code: run_in_background).
@@ -11,7 +11,12 @@
 # never count, and a bot review that starts with neither word (an approval note) is
 # skipped. On MERGE the script waits for the named check to finish, then runs
 # `gh pr merge --merge --match-head-commit <head>`, so GitHub refuses the merge if the
-# head moved in between. It never bypasses branch rules.
+# head moved in between. It never bypasses branch rules, unless --admin-if-only-review is
+# given: then, when GitHub refuses that merge and the pull request's only unmet rule is a
+# required approving review (reviewDecision REVIEW_REQUIRED, after the MERGE and the passed
+# check), it merges with --admin and says so in a comment on the pull request. Use the flag
+# only where the project's owner has authorized it; it never merges past a HOLD, a failed
+# check or a new head.
 # Exit codes:
 #   0  merged, by this script or by someone else (it prints who)
 #   1  the pull request was closed without a merge, or a gh call kept failing
@@ -23,7 +28,7 @@
 # Tests: test_pr_scripts.py, run by the repository's scripts/check.sh.
 set -euo pipefail
 
-number="" head="" check="checks" bot="cursor[bot]" timeout=3600 interval=30
+number="" head="" check="checks" bot="cursor[bot]" timeout=3600 interval=30 admin=""
 usage() { echo "$1" >&2; echo "usage: $0 <number> <head-sha> [--check <name>] [--bot <login>]" >&2; exit 64; }
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -33,6 +38,7 @@ while [ $# -gt 0 ]; do
         --check) check="$2" ;; --bot) bot="$2" ;; --timeout) timeout="$2" ;; --interval) interval="$2" ;;
       esac
       shift 2 ;;
+    --admin-if-only-review) admin=1; shift ;;
     -*) usage "unknown argument: $1" ;;
     *) if [ -z "$number" ]; then number="$1"; elif [ -z "$head" ]; then head="$1"; else usage "too many arguments: $1"; fi
        shift ;;
@@ -50,16 +56,16 @@ call() {
   return 1
 }
 
-# "<state> <head> <merged-by> <check-state>", where check-state is PENDING, SUCCESS or the
+# "<state> <head> <merged-by> <check-state> <review-decision>", where check-state is PENDING, SUCCESS or the
 # check's failing conclusion. A check run reports status and conclusion; a commit status
 # reports state.
 pr_state() {
-  call gh pr view "$number" --json state,headRefOid,mergedBy,statusCheckRollup --jq "
+  call gh pr view "$number" --json state,headRefOid,mergedBy,statusCheckRollup,reviewDecision --jq "
     (.statusCheckRollup // [] | map(select((.name // .context) == \"$check\")) | last) as \$c
     | (if \$c == null then \"PENDING\"
        elif (\$c | has(\"status\")) then (if \$c.status == \"COMPLETED\" then \$c.conclusion else \"PENDING\" end)
        else (if \$c.state == \"PENDING\" or \$c.state == \"EXPECTED\" then \"PENDING\" else \$c.state end) end) as \$s
-    | \"\(.state) \(.headRefOid) \(.mergedBy.login // \"-\") \(\$s)\""
+    | \"\(.state) \(.headRefOid) \(.mergedBy.login // \"-\") \(\$s) \(.reviewDecision // \"-\")\""
 }
 
 # Leading HTML comments, which the bot puts before its verdict.
@@ -79,7 +85,7 @@ verdict() {
 deadline=$(( $(date +%s) + timeout ))
 while :; do
   if pr_state; then
-    read -r state current merged_by check_state <<<"$REPLY"
+    read -r state current merged_by check_state review_decision <<<"$REPLY"
     case "$state" in
       MERGED) echo "merged by $merged_by"; exit 0 ;;
       CLOSED) echo "closed without a merge" >&2; exit 1 ;;
@@ -104,6 +110,11 @@ while :; do
         SUCCESS)
           if gh pr merge "$number" --merge --match-head-commit "$current"; then
             echo "merged by this script at head $current"; exit 0
+          fi
+          if [ -n "$admin" ] && [ "$review_decision" = "REVIEW_REQUIRED" ] \
+             && gh pr merge "$number" --merge --admin --match-head-commit "$current"; then
+            gh pr comment "$number" --body "Merged with admin privileges at $current: the PR reviewer's verdict on this head is MERGE and \`$check\` passed; the only unmet rule was a required approving review (merge-on-verdict.sh --admin-if-only-review, as the owner authorized)." >/dev/null || true
+            echo "merged with admin privileges by this script at head $current (only a required review was missing)"; exit 0
           fi
           # Someone else may have merged it first; the next poll says so.
           ;;
