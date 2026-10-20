@@ -62,12 +62,18 @@ pr_state() {
     | \"\(.state) \(.headRefOid) \(.mergedBy.login // \"-\") \(\$s)\""
 }
 
-# The bot's newest MERGE or HOLD review on the head, with leading HTML comments removed.
+# Leading HTML comments, which the bot puts before its verdict.
+strip='gsub("^(\\s*<!--[\\s\\S]*?-->)+\\s*"; "")'
+
+# Sets REPLY to "<MERGE|HOLD> <review-id>" for the bot's newest verdict on the full head $1,
+# or to nothing. --paginate runs the filter once per page, so the filter prints one line per
+# verdict and the last line, from the last page, is the newest.
 verdict() {
   call gh api --paginate "repos/{owner}/{repo}/pulls/$number/reviews" --jq "
-    [.[] | select(.user.login == \"$bot\" and (.commit_id | startswith(\"$head\")))
-         | .body | gsub(\"^(\\\\s*<!--[\\\\s\\\\S]*?-->)+\\\\s*\"; \"\")
-         | select(test(\"^(MERGE|HOLD)\\\\b\"))] | last // empty"
+    .[] | select(.user.login == \"$bot\" and .commit_id == \"$1\")
+        | ((.body | $strip | capture(\"^(?<v>MERGE|HOLD)\\\\b\")) // {} | .v) as \$v
+        | select(\$v != null) | \"\(\$v) \(.id)\"" || return 1
+  REPLY=$(printf '%s\n' "$REPLY" | sed '/^$/d' | tail -n 1)
 }
 
 deadline=$(( $(date +%s) + timeout ))
@@ -82,10 +88,16 @@ while :; do
       "$head"*) ;;
       *) echo "head is $current, not $head: a new push needs a new verdict" >&2; exit 4 ;;
     esac
-    if verdict && [ -n "$REPLY" ]; then
-      body=$REPLY
-      case "$body" in
-        HOLD*) echo "$body"; exit 2 ;;
+    if verdict "$current" && [ -n "$REPLY" ]; then
+      case "$REPLY" in
+        HOLD*)
+          id=${REPLY#HOLD }
+          if call gh api "repos/{owner}/{repo}/pulls/$number/reviews/$id" --jq ".body | $strip"; then
+            echo "$REPLY"
+          else
+            echo "HOLD in review $id"
+          fi
+          exit 2 ;;
       esac
       case "$check_state" in
         PENDING) ;;

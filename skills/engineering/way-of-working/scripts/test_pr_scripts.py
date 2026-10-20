@@ -78,9 +78,21 @@ FAKE_GH_MERGE = textwrap.dedent(r'''
         sys.exit(1 if entry.get("merge_fails") else 0)
     if entry is None:
         sys.exit(1)                      # a failed gh call
-    doc = entry["pr"] if sys.argv[1] == "pr" else entry["reviews"]
     jq = sys.argv[sys.argv.index("--jq") + 1]
-    sys.exit(subprocess.run([os.environ["FAKE_JQ"], "-r", jq], input=json.dumps(doc), text=True).returncode)
+    if sys.argv[1] == "pr":
+        docs = [entry["pr"]]
+    else:                                # reviews come in pages; --paginate runs the filter per page
+        pages = entry["reviews"] if entry.get("paged") else [entry["reviews"]]
+        path = next(a for a in sys.argv if a.startswith("repos/"))
+        if not path.endswith("/reviews"):
+            wanted = int(path.rsplit("/", 1)[1])
+            docs = [r for page in pages for r in page if r["id"] == wanted]
+        else:
+            docs = pages
+    for doc in docs:
+        code = subprocess.run([os.environ["FAKE_JQ"], "-r", jq], input=json.dumps(doc), text=True).returncode
+        if code:
+            sys.exit(code)
 ''').lstrip()
 
 FAKE_GIT = textwrap.dedent(r'''
@@ -208,8 +220,11 @@ def pr(state="OPEN", head=HEAD, merged_by=None, checks=()):
             "mergedBy": {"login": merged_by} if merged_by else None}
 
 
+_ids = iter(range(1, 10**6))
+
+
 def review(body, commit=HEAD, user="cursor[bot]"):
-    return {"user": {"login": user}, "commit_id": commit, "body": body}
+    return {"id": next(_ids), "user": {"login": user}, "commit_id": commit, "body": body}
 
 
 def step(pr_doc=None, reviews=(), **extra):
@@ -281,6 +296,19 @@ class MergeOnVerdict(unittest.TestCase):
     def test_the_newest_verdict_on_the_head_wins(self):
         r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("HOLD. One."), review("MERGE")])])
         self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_a_newer_hold_on_a_later_page_wins(self):
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [[review("MERGE")], [review("<!-- id -->\nHOLD. Late.")]],
+                                         paged=True)])
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("HOLD. Late.", r.stdout)
+        self.assertEqual(merges, [])
+
+    def test_a_review_on_a_head_sharing_the_prefix_does_not_count(self):
+        twin = review("MERGE", commit=HEAD[:7] + "ffffff")
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [twin])], "--timeout", "0")
+        self.assertEqual(r.returncode, 5)
+        self.assertEqual(merges, [])
 
     def test_another_users_merge_does_not_count(self):
         r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE", user="someone")])],
