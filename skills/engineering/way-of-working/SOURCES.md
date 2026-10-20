@@ -2,7 +2,7 @@
 
 What the way-of-working skill was built from. Agents do not read this file.
 
-Last review: 2026-10-19.
+Last review: 2026-10-20.
 
 ## 1. The enterprise-performance-model ontology build (2026-10-05 and 06)
 
@@ -35,6 +35,11 @@ Last review: 2026-10-19.
 
 - **Link:** https://github.com/aadehamid/Engineering_Drawing_to_Graph PRs #48 and #49, and the item 5 work before #46.
 - **What we took:** two lessons. On #48 and #49 the Cursor bot reviewed the head while CI was still running, named CI as its only blocker, and did not run again after CI passed; an empty commit re-triggered it, and a hand merge was rightly refused by the agent's guard. While proving a test on item 5, a same-length mutation restored within the same second left a cached `.pyc` that made the check fail on correct code until `__pycache__` was cleared.
+
+## 1g. The enterprise-performance-model session 5 retro (2026-10-19)
+
+- **Link:** https://github.com/aadehamid/enterprise-performance-model PRs #299 to #302.
+- **What we took:** three lessons. The repository was made public on the owner's request before a search showed that a decision allowed internal names in it only because it was private; it went back to private within minutes and the owner was asked. A decision package recommended a branch ruleset while the repository was public; by the answer it was private, GitHub refused rulesets (HTTP 403), and the independent review caught a record promising a step that could not be carried out. A merge loop written for the occasion would have merged on a failed check had a ruleset not refused it, which `merge-on-verdict.sh` replaces.
 
 ## 2. mattpocock-skills (marketplace `mattpocock`, v1.3.1)
 

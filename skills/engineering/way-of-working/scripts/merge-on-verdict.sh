@@ -19,6 +19,7 @@
 #   3  the check finished without success
 #   4  the head is no longer <head-sha>: a new push needs a new verdict
 #   5  timed out
+#   64 a usage error
 # Tests: test_pr_scripts.py, run by the repository's scripts/check.sh.
 set -euo pipefail
 
@@ -29,11 +30,11 @@ while [ $# -gt 0 ]; do
     --bot) bot="$2"; shift 2 ;;
     --timeout) timeout="$2"; shift 2 ;;
     --interval) interval="$2"; shift 2 ;;
-    -*) echo "unknown argument: $1" >&2; exit 1 ;;
+    -*) echo "unknown argument: $1" >&2; exit 64 ;;
     *) if [ -z "$number" ]; then number="$1"; else head="$1"; fi; shift ;;
   esac
 done
-[ -n "$number" ] && [ -n "$head" ] || { echo "usage: $0 <number> <head-sha> [--check <name>] [--bot <login>]" >&2; exit 1; }
+[ -n "$number" ] && [ -n "$head" ] || { echo "usage: $0 <number> <head-sha> [--check <name>] [--bot <login>]" >&2; exit 64; }
 
 failures=0
 # Runs gh in this shell and leaves its output in REPLY. A failed call counts toward the

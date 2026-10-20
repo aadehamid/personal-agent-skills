@@ -234,6 +234,8 @@ class MergeOnVerdict(unittest.TestCase):
         r = subprocess.run(["bash", MERGE, "7", HEAD[:7], *args], env=env, capture_output=True, text=True, timeout=30)
         merges_path = os.path.join(state, "merges")
         merges = open(merges_path).read().splitlines() if os.path.exists(merges_path) else []
+        polls_path = os.path.join(state, "polls")
+        self.polls = int(open(polls_path).read()) if os.path.exists(polls_path) else 0
         return r, merges
 
     def test_merge_waits_for_the_check_then_merges_on_the_full_head(self):
@@ -264,16 +266,17 @@ class MergeOnVerdict(unittest.TestCase):
 
     def test_a_leading_html_comment_is_stripped(self):
         body = "<!-- CURSOR_AUTOMATION_ID: x | RUN_ID: y -->\nMERGE\n\nChecked."
-        r, merges = self.run_merge([step(pr(checks=[PASSED]), [review(body)])])
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("<!-- id -->\nApproved.")]),
+                                    step(pr(checks=[PASSED]), [review(body)])])
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(len(merges), 1)
+        self.assertEqual((len(merges), self.polls), (1, 2))
 
     def test_an_approval_note_is_not_a_verdict(self):
         note = review("<!-- id -->\nApproved. Bugbot completed.")
         r, merges = self.run_merge([step(pr(checks=[PASSED]), [note]),
                                     step(pr(checks=[PASSED]), [note, review("MERGE")])])
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(len(merges), 1)
+        self.assertEqual((len(merges), self.polls), (1, 2))
 
     def test_the_newest_verdict_on_the_head_wins(self):
         r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("HOLD. One."), review("MERGE")])])
@@ -318,6 +321,16 @@ class MergeOnVerdict(unittest.TestCase):
         r, merges = self.run_merge([step(pr(checks=[other]), [review("MERGE")])], "--timeout", "0")
         self.assertEqual(r.returncode, 5)
         self.assertEqual(merges, [])
+
+    def test_a_success_resets_the_failure_count(self):
+        seq = [None] * 9 + [step()] + [None] * 9 + [step(pr("MERGED", merged_by="app/cursor"))]
+        r, merges = self.run_merge(seq)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.polls, 20)
+
+    def test_a_usage_error_has_its_own_exit_code(self):
+        r = subprocess.run(["bash", MERGE, "7"], capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 64)
 
     def test_ten_failures_in_a_row_stop_the_wait(self):
         r, merges = self.run_merge([None])
