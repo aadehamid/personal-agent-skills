@@ -29,6 +29,10 @@ Where the project's check script reads decision records, have it compare each qu
 
 Search every earlier record and project document for what the new decision settles: statements that call it open, undecided, proposed, deferred to a later round or planned for a later change. Update each in the same pull request, pointing to the new record. An approved record left saying "still open" stays in force beside the decision that closed it.
 
+## When an option depends on external state
+
+When the option the owner approved depends on external state (a service's settings, a plan's limits, a permission), read that state again before recording the follow-through, and name the reading in the record: the command, its answer and the date. A package can read the state days before the answer, and the state can change in between. In one project, a package recommended a branch ruleset while the repository was public; by the answer the repository was private, GitHub refused rulesets (HTTP 403), and the record nearly promised a step that could not be carried out.
+
 ## Conventions to confirm per owner
 
 Ask once and record in memory: whether a skipped question means agreement, and which interview skill to use. Never assume either.

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Tests for watch-pr.sh (against a fake gh) and after-merge.sh (against real git repositories).
+"""Tests for watch-pr.sh and merge-on-verdict.sh (against a fake gh) and after-merge.sh (against real git repositories).
 
 watch-pr.sh gets its gh answers from FAKE_GH_SEQ, one entry per poll: the pull
 request document and its inline review comments, or null for a failed call. The fake
 applies the script's own --jq filters with jq, so the filters themselves are tested.
+merge-on-verdict.sh gets FAKE_GH_SEQ entries of the pull request document and its
+reviews, and its fake records every `gh pr merge` call.
 
 after-merge.sh deletes branches, so each case builds a throwaway origin and clone and
 checks what is left on both sides. A git wrapper on PATH injects what cannot be
@@ -23,6 +25,7 @@ from unittest import mock
 HERE = os.path.dirname(os.path.abspath(__file__))
 WATCH = os.path.join(HERE, "watch-pr.sh")
 AFTER = os.path.join(HERE, "after-merge.sh")
+MERGE = os.path.join(HERE, "merge-on-verdict.sh")
 REAL_GIT = shutil.which("git")
 
 
@@ -54,6 +57,28 @@ FAKE_GH = textwrap.dedent(r'''
     if entry is None or (sys.argv[1] == "api" and entry.get("inline_fails")):
         sys.exit(1)                      # a failed gh call
     doc = entry["pr"] if sys.argv[1] == "pr" else [{"id": i} for i in entry["inline"]]
+    jq = sys.argv[sys.argv.index("--jq") + 1]
+    sys.exit(subprocess.run([os.environ["FAKE_JQ"], "-r", jq], input=json.dumps(doc), text=True).returncode)
+''').lstrip()
+
+FAKE_GH_MERGE = textwrap.dedent(r'''
+    #!/usr/bin/env python3
+    import json, os, subprocess, sys
+    seq = json.loads(os.environ["FAKE_GH_SEQ"])
+    state = os.environ["FAKE_STATE"]
+    path = os.path.join(state, "polls")
+    polls = int(open(path).read()) if os.path.exists(path) else 0
+    if sys.argv[1:3] == ["pr", "view"]:
+        polls += 1
+        open(path, "w").write(str(polls))
+    entry = seq[min(polls, len(seq)) - 1]
+    if sys.argv[1:3] == ["pr", "merge"]:
+        with open(os.path.join(state, "merges"), "a") as f:
+            f.write(" ".join(sys.argv[3:]) + "\n")
+        sys.exit(1 if entry.get("merge_fails") else 0)
+    if entry is None:
+        sys.exit(1)                      # a failed gh call
+    doc = entry["pr"] if sys.argv[1] == "pr" else entry["reviews"]
     jq = sys.argv[sys.argv.index("--jq") + 1]
     sys.exit(subprocess.run([os.environ["FAKE_JQ"], "-r", jq], input=json.dumps(doc), text=True).returncode)
 ''').lstrip()
@@ -173,6 +198,131 @@ class WatchPr(unittest.TestCase):
     def test_a_success_resets_the_failure_count(self):
         seq = [poll()] + [None] * 9 + [poll()] + [None] * 9 + [poll(comments=["C1"])]
         self.assertWakes(seq, 21, "comment:C1")
+
+
+HEAD = "abc1234def5678"
+
+
+def pr(state="OPEN", head=HEAD, merged_by=None, checks=()):
+    return {"state": state, "headRefOid": head, "statusCheckRollup": list(checks),
+            "mergedBy": {"login": merged_by} if merged_by else None}
+
+
+def review(body, commit=HEAD, user="cursor[bot]"):
+    return {"user": {"login": user}, "commit_id": commit, "body": body}
+
+
+def step(pr_doc=None, reviews=(), **extra):
+    return dict({"pr": pr_doc or pr(), "reviews": list(reviews)}, **extra)
+
+
+PASSED = {"name": "checks", "status": "COMPLETED", "conclusion": "SUCCESS"}
+RUNNING = {"name": "checks", "status": "IN_PROGRESS", "conclusion": ""}
+FAILED = {"name": "checks", "status": "COMPLETED", "conclusion": "FAILURE"}
+
+
+@unittest.skipUnless(JQ, "jq is needed to apply the script's filters")
+class MergeOnVerdict(unittest.TestCase):
+    def run_merge(self, seq, *args):
+        state, bindir = tempfile.mkdtemp(), tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, state, True)
+        self.addCleanup(shutil.rmtree, bindir, True)
+        write_exe(bindir, "gh", FAKE_GH_MERGE)
+        write_exe(bindir, "sleep", "#!/bin/sh\nexit 0\n")
+        env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"],
+                   FAKE_GH_SEQ=json.dumps(seq), FAKE_STATE=state, FAKE_JQ=JQ)
+        r = subprocess.run(["bash", MERGE, "7", HEAD[:7], *args], env=env, capture_output=True, text=True, timeout=30)
+        merges_path = os.path.join(state, "merges")
+        merges = open(merges_path).read().splitlines() if os.path.exists(merges_path) else []
+        return r, merges
+
+    def test_merge_waits_for_the_check_then_merges_on_the_full_head(self):
+        merge = review("MERGE. Looks fine.")
+        r, merges = self.run_merge([step(reviews=[merge]), step(pr(checks=[RUNNING]), [merge]),
+                                    step(pr(checks=[PASSED]), [merge])])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(merges, [f"7 --merge --match-head-commit {HEAD}"])
+        self.assertNotIn("--admin", " ".join(merges))
+
+    def test_hold_prints_the_review_and_merges_nothing(self):
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("HOLD. Fix the row.")])])
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("HOLD. Fix the row.", r.stdout)
+        self.assertEqual(merges, [])
+
+    def test_failed_check_merges_nothing(self):
+        r, merges = self.run_merge([step(pr(checks=[FAILED]), [review("MERGE")])])
+        self.assertEqual(r.returncode, 3)
+        self.assertEqual(merges, [])
+
+    def test_a_review_on_an_older_commit_does_not_count(self):
+        old = review("MERGE", commit="0000000old")
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [old]),
+                                    step(pr(checks=[PASSED]), [old, review("HOLD. New finding.")])])
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(merges, [])
+
+    def test_a_leading_html_comment_is_stripped(self):
+        body = "<!-- CURSOR_AUTOMATION_ID: x | RUN_ID: y -->\nMERGE\n\nChecked."
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [review(body)])])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(merges), 1)
+
+    def test_an_approval_note_is_not_a_verdict(self):
+        note = review("<!-- id -->\nApproved. Bugbot completed.")
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [note]),
+                                    step(pr(checks=[PASSED]), [note, review("MERGE")])])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(merges), 1)
+
+    def test_the_newest_verdict_on_the_head_wins(self):
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("HOLD. One."), review("MERGE")])])
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_another_users_merge_does_not_count(self):
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE", user="someone")])],
+                                   "--timeout", "0")
+        self.assertEqual(r.returncode, 5)
+        self.assertEqual(merges, [])
+
+    def test_already_merged_reports_who_merged(self):
+        r, merges = self.run_merge([step(pr("MERGED", merged_by="app/cursor"))])
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("merged by app/cursor", r.stdout)
+        self.assertEqual(merges, [])
+
+    def test_a_merge_by_someone_else_during_the_wait_is_success(self):
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], merge_fails=True),
+                                    step(pr("MERGED", merged_by="app/cursor"))])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("merged by app/cursor", r.stdout)
+
+    def test_a_new_head_stops_the_wait(self):
+        r, merges = self.run_merge([step(pr(head="fff9999newhead", checks=[PASSED]), [review("MERGE")])])
+        self.assertEqual(r.returncode, 4)
+        self.assertEqual(merges, [])
+
+    def test_a_closed_pull_request_stops_the_wait(self):
+        r, merges = self.run_merge([step(pr("CLOSED"))])
+        self.assertEqual(r.returncode, 1)
+
+    def test_a_commit_status_counts_as_the_check(self):
+        status = {"context": "checks", "state": "SUCCESS"}
+        r, merges = self.run_merge([step(pr(checks=[{"context": "checks", "state": "PENDING"}]), [review("MERGE")]),
+                                    step(pr(checks=[status]), [review("MERGE")])])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(merges), 1)
+
+    def test_another_check_does_not_stand_in(self):
+        other = {"name": "lint", "status": "COMPLETED", "conclusion": "SUCCESS"}
+        r, merges = self.run_merge([step(pr(checks=[other]), [review("MERGE")])], "--timeout", "0")
+        self.assertEqual(r.returncode, 5)
+        self.assertEqual(merges, [])
+
+    def test_ten_failures_in_a_row_stop_the_wait(self):
+        r, merges = self.run_merge([None])
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("gh failed 10 times in a row", r.stderr)
 
 
 class AfterMerge(unittest.TestCase):
