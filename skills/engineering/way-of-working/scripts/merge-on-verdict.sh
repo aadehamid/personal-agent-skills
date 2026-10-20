@@ -24,17 +24,21 @@
 set -euo pipefail
 
 number="" head="" check="checks" bot="cursor[bot]" timeout=3600 interval=30
+usage() { echo "$1" >&2; echo "usage: $0 <number> <head-sha> [--check <name>] [--bot <login>]" >&2; exit 64; }
 while [ $# -gt 0 ]; do
   case "$1" in
-    --check) check="$2"; shift 2 ;;
-    --bot) bot="$2"; shift 2 ;;
-    --timeout) timeout="$2"; shift 2 ;;
-    --interval) interval="$2"; shift 2 ;;
-    -*) echo "unknown argument: $1" >&2; exit 64 ;;
-    *) if [ -z "$number" ]; then number="$1"; else head="$1"; fi; shift ;;
+    --check|--bot|--timeout|--interval)
+      [ $# -ge 2 ] || usage "missing value for $1"
+      case "$1" in
+        --check) check="$2" ;; --bot) bot="$2" ;; --timeout) timeout="$2" ;; --interval) interval="$2" ;;
+      esac
+      shift 2 ;;
+    -*) usage "unknown argument: $1" ;;
+    *) if [ -z "$number" ]; then number="$1"; elif [ -z "$head" ]; then head="$1"; else usage "too many arguments: $1"; fi
+       shift ;;
   esac
 done
-[ -n "$number" ] && [ -n "$head" ] || { echo "usage: $0 <number> <head-sha> [--check <name>] [--bot <login>]" >&2; exit 64; }
+[ -n "$number" ] && [ -n "$head" ] || usage "a number and a head are required"
 
 failures=0
 # Runs gh in this shell and leaves its output in REPLY. A failed call counts toward the

@@ -272,7 +272,7 @@ class MergeOnVerdict(unittest.TestCase):
         self.assertEqual((len(merges), self.polls), (1, 2))
 
     def test_an_approval_note_is_not_a_verdict(self):
-        note = review("<!-- id -->\nApproved. Bugbot completed.")
+        note = review("<!-- id -->\nApproved. Not MERGEable until HOLD clears, says the note.")
         r, merges = self.run_merge([step(pr(checks=[PASSED]), [note]),
                                     step(pr(checks=[PASSED]), [note, review("MERGE")])])
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -329,8 +329,10 @@ class MergeOnVerdict(unittest.TestCase):
         self.assertEqual(self.polls, 20)
 
     def test_a_usage_error_has_its_own_exit_code(self):
-        r = subprocess.run(["bash", MERGE, "7"], capture_output=True, text=True, timeout=30)
-        self.assertEqual(r.returncode, 64)
+        for args in (["7"], ["7", HEAD, "--check"], ["7", HEAD, "--timeout"], ["7", HEAD, "extra"], ["7", HEAD, "--wat"]):
+            with self.subTest(args=args):
+                r = subprocess.run(["bash", MERGE, *args], capture_output=True, text=True, timeout=30)
+                self.assertEqual(r.returncode, 64, r.stderr)
 
     def test_ten_failures_in_a_row_stop_the_wait(self):
         r, merges = self.run_merge([None])
