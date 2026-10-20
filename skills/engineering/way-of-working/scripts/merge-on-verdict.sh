@@ -12,11 +12,12 @@
 # skipped. On MERGE the script waits for the named check to finish, then runs
 # `gh pr merge --merge --match-head-commit <head>`, so GitHub refuses the merge if the
 # head moved in between. It never bypasses branch rules, unless --admin-if-only-review is
-# given: then, when GitHub refuses that merge and the pull request's only unmet rule is a
-# required approving review (reviewDecision REVIEW_REQUIRED, after the MERGE and the passed
-# check), it merges with --admin and says so in a comment on the pull request. Use the flag
-# only where the project's owner has authorized it; it never merges past a HOLD, a failed
-# check or a new head.
+# given: then, when GitHub refuses that merge, a required approving review is missing
+# (reviewDecision REVIEW_REQUIRED), and nothing else --admin would skip is open (every check
+# on the head passed, mergeStateStatus is BLOCKED rather than BEHIND, and no current review
+# thread is unresolved), it merges with --admin and says so in a comment on the pull request.
+# Use the flag only where the project's owner has authorized it; it never merges past a HOLD,
+# a failed or pending check, a stale branch, an open thread or a new head.
 # Exit codes:
 #   0  merged, by this script or by someone else (it prints who)
 #   1  the pull request was closed without a merge, or a gh call kept failing
@@ -29,7 +30,7 @@
 set -euo pipefail
 
 number="" head="" check="checks" bot="cursor[bot]" timeout=3600 interval=30 admin=""
-usage() { echo "$1" >&2; echo "usage: $0 <number> <head-sha> [--check <name>] [--bot <login>]" >&2; exit 64; }
+usage() { echo "$1" >&2; echo "usage: $0 <number> <head-sha> [--check <name>] [--bot <login>] [--timeout <seconds>] [--interval <seconds>] [--admin-if-only-review]" >&2; exit 64; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --check|--bot|--timeout|--interval)
@@ -56,16 +57,20 @@ call() {
   return 1
 }
 
-# "<state> <head> <merged-by> <check-state> <review-decision>", where check-state is PENDING, SUCCESS or the
-# check's failing conclusion. A check run reports status and conclusion; a commit status
-# reports state.
+# "<state> <head> <merged-by> <check-state> <review-decision> <merge-state> <all-green>", where
+# check-state is PENDING, SUCCESS or the check's failing conclusion, and all-green is yes when
+# every check on the head, not only $check, passed. A check run reports status and conclusion;
+# a commit status reports state.
 pr_state() {
-  call gh pr view "$number" --json state,headRefOid,mergedBy,statusCheckRollup,reviewDecision --jq "
+  call gh pr view "$number" --json state,headRefOid,mergedBy,statusCheckRollup,reviewDecision,mergeStateStatus --jq "
     (.statusCheckRollup // [] | map(select((.name // .context) == \"$check\")) | last) as \$c
     | (if \$c == null then \"PENDING\"
        elif (\$c | has(\"status\")) then (if \$c.status == \"COMPLETED\" then \$c.conclusion else \"PENDING\" end)
        else (if \$c.state == \"PENDING\" or \$c.state == \"EXPECTED\" then \"PENDING\" else \$c.state end) end) as \$s
-    | \"\(.state) \(.headRefOid) \(.mergedBy.login // \"-\") \(\$s) \(.reviewDecision // \"-\")\""
+    | (.statusCheckRollup // [] | all(if has(\"status\") then .status == \"COMPLETED\" and
+         (.conclusion == \"SUCCESS\" or .conclusion == \"NEUTRAL\" or .conclusion == \"SKIPPED\")
+         else .state == \"SUCCESS\" end) | if . then \"yes\" else \"no\" end) as \$g
+    | \"\(.state) \(.headRefOid) \(.mergedBy.login // \"-\") \(\$s) \(.reviewDecision // \"-\") \(.mergeStateStatus // \"-\") \(\$g)\""
 }
 
 # Leading HTML comments, which the bot puts before its verdict.
@@ -82,10 +87,18 @@ verdict() {
   REPLY=$(printf '%s\n' "$REPLY" | sed '/^$/d' | tail -n 1)
 }
 
+# Prints how many review threads on the pull request are unresolved and not outdated, or
+# nothing when the call fails.
+unresolved_threads() {
+  gh api graphql -F owner='{owner}' -F repo='{repo}' -F n="$number" -f query='query($owner: String!, $repo: String!, $n: Int!) { repository(owner: $owner, name: $repo) {
+    pullRequest(number: $n) { reviewThreads(first: 100) { nodes { isResolved isOutdated } } } } }' \
+    --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved | not) | select(.isOutdated | not)] | length' || true
+}
+
 deadline=$(( $(date +%s) + timeout ))
 while :; do
   if pr_state; then
-    read -r state current merged_by check_state review_decision <<<"$REPLY"
+    read -r state current merged_by check_state review_decision merge_state all_green <<<"$REPLY"
     case "$state" in
       MERGED) echo "merged by $merged_by"; exit 0 ;;
       CLOSED) echo "closed without a merge" >&2; exit 1 ;;
@@ -111,7 +124,10 @@ while :; do
           if gh pr merge "$number" --merge --match-head-commit "$current"; then
             echo "merged by this script at head $current"; exit 0
           fi
-          if [ -n "$admin" ] && [ "$review_decision" = "REVIEW_REQUIRED" ] \
+          # An admin merge would also pass a failed or pending check, a branch behind its base,
+          # and an unresolved conversation, so each of those must be clear first.
+          if [ -n "$admin" ] && [ "$review_decision" = "REVIEW_REQUIRED" ] && [ "$merge_state" = "BLOCKED" ] \
+             && [ "$all_green" = "yes" ] && [ "$(unresolved_threads)" = "0" ] \
              && gh pr merge "$number" --merge --admin --match-head-commit "$current"; then
             gh pr comment "$number" --body "Merged with admin privileges at $current: the PR reviewer's verdict on this head is MERGE and \`$check\` passed; the only unmet rule was a required approving review (merge-on-verdict.sh --admin-if-only-review, as the owner authorized)." >/dev/null || true
             echo "merged with admin privileges by this script at head $current (only a required review was missing)"; exit 0

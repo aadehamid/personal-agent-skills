@@ -84,6 +84,10 @@ FAKE_GH_MERGE = textwrap.dedent(r'''
     if entry is None:
         sys.exit(1)                      # a failed gh call
     jq = sys.argv[sys.argv.index("--jq") + 1]
+    if sys.argv[1:3] == ["api", "graphql"]:
+        threads = [{"isResolved": False, "isOutdated": False}] * entry.get("unresolved", 0)
+        doc = {"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": threads}}}}}
+        sys.exit(subprocess.run([os.environ["FAKE_JQ"], "-r", jq], input=json.dumps(doc), text=True).returncode)
     if sys.argv[1] == "pr":
         docs = [entry["pr"]]
     else:                                # reviews come in pages; --paginate runs the filter per page
@@ -220,9 +224,10 @@ class WatchPr(unittest.TestCase):
 HEAD = "abc1234def5678"
 
 
-def pr(state="OPEN", head=HEAD, merged_by=None, checks=(), review_decision=None):
+def pr(state="OPEN", head=HEAD, merged_by=None, checks=(), review_decision=None, merge_state="BLOCKED"):
     return {"state": state, "headRefOid": head, "statusCheckRollup": list(checks),
-            "mergedBy": {"login": merged_by} if merged_by else None, "reviewDecision": review_decision}
+            "mergedBy": {"login": merged_by} if merged_by else None, "reviewDecision": review_decision,
+            "mergeStateStatus": merge_state}
 
 
 _ids = iter(range(1, 10**6))
@@ -288,6 +293,19 @@ class MergeOnVerdict(unittest.TestCase):
         r, merges = self.run_merge([step(other, [review("MERGE")], plain_merge_fails=True)], "--admin-if-only-review", "--timeout", "0")
         self.assertEqual(r.returncode, 5)
         self.assertNotIn("--admin", " ".join(merges))
+
+    def test_no_admin_merge_past_another_check_a_stale_branch_or_an_open_thread(self):
+        # A review is required, but so is something --admin would also skip.
+        lint_failed = {"name": "lint", "status": "COMPLETED", "conclusion": "FAILURE"}
+        lint_running = {"name": "lint", "status": "IN_PROGRESS", "conclusion": ""}
+        for blocker in (step(pr(checks=[PASSED, lint_failed], review_decision="REVIEW_REQUIRED"), [review("MERGE")], plain_merge_fails=True),
+                        step(pr(checks=[PASSED, lint_running], review_decision="REVIEW_REQUIRED"), [review("MERGE")], plain_merge_fails=True),
+                        step(pr(checks=[PASSED], review_decision="REVIEW_REQUIRED", merge_state="BEHIND"), [review("MERGE")], plain_merge_fails=True),
+                        step(pr(checks=[PASSED], review_decision="REVIEW_REQUIRED"), [review("MERGE")], plain_merge_fails=True, unresolved=1)):
+            r, merges = self.run_merge([blocker], "--admin-if-only-review", "--timeout", "0")
+            self.assertEqual(r.returncode, 5, r.stderr)
+            self.assertNotIn("--admin", " ".join(merges))
+            self.assertEqual(self.comments, [])
 
     def test_no_admin_merge_past_a_hold_or_a_failed_check(self):
         blocked = pr(checks=[PASSED], review_decision="REVIEW_REQUIRED")
