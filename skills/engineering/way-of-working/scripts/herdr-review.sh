@@ -145,6 +145,22 @@ rm -f "$report"                                     # absent until the reviewer 
 echo "Report file: $report" >&2                     # findable even if the output is cut short
 prompt="Read AGENTS.md and the repository's review standards file (for example REVIEW_STANDARDS.md) first, and apply them. Run the ce-code-review skill (instructions: $HOME/.agents/skills/ce-code-review/SKILL.md) on branch $branch, diff vs main. Verify: $verify. For each finding, name the kind of defect and list every place in the repository that has it, including places outside the diff. Say how this could pass review while still being wrong. Report findings only; do not apply them. When the review is finished, write the final report as Markdown to exactly this path: $report. This is required even if the review skill also saves its own report elsewhere. Then reply with that path."
 
+# The Cursor agent can also leave a long prompt pasted on its input line without Herdr
+# reporting a stall, and then the review never starts. A watcher checks the input line
+# a few times and sends the missing Enter if the pasted text is still sitting there.
+if [ "$kind" = cursor ]; then
+  ( sleep "${HERDR_PASTE_CHECK_SECONDS:-20}"
+    for _ in 1 2 3 4 5 6; do
+      if herdr agent read "$review_pane" --source recent-unwrapped --lines 15 2>/dev/null | grep -q '→ \[Pasted text'; then
+        herdr agent send-keys "$review_pane" Enter >/dev/null 2>&1 || true
+        break
+      fi
+      sleep 10
+    done ) &
+  paste_watcher=$!
+  trap 'kill "$paste_watcher" 2>/dev/null || true' EXIT
+fi
+
 # --wait fails fast (agent_prompt_stalled) if the prompt never starts work, and
 # otherwise returns when the reviewer is idle, done or blocked.
 if ! prompt_out=$(herdr agent prompt "$review_pane" "$prompt" --wait --timeout 3600000 2>&1); then
