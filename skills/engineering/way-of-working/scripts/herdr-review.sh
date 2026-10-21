@@ -151,15 +151,15 @@ prompt="Read AGENTS.md and the repository's review standards file (for example R
 # last lines of the pane, where the input line is; a working reviewer gets nothing. It
 # reads the pane into a variable, not through a pipe, so pipefail cannot turn a match into
 # a miss, and it leaves a marker so the stall handler below sends no second Enter.
-entered_marker=$(mktemp "${TMPDIR:-/tmp}/herdr-entered-XXXXXX"); rm -f "$entered_marker"
+entered_marker="$report.entered"   # beside the report, which the reviewer's sandbox allows
 if [ "$kind" = cursor ]; then
   ( sleep "${HERDR_PASTE_CHECK_SECONDS:-20}"
     for _ in 1 2 3 4 5 6; do
       status=$(herdr agent get "$review_pane" 2>/dev/null | jget result.agent.agent_status 2>/dev/null || true)
       tail_text=$(herdr agent read "$review_pane" --source recent-unwrapped --lines 6 2>/dev/null || true)
       if [ "$status" = idle ] && [[ "$tail_text" == *"→ [Pasted text"* ]]; then
-        : > "$entered_marker"
         herdr agent send-keys "$review_pane" Enter >/dev/null 2>&1 || true
+        : > "$entered_marker"
         break
       fi
       sleep 10

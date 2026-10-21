@@ -76,7 +76,7 @@ FAKE = textwrap.dedent(r'''
         if "pastedhang" in s:
             # The prompt sits pasted on the input line until an Enter arrives.
             import time
-            for _ in range(300):
+            for _ in range(100):
                 if os.path.exists(os.path.join(state, "entered")): break
                 time.sleep(0.1)
         if "blockedrej" in s: err("agent_blocked")
@@ -450,6 +450,12 @@ class HerdrReview(unittest.TestCase):
         self.addCleanup(os.environ.pop, "HERDR_PASTE_CHECK_SECONDS", None)
         r, calls = self.run_case("newtab,fresh,pastedhang,pastedworking", extra=("--kind", "cursor"))
         self.assertNotIn("agent send-keys", calls)
+
+    def test_the_stall_handler_sends_no_second_enter_after_the_watcher(self):
+        os.environ["HERDR_PASTE_CHECK_SECONDS"] = "0"
+        self.addCleanup(os.environ.pop, "HERDR_PASTE_CHECK_SECONDS", None)
+        r, calls = self.run_case("newtab,fresh,pastedhang,stalled", extra=("--kind", "cursor"))
+        self.assertEqual(calls.count("agent send-keys"), 1, calls)
 
     def test_a_submitted_cursor_prompt_gets_no_extra_enter(self):
         os.environ["HERDR_PASTE_CHECK_SECONDS"] = "0"
