@@ -13,6 +13,8 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
 
    **With Herdr** (the working agent is inside a Herdr pane), spawn a reviewer agent in its own pane — a different kind/model from the writer — and have it run the `ce-code-review` skill, which does a structured multi-agent review (risk-based reviewer selection, parallel reviewers, a cross-model adversarial pass, a validator, and a rendered report). **Reuse the review tab for this repo rather than opening a new one for every review.** Name it `review-<repo>` (the repo's directory name) so it is findable:
 
+   **A Cursor reviewer can leave its prompt pasted and unsent.** A minute after starting it, read its pane (`herdr pane read <pane> --lines 12`). If the input line still shows `→ [Pasted text` and the reviewer is idle, send the Enter yourself: `herdr agent send-keys <pane> Enter`.
+
       ```sh
       # From the repository under review, as a background job the harness reports back on
       # (Claude Code: run_in_background), never with `&`: a review outlasts a foreground call.

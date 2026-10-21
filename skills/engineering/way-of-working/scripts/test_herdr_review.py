@@ -73,12 +73,6 @@ FAKE = textwrap.dedent(r'''
             report = re.search(r"exactly this path: (\S+)\. This is required", args[3]).group(1)
             open(os.path.join(state, "report_path"), "w").write(report)
             err("agent_prompt_stalled")
-        if "pastedhang" in s:
-            # The prompt sits pasted on the input line until an Enter arrives.
-            import time
-            for _ in range(100):
-                if os.path.exists(os.path.join(state, "entered")): break
-                time.sleep(0.1)
         if "blockedrej" in s: err("agent_blocked")
         if "timeout" in s: err("timeout")
         report = re.search(r"exactly this path: (\S+)\. This is required", args[3]).group(1)
@@ -87,10 +81,6 @@ FAKE = textwrap.dedent(r'''
         out({"result": {"agent": {"agent_status": "blocked" if "noreport" in s else "idle"}}})
     if cmd == "agent get":
         if "getfail" in s: err("agent_not_found")
-        if "pastedhang" in s:
-            # Idle while the prompt sits pasted; working once the Enter arrives.
-            idle = not os.path.exists(os.path.join(state, "entered")) and "pastedworking" not in s
-            out({"result": {"agent": {"agent_status": "idle" if idle else "working"}}})
         if "stalled" in s:
             # Work the last keystroke or prompt started finishes during one "working" poll.
             if not os.path.exists(pending):
@@ -110,9 +100,6 @@ FAKE = textwrap.dedent(r'''
             out({"result": {"agent": {"agent_status": "working"}}})
         out({"result": {"agent": {"agent_status": "blocked"}}})
     if cmd == "agent send-keys":
-        if "pastedhang" in s:
-            open(os.path.join(state, "entered"), "w").write("")
-            out({"result": {}})
         if "stalled" in s and os.path.exists(rp) and not os.path.exists(os.path.join(state, "entered")):
             open(os.path.join(state, "entered"), "w").write("")
             if "skillreport" in s:
@@ -130,8 +117,6 @@ FAKE = textwrap.dedent(r'''
         out({"result": {}})
     if cmd == "agent read":
         if "readfail" in s: err("agent_not_found")
-        if "pastedhang" in s and not os.path.exists(os.path.join(state, "entered")):
-            print("  → [Pasted text #1 +1 lines]"); sys.exit(0)
         print("pane text"); sys.exit(0)
     err("unexpected " + cmd)
 ''').lstrip()
@@ -434,35 +419,6 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("agent send-keys", calls)
         self.assertIn("REVIEW FINDINGS", r.stdout)
-
-    def test_cursor_prompt_left_pasted_gets_an_enter(self):
-        # Herdr reports no stall, but the pasted prompt sits on the input line (EPM, 2026-10-20).
-        os.environ["HERDR_PASTE_CHECK_SECONDS"] = "0"
-        self.addCleanup(os.environ.pop, "HERDR_PASTE_CHECK_SECONDS", None)
-        r, calls = self.run_case("newtab,fresh,pastedhang", extra=("--kind", "cursor"))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("agent send-keys", calls)
-        self.assertIn("REVIEW FINDINGS", r.stdout)
-
-    def test_a_working_reviewer_with_the_marker_in_view_gets_no_enter(self):
-        # The pasted-text line can still be on screen while the reviewer works (Pi, 2026-10-21).
-        os.environ["HERDR_PASTE_CHECK_SECONDS"] = "0"
-        self.addCleanup(os.environ.pop, "HERDR_PASTE_CHECK_SECONDS", None)
-        r, calls = self.run_case("newtab,fresh,pastedhang,pastedworking", extra=("--kind", "cursor"))
-        self.assertNotIn("agent send-keys", calls)
-
-    def test_the_stall_handler_sends_no_second_enter_after_the_watcher(self):
-        os.environ["HERDR_PASTE_CHECK_SECONDS"] = "0"
-        self.addCleanup(os.environ.pop, "HERDR_PASTE_CHECK_SECONDS", None)
-        r, calls = self.run_case("newtab,fresh,pastedhang,stalled", extra=("--kind", "cursor"))
-        self.assertEqual(calls.count("agent send-keys"), 1, calls)
-
-    def test_a_submitted_cursor_prompt_gets_no_extra_enter(self):
-        os.environ["HERDR_PASTE_CHECK_SECONDS"] = "0"
-        self.addCleanup(os.environ.pop, "HERDR_PASTE_CHECK_SECONDS", None)
-        r, calls = self.run_case("newtab,fresh", extra=("--kind", "cursor"))
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertNotIn("agent send-keys", calls)
 
     def test_a_report_still_being_written_is_not_printed_early(self):
         r, _ = self.run_case("newtab,fresh,stalled,partial", extra=("--kind", "cursor"))

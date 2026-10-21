@@ -145,40 +145,13 @@ rm -f "$report"                                     # absent until the reviewer 
 echo "Report file: $report" >&2                     # findable even if the output is cut short
 prompt="Read AGENTS.md and the repository's review standards file (for example REVIEW_STANDARDS.md) first, and apply them. Run the ce-code-review skill (instructions: $HOME/.agents/skills/ce-code-review/SKILL.md) on branch $branch, diff vs main. Verify: $verify. For each finding, name the kind of defect and list every place in the repository that has it, including places outside the diff. Say how this could pass review while still being wrong. Report findings only; do not apply them. When the review is finished, write the final report as Markdown to exactly this path: $report. This is required even if the review skill also saves its own report elsewhere. Then reply with that path."
 
-# The Cursor agent can also leave a long prompt pasted on its input line without Herdr
-# reporting a stall, and then the review never starts. A watcher checks a few times and
-# sends the missing Enter only while the reviewer is idle and the pasted text is on the
-# last lines of the pane, where the input line is; a working reviewer gets nothing. It
-# reads the pane into a variable, not through a pipe, so pipefail cannot turn a match into
-# a miss, and it leaves a marker so the stall handler below sends no second Enter.
-entered_marker="$report.entered"   # beside the report, which the reviewer's sandbox allows
-if [ "$kind" = cursor ]; then
-  ( sleep "${HERDR_PASTE_CHECK_SECONDS:-20}"
-    for _ in 1 2 3 4 5 6; do
-      status=$(herdr agent get "$review_pane" 2>/dev/null | jget result.agent.agent_status 2>/dev/null || true)
-      tail_text=$(herdr agent read "$review_pane" --source recent-unwrapped --lines 6 2>/dev/null || true)
-      if [ "$status" = idle ] && [[ "$tail_text" == *"→ [Pasted text"* ]]; then
-        herdr agent send-keys "$review_pane" Enter >/dev/null 2>&1 || true
-        : > "$entered_marker"
-        break
-      fi
-      sleep 10
-    done ) &
-  paste_watcher=$!
-  trap 'kill "$paste_watcher" 2>/dev/null || true; rm -f "$entered_marker"' EXIT
-fi
-
 # --wait fails fast (agent_prompt_stalled) if the prompt never starts work, and
 # otherwise returns when the reviewer is idle, done or blocked.
-prompt_ok=1
-prompt_out=$(herdr agent prompt "$review_pane" "$prompt" --wait --timeout 3600000 2>&1) || prompt_ok=""
-# The watcher only covers the wait for the prompt; stop it before anything else polls the reviewer.
-if [ -n "${paste_watcher:-}" ]; then kill "$paste_watcher" 2>/dev/null || true; wait "$paste_watcher" 2>/dev/null || true; fi
-if [ -z "$prompt_ok" ]; then
+if ! prompt_out=$(herdr agent prompt "$review_pane" "$prompt" --wait --timeout 3600000 2>&1); then
   # The Cursor agent shows a long prompt as pasted text and waits for one more Enter,
   # so the prompt stalls. Send that Enter, then wait for the report itself.
   if [ "$kind" = cursor ] && [[ "$prompt_out" == *agent_prompt_stalled* ]]; then
-    [ -e "$entered_marker" ] || herdr agent send-keys "$review_pane" Enter >/dev/null
+    herdr agent send-keys "$review_pane" Enter >/dev/null
     # The report counts only once the reviewer is idle: a file can appear before the
     # reviewer has finished writing it. A reviewer that goes idle without the report
     # (it saved only the review skill's own copy) is asked once to write it here.
