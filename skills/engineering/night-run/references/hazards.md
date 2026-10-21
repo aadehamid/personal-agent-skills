@@ -10,7 +10,7 @@ Each of these cost time on a real unsupervised run. Read this file before the fi
 - **During a rebase conflict, resolve the files and run `git rebase --continue`.** Leave `git commit --amend` until the rebase has finished: during a conflict it can rewrite a commit that is already on the default branch.
 - **Fetch, then rebase onto what the default branch contains now.** Run `git fetch <remote>` first: `<remote>/<default>` is stale until you do. Then read `git log <remote>/<default>`, rather than assuming another branch has merged. After a rebase, run `git diff --check <remote>/<default>` and search for `<<<<<<<` before you push.
 - **If a rebase goes wrong, reset to the branch tip you had before** (`git reflog`) and redo it. Nothing pushed means nothing lost.
-- **After a rebase, update the commit hashes the PR description quotes.**
+- **After a rebase, update the commit hashes the PR description quotes**, in the opened PRs and the queued bodies alike, including the line that quotes the head. Map old to new by commit subject only within each branch's own range: fixes carried across a stack share a subject, and a repo-wide map sends them all to one commit.
 
 ## Reviewers
 

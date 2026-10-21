@@ -41,6 +41,11 @@ Last review: 2026-10-20.
 - **Link:** https://github.com/aadehamid/enterprise-performance-model PRs #299 to #302.
 - **What we took:** three lessons. The repository was made public on the owner's request before a search showed that a decision allowed internal names in it only because it was private; it went back to private within minutes and the owner was asked. A decision package recommended a branch ruleset while the repository was public; by the answer it was private, GitHub refused rulesets (HTTP 403), and the independent review caught a record promising a step that could not be carried out. A merge loop written for the occasion would have merged on a failed check had a ruleset not refused it, which `merge-on-verdict.sh` replaces.
 
+## 1h. The enterprise-performance-model session 6 retro (2026-10-20)
+
+- **Link:** https://github.com/aadehamid/enterprise-performance-model PRs #305 to #326, and this repo's #41.
+- **What we took:** four lessons. The Cursor agent CLI left a review prompt pasted on its input line without Herdr reporting a stall, so three reviews never started until an Enter was sent by hand (#317, #325, #326); `herdr-review.sh` now watches for it. Summaries after quoted evidence drew holds for saying more than the quotes: "the peers agree", "each refinery", "not a market-wide series" (#324, three holds in a row). Tests compared decided values as a set, so an ID on the wrong series or a changed weight still passed (#325). A README's beta heading and a licence page's "royalty free" stood in for the governing files, which said Released and withheld any licence to modify (#321). The restack-hash lesson (#322) went into night-run's `references/hazards.md`, where the rule already lived.
+
 ## 2. mattpocock-skills (marketplace `mattpocock`, v1.3.1)
 
 - **What we took:** the retro loop (`retro`), decision interviews (`grill-with-docs`, `grilling`), the rules for writing documents agents read (`writing-for-agents`), and the shape of a PR body (`pr`) — the smallest view that makes the point, evidence before and after, and merge danger as a one-way or two-way door. That shape is adapted into `references/changing.md`, not adopted as a template: `changing.md` already owns what a PR body says, and a second authority for one rule is what rule 6 forbids. The `pr` skill credits Humanlayer's `show-me`.

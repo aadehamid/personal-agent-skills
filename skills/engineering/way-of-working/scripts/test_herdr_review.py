@@ -76,7 +76,7 @@ FAKE = textwrap.dedent(r'''
         if "pastedhang" in s:
             # The prompt sits pasted on the input line until an Enter arrives.
             import time
-            for _ in range(50):
+            for _ in range(300):
                 if os.path.exists(os.path.join(state, "entered")): break
                 time.sleep(0.1)
         if "blockedrej" in s: err("agent_blocked")
@@ -87,6 +87,10 @@ FAKE = textwrap.dedent(r'''
         out({"result": {"agent": {"agent_status": "blocked" if "noreport" in s else "idle"}}})
     if cmd == "agent get":
         if "getfail" in s: err("agent_not_found")
+        if "pastedhang" in s:
+            # Idle while the prompt sits pasted; working once the Enter arrives.
+            idle = not os.path.exists(os.path.join(state, "entered")) and "pastedworking" not in s
+            out({"result": {"agent": {"agent_status": "idle" if idle else "working"}}})
         if "stalled" in s:
             # Work the last keystroke or prompt started finishes during one "working" poll.
             if not os.path.exists(pending):
@@ -439,6 +443,13 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("agent send-keys", calls)
         self.assertIn("REVIEW FINDINGS", r.stdout)
+
+    def test_a_working_reviewer_with_the_marker_in_view_gets_no_enter(self):
+        # The pasted-text line can still be on screen while the reviewer works (Pi, 2026-10-21).
+        os.environ["HERDR_PASTE_CHECK_SECONDS"] = "0"
+        self.addCleanup(os.environ.pop, "HERDR_PASTE_CHECK_SECONDS", None)
+        r, calls = self.run_case("newtab,fresh,pastedhang,pastedworking", extra=("--kind", "cursor"))
+        self.assertNotIn("agent send-keys", calls)
 
     def test_a_submitted_cursor_prompt_gets_no_extra_enter(self):
         os.environ["HERDR_PASTE_CHECK_SECONDS"] = "0"
