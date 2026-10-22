@@ -2,7 +2,7 @@
 
 What the way-of-working skill was built from. Agents do not read this file.
 
-Last review: 2026-10-20.
+Last review: 2026-10-22.
 
 ## 1. The enterprise-performance-model ontology build (2026-10-05 and 06)
 
@@ -45,6 +45,11 @@ Last review: 2026-10-20.
 
 - **Link:** https://github.com/aadehamid/enterprise-performance-model PRs #305 to #326, and this repo's #41.
 - **What we took:** five lessons, four here and one in night-run. Summaries after quoted evidence drew holds for saying more than the quotes: "the peers agree" and "not a market-wide series" in one hold, "each refinery" in the next (#324). Tests compared decided values as a set, so an ID on the wrong series or a changed weight still passed (#325). A README's beta heading stood in for the ontology file, whose maturity annotation said Released (#321). The restack-hash lesson (#322) went into night-run's `references/hazards.md`, where the rule already lived. The Cursor agent CLI left three review prompts pasted on its input line until an Enter was sent by hand (#317, #325, #326); `before-push.md` now says to check the pane and send it. A watcher in `herdr-review.sh` was tried and dropped, because its timing did not match how `herdr agent prompt --wait` settles; automating it needs a reproduction against a live Cursor pane first.
+
+## 1i. The enterprise-performance-model Customer domain night run (2026-10-21 and 22)
+
+- **Link:** https://github.com/aadehamid/enterprise-performance-model PRs #327 to #335, and this repo's pull request for these rules.
+- **What we took:** four lessons. `merge-on-verdict.sh` retried for an hour on #330 because an unresolved review thread blocked the admin merge, and it said nothing; it now says why once. Statements that kept an old figure escaped by-hand searches because they used other words: a record's header row on #332, and a count split across two lines on #333; `before-push.md` item 4 now runs the project's sweep first, names its limits, and asks for header rows and split lines. A paraphrase of the owner's "let us assume" as "takes to be" drew holds on #332; item 3 now asks for the passage whole. The project's PR bodies gained a required Sweep section, which `--require-section` lets the merge script enforce.
 
 ## 2. mattpocock-skills (marketplace `mattpocock`, v1.3.1)
 

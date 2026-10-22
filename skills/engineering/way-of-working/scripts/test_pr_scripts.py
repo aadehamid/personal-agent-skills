@@ -305,6 +305,21 @@ class MergeOnVerdict(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(merges, [f"7 --merge --match-head-commit {HEAD}"])
 
+    def test_the_required_heading_is_matched_exactly_and_outside_code(self):
+        bodies = {"```\n## Sweep\n```\n": 6, "## Sweep (by hand)\nText.\n": 6, "## Sweeping\n": 6,
+                  "   ## sweep ##\n": 0, "~~~\nx\n~~~\n# Sweep\n": 0}
+        for body, code in bodies.items():
+            with self.subTest(body=body):
+                r, _ = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], body=body)], "--require-section", "Sweep")
+                self.assertEqual(r.returncode, code, r.stderr)
+
+    def test_a_heading_with_regex_characters_is_plain_text(self):
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], body="## Sweep (evidence)\n")],
+                                   "--require-section", "Sweep (evidence)")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r, _ = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], body="## Other\n")], "--require-section", ".*")
+        self.assertEqual(r.returncode, 6, r.stderr)
+
     def test_the_reason_an_admin_merge_waits_is_said_once(self):
         blocked = pr(checks=[PASSED], review_decision="REVIEW_REQUIRED")
         r, merges = self.run_merge([step(blocked, [review("MERGE")], plain_merge_fails=True, unresolved=1)],
