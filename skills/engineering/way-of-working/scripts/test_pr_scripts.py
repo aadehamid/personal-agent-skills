@@ -512,6 +512,11 @@ class AfterMerge(unittest.TestCase):
                     sys.exit(1)
                 print("\n".join(os.environ.get("FAKE_STACKED", "").split()))
             elif sys.argv[1:3] == ["pr", "edit"]:
+                with open(os.environ["FAKE_EDITS"] + ".tried", "a") as f:
+                    f.write(" ".join(sys.argv[3:]) + "\n")
+                if os.environ.get("FAKE_DELETE_ON") == sys.argv[3]:
+                    # Someone else deletes the branch while this pull request is being moved.
+                    subprocess.run(["git", "-C", os.environ["FAKE_ORIGIN"], "branch", "-D", "feat"], capture_output=True)
                 # GitHub closes a pull request whose base is deleted, so moving it after that is too late.
                 gone = subprocess.run(["git", "ls-remote", "--exit-code", "--heads",
                                        os.environ["FAKE_ORIGIN"], "refs/heads/feat"], capture_output=True).returncode
@@ -630,6 +635,14 @@ class AfterMerge(unittest.TestCase):
         r = self.run_after("feat", FAKE_STACKED="12", FAKE_RESTORE_FAILS="1")
         self.assertEqual(r.returncode, 1)
         self.assertIn("could not move #12 back to feat: set its base by hand", r.stderr)
+
+    def test_a_branch_deleted_during_the_moves_keeps_the_moved_pull_requests(self):
+        # A failed move after the branch went: nothing is moved back onto a branch that no longer exists.
+        self.merge_on_origin()
+        r = self.run_after("feat", FAKE_STACKED="12 15", FAKE_DELETE_ON="15")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(open(self.edits + ".tried").read().splitlines(), ["12 --base main", "15 --base main"])
+        self.assertIn("origin/feat is gone, so the moved pull requests stay on main: 12", r.stderr)
 
     def test_squash_merge_deletes_nothing(self):
         self.merge_on_origin(squash=True)

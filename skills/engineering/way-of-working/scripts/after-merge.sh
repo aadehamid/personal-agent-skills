@@ -6,8 +6,8 @@
 #   Run from the repository. Delete only a branch you opened; someone else's is theirs.
 # Exit 0: base synced, branch gone (or already gone, even if it went mid-run). Exit 1: something on the branch
 #   is not in the base, or an open pull request based on it could not be listed or moved, so nothing is
-#   deleted. If the delete fails after pull requests were moved, they are moved back; a pull request
-#   that cannot be moved back is named for the user to fix by hand.
+#   deleted. If the run then fails after pull requests were moved, they are moved back while the branch
+#   still exists, and stay on the base if it is gone; a pull request that cannot be moved back is named.
 # Just before the remote delete, every open pull request whose base is the branch is moved to the base:
 #   GitHub closed one when its base branch was deleted with git push --delete (enterprise-performance-model #328).
 #   This needs gh, signed in.
@@ -92,7 +92,16 @@ retarget_stacked() {
   done
 }
 restore_moved() {
-  local n
+  local n rc
+  [ -n "$moved" ] || return 0
+  rc=$(remote_rc)
+  if [ "$rc" = 2 ]; then
+    echo "origin/$branch is gone, so the moved pull requests stay on $base:$moved" >&2
+    return 0
+  elif [ "$rc" != 0 ]; then
+    echo "could not read origin (git ls-remote exited $rc): check the base of each moved pull request:$moved" >&2
+    return 0
+  fi
   for n in $moved; do
     if gh pr edit "$n" --base "$branch" >/dev/null; then
       echo "moved #$n back to $branch, since $branch was not deleted" >&2
