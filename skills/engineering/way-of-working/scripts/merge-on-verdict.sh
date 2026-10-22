@@ -140,7 +140,7 @@ admin_blocker() {
 # renders inside a list item or a block quote is.
 heading_filter='[.body_html // "" | gsub("\n"; " ") | scan("<h[1-6][^>]*>(.*?)</h[1-6]>") | .[0] | gsub("<[^>]+>"; "")
   | gsub("&lt;"; "<") | gsub("&gt;"; ">") | gsub("&quot;"; "\u0022") | gsub("&#39;"; "\u0027") | gsub("&amp;"; "&")
-  | gsub("^[\\s\u00a0]+|[\\s\u00a0]+$"; "") | ascii_downcase] | any(. == (env.WANT | ascii_downcase))'
+  | gsub("^[ \t\n\r\u00a0]+|[ \t\n\r\u00a0]+$"; "") | ascii_downcase] | any(. == (env.WANT | ascii_downcase))'
 require_section() {
   [ -n "$section" ] || return 0
   call gh api -H "Accept: application/vnd.github.html+json" "repos/{owner}/{repo}/pulls/$number" \
