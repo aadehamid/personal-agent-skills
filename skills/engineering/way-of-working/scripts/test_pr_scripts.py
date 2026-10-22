@@ -496,6 +496,22 @@ class AfterMerge(unittest.TestCase):
         self.env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.com", GIT_COMMITTER_NAME="t",
                         GIT_COMMITTER_EMAIL="t@example.com", GIT_CONFIG_GLOBAL=os.devnull,
                         GIT_CONFIG_NOSYSTEM="1")
+        # A fake gh: `pr list` prints the numbers in FAKE_STACKED, `pr edit` records its arguments.
+        bindir = os.path.join(self.tmp, "bin")
+        os.makedirs(bindir)
+        self.edits = os.path.join(self.tmp, "edits")
+        write_exe(bindir, "gh", textwrap.dedent(r'''
+            #!/usr/bin/env python3
+            import os, sys
+            if sys.argv[1:3] == ["pr", "list"]:
+                if os.environ.get("FAKE_LIST_FAILS"):
+                    sys.exit(1)
+                print("\n".join(os.environ.get("FAKE_STACKED", "").split()))
+            elif sys.argv[1:3] == ["pr", "edit"]:
+                with open(os.environ["FAKE_EDITS"], "a") as f:
+                    f.write(" ".join(sys.argv[3:]) + "\n")
+            ''').lstrip())
+        self.env.update(PATH=bindir + os.pathsep + os.environ["PATH"], FAKE_EDITS=self.edits)
         self.origin = os.path.join(self.tmp, "origin.git")
         self.git(self.tmp, "init", "--quiet", "--bare", "-b", "main", self.origin)
         self.repo = os.path.join(self.tmp, "repo")
@@ -532,11 +548,11 @@ class AfterMerge(unittest.TestCase):
             self.git(other, "merge", "--quiet", "--no-ff", "-m", "merge", "origin/feat")
         self.git(other, "push", "--quiet", "origin", "main")
 
-    def run_after(self, *args, hook="", hook_cmd=""):
+    def run_after(self, *args, hook="", hook_cmd="", **extra):
         bindir = tempfile.mkdtemp(dir=self.tmp)
         write_exe(bindir, "git", FAKE_GIT)
         env = dict(self.env, PATH=bindir + os.pathsep + self.env["PATH"], REAL_GIT=REAL_GIT,
-                   FAKE_GIT_HOOK=hook, FAKE_GIT_HOOK_CMD=hook_cmd)
+                   FAKE_GIT_HOOK=hook, FAKE_GIT_HOOK_CMD=hook_cmd, **extra)
         return subprocess.run(["bash", AFTER, *args], cwd=self.repo, env=env,
                               capture_output=True, text=True, timeout=60)
 
@@ -551,6 +567,22 @@ class AfterMerge(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.branches(), (["main"], False))
         self.assertEqual(self.git(self.repo, "rev-parse", "HEAD"), self.git(self.repo, "rev-parse", "origin/main"))
+
+    def test_a_pull_request_based_on_the_branch_is_moved_first(self):
+        # GitHub closes a pull request whose base branch is deleted through the API.
+        self.merge_on_origin()
+        r = self.run_after("feat", FAKE_STACKED="12 15")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(open(self.edits).read().splitlines(), ["12 --base main", "15 --base main"])
+        self.assertIn("moved #12 from feat to main", r.stdout)
+        self.assertEqual(self.branches(), (["main"], False))
+
+    def test_a_failed_listing_deletes_nothing_on_the_remote(self):
+        self.merge_on_origin()
+        r = self.run_after("feat", FAKE_LIST_FAILS="1")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("could not list the pull requests based on feat", r.stderr)
+        self.assertTrue(self.branches()[1])
 
     def test_squash_merge_deletes_nothing(self):
         self.merge_on_origin(squash=True)

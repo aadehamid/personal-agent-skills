@@ -5,7 +5,9 @@
 # Usage: after-merge.sh <branch> [--base <branch>]   (default base: main)
 #   Run from the repository. Delete only a branch you opened; someone else's is theirs.
 # Exit 0: base synced, branch gone (or already gone, even if it went mid-run). Exit 1: something on the branch
-#   is not in the base, so nothing is deleted.
+#   is not in the base, or an open pull request based on it could not be moved, so nothing is deleted.
+# An open pull request whose base is the branch is moved to the base first: GitHub closes it, without
+#   retargeting, when its base branch is deleted this way.
 # Tests: test_pr_scripts.py, run by the repository's scripts/check.sh.
 set -euo pipefail
 
@@ -72,9 +74,21 @@ git_unless_gone() {
   exit 1
 }
 
+# Moves every open pull request based on the branch to the base, or exits 1 having deleted nothing.
+retarget_stacked() {
+  local stacked n
+  stacked=$(gh pr list --base "$branch" --state open --json number --jq '.[].number') \
+    || { echo "could not list the pull requests based on $branch; nothing deleted" >&2; exit 1; }
+  for n in $stacked; do
+    gh pr edit "$n" --base "$base" >/dev/null || { echo "could not move #$n from $branch to $base; nothing deleted" >&2; exit 1; }
+    echo "moved #$n from $branch to $base"
+  done
+}
+
 rc=$(remote_rc)
 case "$rc" in
   0)
+    retarget_stacked
     if git_unless_gone fetch --quiet "$push_url" "refs/heads/$branch"; then
       remote_sha=$(git rev-parse FETCH_HEAD)
       if ! git merge-base --is-ancestor "$remote_sha" "origin/$base"; then

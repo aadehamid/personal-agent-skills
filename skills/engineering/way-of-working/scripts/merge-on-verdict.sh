@@ -23,7 +23,8 @@
 # a failed or pending check, a required update from the base, an open thread or a new head.
 # When it cannot admin-merge, it says why once, so a wait that will never end is visible.
 # With --require-section, it merges only when the pull request's body, as GitHub renders it, has a
-# heading whose text is exactly that, case aside, for example "Sweep"; otherwise it exits 6.
+# heading whose text is exactly that, ignoring the case of ASCII letters only, for example "Sweep";
+# otherwise it exits 6.
 # Exit codes:
 #   0  merged, by this script or by someone else (it prints who)
 #   1  the pull request was closed without a merge, or a gh call kept failing
@@ -135,8 +136,8 @@ admin_blocker() {
 }
 
 # Exits 6 unless the pull request's body, as GitHub renders it, has a heading (h1 to h6) whose text is
-# $section, compared without regard to case or surrounding spaces. GitHub's renderer decides what is a
-# heading: a "## Sweep" line inside a code block or an HTML comment is not one, while a heading GitHub
+# $section, ignoring surrounding spaces and the case of ASCII letters (jq's ascii_downcase). GitHub's
+# renderer decides what is a heading: a "## Sweep" line inside a code block or an HTML comment is not one, while a heading GitHub
 # renders inside a list item or a block quote is.
 heading_filter='[.body_html // "" | gsub("\n"; " ") | scan("<h[1-6][^>]*>(.*?)</h[1-6]>") | .[0] | gsub("<[^>]+>"; "")
   | gsub("&lt;"; "<") | gsub("&gt;"; ">") | gsub("&quot;"; "\u0022") | gsub("&#39;"; "\u0027") | gsub("&amp;"; "&")
