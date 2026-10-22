@@ -3,6 +3,7 @@
 #
 # Usage: merge-on-verdict.sh <number> <head-sha> [--check <name>] [--bot <login>]
 #                            [--timeout <seconds>] [--interval <seconds>] [--admin-if-only-review]
+#                            [--require-section <heading>]
 #   Defaults: --check checks, --bot cursor[bot], --timeout 3600, --interval 30.
 #   Run from the repository, as a background job the harness reports back on
 #   (Claude Code: run_in_background).
@@ -20,6 +21,9 @@
 # require it, a branch behind its base merges without --admin too, so the flag skips no rule.
 # Use the flag only where the project's owner has authorized it; it never merges past a HOLD,
 # a failed or pending check, a required update from the base, an open thread or a new head.
+# When it cannot admin-merge, it says why once, so a wait that will never end is visible.
+# With --require-section, it merges only when the pull request's body has a Markdown heading
+# with that text (the project's required section, for example "Sweep"); otherwise it exits 6.
 # Exit codes:
 #   0  merged, by this script or by someone else (it prints who)
 #   1  the pull request was closed without a merge, or a gh call kept failing
@@ -27,18 +31,20 @@
 #   3  the check finished without success
 #   4  the head is no longer <head-sha>: a new push needs a new verdict
 #   5  timed out
+#   6  the body lacks the --require-section heading
 #   64 a usage error
 # Tests: test_pr_scripts.py, run by the repository's scripts/check.sh.
 set -euo pipefail
 
-number="" head="" check="checks" bot="cursor[bot]" timeout=3600 interval=30 admin=""
-usage() { echo "$1" >&2; echo "usage: $0 <number> <head-sha> [--check <name>] [--bot <login>] [--timeout <seconds>] [--interval <seconds>] [--admin-if-only-review]" >&2; exit 64; }
+number="" head="" check="checks" bot="cursor[bot]" timeout=3600 interval=30 admin="" section=""
+usage() { echo "$1" >&2; echo "usage: $0 <number> <head-sha> [--check <name>] [--bot <login>] [--timeout <seconds>] [--interval <seconds>] [--admin-if-only-review] [--require-section <heading>]" >&2; exit 64; }
 while [ $# -gt 0 ]; do
   case "$1" in
-    --check|--bot|--timeout|--interval)
+    --check|--bot|--timeout|--interval|--require-section)
       [ $# -ge 2 ] || usage "missing value for $1"
       case "$1" in
         --check) check="$2" ;; --bot) bot="$2" ;; --timeout) timeout="$2" ;; --interval) interval="$2" ;;
+        --require-section) section="$2" ;;
       esac
       shift 2 ;;
     --admin-if-only-review) admin=1; shift ;;
@@ -115,6 +121,28 @@ required_update_missing() {
   if [ "$behind" = "0" ]; then echo no; else echo yes; fi
 }
 
+# Prints the first reason an admin merge cannot happen now, or nothing when it can.
+admin_blocker() {
+  local threads
+  if [ "$review_decision" != "REVIEW_REQUIRED" ] || [ "$merge_state" != "BLOCKED" ]; then
+    echo "GitHub reports review $review_decision and merge state $merge_state, not only a missing review"; return
+  fi
+  [ "$all_green" = "yes" ] || { echo "a check on the head besides $check has not passed"; return; }
+  threads=$(unresolved_threads)
+  [ "$threads" = "0" ] || { echo "${threads:-an unknown number of} review thread(s) are unresolved"; return; }
+  [ "$(required_update_missing)" = "no" ] || echo "the base requires an up-to-date branch, and this one is behind it or could not be compared"
+}
+
+# Exits 6 unless the pull request's body has a Markdown heading that names $section.
+require_section() {
+  [ -n "$section" ] || return 0
+  call gh api "repos/{owner}/{repo}/pulls/$number" --jq '.body // ""' || return 1
+  if ! printf '%s\n' "$REPLY" | grep -qiE "^#{1,6}[[:space:]]+$section([[:space:]]|$)"; then
+    echo "the pull request's body has no \"$section\" section: add it, then run this again" >&2; exit 6
+  fi
+}
+
+said=""
 deadline=$(( $(date +%s) + timeout ))
 while :; do
   if pr_state; then
@@ -141,13 +169,18 @@ while :; do
       case "$check_state" in
         PENDING) ;;
         SUCCESS)
+          require_section || { [ "$(date +%s)" -lt "$deadline" ] || { echo "timed out after $timeout seconds" >&2; exit 5; }; sleep "$interval"; continue; }
           if gh pr merge "$number" --merge --match-head-commit "$current"; then
             echo "merged by this script at head $current"; exit 0
           fi
           # An admin merge would also pass a failed or pending check, a required update from the base,
           # and an unresolved conversation, so each of those must be clear first.
-          if [ -n "$admin" ] && [ "$review_decision" = "REVIEW_REQUIRED" ] && [ "$merge_state" = "BLOCKED" ] \
-             && [ "$all_green" = "yes" ] && [ "$(unresolved_threads)" = "0" ] && [ "$(required_update_missing)" = "no" ] \
+          blocker=""
+          [ -z "$admin" ] || blocker=$(admin_blocker)
+          if [ -n "$admin" ] && [ -n "$blocker" ] && [ "$blocker" != "$said" ]; then
+            echo "not merging with admin privileges yet: $blocker" >&2; said=$blocker
+          fi
+          if [ -n "$admin" ] && [ -z "$blocker" ] \
              && gh pr merge "$number" --merge --admin --match-head-commit "$current"; then
             gh pr comment "$number" --body "Merged with admin privileges at $current: the PR reviewer's verdict on this head is MERGE and \`$check\` passed; the only unmet rule was a required approving review (merge-on-verdict.sh --admin-if-only-review, as the owner authorized)." >/dev/null || true
             echo "merged with admin privileges by this script at head $current (only a required review was missing)"; exit 0
