@@ -92,6 +92,9 @@ FAKE_GH_MERGE = textwrap.dedent(r'''
                [{"type": "required_status_checks",
                  "parameters": {"strict_required_status_checks_policy": entry.get("strict", False)}}])
         sys.exit(subprocess.run([os.environ["FAKE_JQ"], "-r", jq], input=json.dumps(doc), text=True).returncode)
+    if target.rsplit("/", 1)[-1].isdigit() and target.split("/")[-2] == "pulls":
+        doc = {"body_html": entry.get("body_html", "")}  # the rendered pull request, for --require-section
+        sys.exit(subprocess.run([os.environ["FAKE_JQ"], "-r", jq], input=json.dumps(doc), text=True).returncode)
     if sys.argv[1:3] == ["api", "graphql"]:
         threads = [{"isResolved": False, "isOutdated": False}] * entry.get("unresolved", 0)
         doc = {"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": threads, "pageInfo": {"hasNextPage": entry.get("more_threads", False)}}}}}}
@@ -288,6 +291,44 @@ class MergeOnVerdict(unittest.TestCase):
         self.assertEqual(merges, [f"7 --merge --match-head-commit {HEAD}", f"7 --merge --admin --match-head-commit {HEAD}"])
         self.assertEqual(len(self.comments), 1)
         self.assertIn("admin privileges", self.comments[0])
+
+    def test_a_body_without_the_required_section_is_not_merged(self):
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], body_html="<h2>What this does</h2><p>Text.</p>")],
+                                   "--require-section", "Sweep")
+        self.assertEqual(r.returncode, 6, r.stderr)
+        self.assertEqual(merges, [])
+        self.assertIn('no "Sweep" heading', r.stderr)
+
+    def test_a_body_with_the_required_section_is_merged(self):
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], body_html='<p>Intro.</p>\n<h2 dir="auto">Sweep</h2>')],
+                                   "--require-section", "Sweep")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(merges, [f"7 --merge --match-head-commit {HEAD}"])
+
+    def test_only_a_rendered_heading_with_exactly_that_text_counts(self):
+        # GitHub renders the body; a "## Sweep" in a code block or a comment never becomes an h tag.
+        bodies = {"<pre><code>## Sweep\n</code></pre>": 6, "<h2>Sweep (by hand)</h2>": 6, "<h2>Sweeping</h2>": 6,
+                  "<p>Sweep</p>": 6, '<h3 dir="auto"><a id="sweep" href="#sweep"></a>  sweep </h3>': 0,
+                  "<h2>\nSweep\n</h2>": 0, "<h1>Sweep</h1>": 0, "<h2>Sweep\u00a0</h2>": 0, "<li><h2>Sweep</h2></li>": 0}
+        for body, code in bodies.items():
+            with self.subTest(body=body):
+                r, _ = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], body_html=body)], "--require-section", "Sweep")
+                self.assertEqual(r.returncode, code, r.stderr)
+
+    def test_the_heading_is_compared_as_plain_text(self):
+        r, _ = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], body_html="<h2>Sweep &amp; notes (all)</h2>")],
+                              "--require-section", "Sweep & notes (all)")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r, _ = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], body_html="<h2>Other</h2>")], "--require-section", ".*")
+        self.assertEqual(r.returncode, 6, r.stderr)
+
+    def test_the_reason_an_admin_merge_waits_is_said_once(self):
+        blocked = pr(checks=[PASSED], review_decision="REVIEW_REQUIRED")
+        r, merges = self.run_merge([step(blocked, [review("MERGE")], plain_merge_fails=True, unresolved=1)],
+                                   "--admin-if-only-review", "--timeout", "1")
+        self.assertEqual(r.returncode, 5)
+        self.assertNotIn("--admin", " ".join(merges))
+        self.assertEqual(r.stderr.count("not merging with admin privileges yet: 1 review thread(s) are unresolved"), 1)
 
     def test_no_admin_merge_without_the_flag(self):
         blocked = pr(checks=[PASSED], review_decision="REVIEW_REQUIRED")
