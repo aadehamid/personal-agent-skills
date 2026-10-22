@@ -8,7 +8,7 @@
 #   is not in the base, or an open pull request based on it could not be listed or moved, so nothing is
 #   deleted. A pull request moved before a later move failed stays moved.
 # Just before the remote delete, every open pull request whose base is the branch is moved to the base:
-#   GitHub closed one when its base branch was deleted through the API (enterprise-performance-model #328).
+#   GitHub closed one when its base branch was deleted with git push --delete (enterprise-performance-model #328).
 #   This needs gh, signed in.
 # Tests: test_pr_scripts.py, run by the repository's scripts/check.sh.
 set -euo pipefail

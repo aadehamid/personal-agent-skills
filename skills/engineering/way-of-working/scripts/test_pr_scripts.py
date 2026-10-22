@@ -573,7 +573,7 @@ class AfterMerge(unittest.TestCase):
         self.assertEqual(self.git(self.repo, "rev-parse", "HEAD"), self.git(self.repo, "rev-parse", "origin/main"))
 
     def test_a_pull_request_based_on_the_branch_is_moved_first(self):
-        # GitHub closes a pull request whose base branch is deleted through the API.
+        # GitHub closed a pull request whose base branch was deleted with git push --delete (EPM #328).
         self.merge_on_origin()
         r = self.run_after("feat", FAKE_STACKED="12 15")
         self.assertEqual(r.returncode, 0, r.stderr)
