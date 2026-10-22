@@ -6,8 +6,9 @@
 #   Run from the repository. Delete only a branch you opened; someone else's is theirs.
 # Exit 0: base synced, branch gone (or already gone, even if it went mid-run). Exit 1: something on the branch
 #   is not in the base, or an open pull request based on it could not be listed or moved, so nothing is
-#   deleted. If the run then fails after pull requests were moved, they are moved back while the branch
-#   still exists, and stay on the base if it is gone; a pull request that cannot be moved back is named.
+#   deleted. If the run then fails after pull requests were moved, they are moved back while the remote
+#   lists the branch, and stay on the base if it is gone or the remote cannot be read (then they are named
+#   to check by hand); a pull request that cannot be moved back is named.
 # Just before the remote delete, every open pull request whose base is the branch is moved to the base:
 #   GitHub closed one when its base branch was deleted with git push --delete (enterprise-performance-model #328).
 #   This needs gh, signed in.
@@ -78,7 +79,8 @@ git_unless_gone() {
 }
 
 # Moves every open pull request based on the branch to the base, or exits 1 having deleted nothing.
-# Until the delete succeeds, an exit moves them back (restore_moved, run by the EXIT trap).
+# Until the delete succeeds, an exit runs restore_moved (the EXIT trap): it moves them back while the remote
+# lists the branch, and leaves them on the base if the branch is gone or the remote cannot be read.
 moved=""
 retarget_stacked() {
   local stacked n

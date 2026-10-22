@@ -517,6 +517,10 @@ class AfterMerge(unittest.TestCase):
                 if os.environ.get("FAKE_DELETE_ON") == sys.argv[3]:
                     # Someone else deletes the branch while this pull request is being moved.
                     subprocess.run(["git", "-C", os.environ["FAKE_ORIGIN"], "branch", "-D", "feat"], capture_output=True)
+                if os.environ.get("FAKE_HIDE_ON") == sys.argv[3]:
+                    # The remote becomes unreadable while this pull request is being moved.
+                    os.rename(os.environ["FAKE_ORIGIN"], os.environ["FAKE_ORIGIN"] + ".hidden")
+                    sys.exit(1)
                 # GitHub closes a pull request whose base is deleted, so moving it after that is too late.
                 gone = subprocess.run(["git", "ls-remote", "--exit-code", "--heads",
                                        os.environ["FAKE_ORIGIN"], "refs/heads/feat"], capture_output=True).returncode
@@ -643,6 +647,13 @@ class AfterMerge(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertEqual(open(self.edits + ".tried").read().splitlines(), ["12 --base main", "15 --base main"])
         self.assertIn("origin/feat is gone, so the moved pull requests stay on main: 12", r.stderr)
+
+    def test_an_unreadable_remote_after_a_failed_move_names_the_moved_pull_requests(self):
+        self.merge_on_origin()
+        r = self.run_after("feat", FAKE_STACKED="12 15", FAKE_HIDE_ON="15")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(open(self.edits + ".tried").read().splitlines(), ["12 --base main", "15 --base main"])
+        self.assertIn("check the base of each moved pull request: 12", r.stderr)
 
     def test_squash_merge_deletes_nothing(self):
         self.merge_on_origin(squash=True)
