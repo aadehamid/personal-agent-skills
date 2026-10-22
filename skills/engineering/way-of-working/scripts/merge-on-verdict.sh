@@ -23,8 +23,8 @@
 # a failed or pending check, a required update from the base, an open thread or a new head.
 # When it cannot admin-merge, it says why once, so a wait that will never end is visible.
 # With --require-section, it merges only when the pull request's body has a Markdown heading
-# whose text is exactly that (case and trailing #s aside; not inside a code block), for example
-# "Sweep"; otherwise it exits 6.
+# whose text is exactly that, case aside, read as CommonMark reads it (not inside a code block or
+# an HTML comment), for example "Sweep"; otherwise it exits 6.
 # Exit codes:
 #   0  merged, by this script or by someone else (it prints who)
 #   1  the pull request was closed without a merge, or a gh call kept failing
@@ -135,21 +135,41 @@ admin_blocker() {
 }
 
 # Exits 6 unless the pull request's body has a Markdown heading whose text is $section, compared as
-# plain text without regard to case or trailing spaces and #s. Headings inside fenced code blocks
-# do not count; up to three leading spaces do, as in CommonMark.
+# plain text without regard to case. It reads headings as CommonMark does: ATX headings (up to three
+# leading spaces, one to six #s, an optional closing run of #s after a space) and setext headings (a
+# paragraph line underlined with = or -). Headings inside fenced code blocks, which close only on the
+# same fence character at least as long as the opening run, and inside HTML comments do not count.
 require_section() {
   [ -n "$section" ] || return 0
   call gh api "repos/{owner}/{repo}/pulls/$number" --jq '.body // ""' || return 1
   if ! printf '%s\n' "$REPLY" | tr -d '\r' | awk -v want="$section" '
+      function trim(t) { sub(/^[ \t]+/, "", t); sub(/[ \t]+$/, "", t); return t }
+      function check(t) { if (tolower(trim(t)) == want) { found = 1; exit } }
       BEGIN { want = tolower(want) }
-      /^ ? ? ?(```|~~~)/ { fenced = !fenced; next }
-      fenced { next }
-      /^ ? ? ?#+[ \t]/ {
-        text = $0; sub(/^ ? ? ?/, "", text); hashes = text; sub(/[ \t].*$/, "", hashes)
-        if (length(hashes) > 6) next
-        sub(/^#+[ \t]+/, "", text); sub(/[ \t#]+$/, "", text)
-        if (tolower(text) == want) { found = 1; exit }
+      fence != "" {
+        line = $0; sub(/^ ? ? ?/, "", line)
+        if (substr(line, 1, length(fence)) == fence) { run = line; gsub(substr(fence, 1, 1), "", run)
+          if (trim(run) == "") { fence = ""; prev = ""; next } }
+        next
       }
+      comment { if (index($0, "-->")) comment = 0; prev = ""; next }
+      /^ ? ? ?<!--/ { if (!index($0, "-->")) comment = 1; prev = ""; next }
+      /^ ? ? ?(```|~~~)/ {
+        line = $0; sub(/^ ? ? ?/, "", line); c = substr(line, 1, 1); n = 0
+        while (substr(line, n + 1, 1) == c) n++
+        fence = substr(line, 1, n); prev = ""; next
+      }
+      /^ ? ? ?#+([ \t]|$)/ {
+        text = $0; sub(/^ ? ? ?/, "", text); hashes = text; sub(/[ \t].*$/, "", hashes)
+        if (length(hashes) <= 6) {
+          sub(/^#+/, "", text); if (text ~ /[ \t]#+[ \t]*$/) sub(/[ \t]#+[ \t]*$/, "", text)
+          check(text)
+        }
+        prev = ""; next
+      }
+      /^ ? ? ?(=+|-+)[ \t]*$/ { if (prev != "") check(prev); prev = ""; next }
+      /^[ \t]*$/ { prev = ""; next }
+      { prev = (prev == "" ? $0 : prev " " $0) }
       END { exit !found }'; then
     echo "the pull request's body has no \"$section\" section: add it, then run this again" >&2; exit 6
   fi

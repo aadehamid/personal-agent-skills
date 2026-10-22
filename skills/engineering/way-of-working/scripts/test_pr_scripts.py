@@ -307,7 +307,15 @@ class MergeOnVerdict(unittest.TestCase):
 
     def test_the_required_heading_is_matched_exactly_and_outside_code(self):
         bodies = {"```\n## Sweep\n```\n": 6, "## Sweep (by hand)\nText.\n": 6, "## Sweeping\n": 6,
-                  "   ## sweep ##\n": 0, "~~~\nx\n~~~\n# Sweep\n": 0}
+                  "   ## sweep ##\n": 0, "~~~\nx\n~~~\n# Sweep\n": 0,
+                  # A fence closes only on its own character, at least as long, alone on the line.
+                  "```md\n~~~\n# Sweep\n~~~\n```\n": 6, "```\n~~~\n```\n## Sweep\n": 0,
+                  "````\n```\n## Sweep\n````\n": 6, "```\n```js\n## Sweep\n```\n": 6,
+                  # A closing run of #s needs a space before it; four spaces make a code block.
+                  "## Sweep##\n": 6, "    ## Sweep\n": 6, "####### Sweep\n": 6,
+                  # Setext headings count; headings in HTML comments do not.
+                  "Sweep\n---\n": 0, "Sweep\n===\n": 0, "---\n": 6, "<!--\n## Sweep\n-->\n": 6,
+                  "<!-- note -->\n## Sweep\n": 0, "## Sweep\r\nText.\r\n": 0}
         for body, code in bodies.items():
             with self.subTest(body=body):
                 r, _ = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], body=body)], "--require-section", "Sweep")
