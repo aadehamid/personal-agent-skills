@@ -504,7 +504,11 @@ class AfterMerge(unittest.TestCase):
             #!/usr/bin/env python3
             import os, sys
             if sys.argv[1:3] == ["pr", "list"]:
-                if os.environ.get("FAKE_LIST_FAILS"):
+                args = sys.argv[3:]
+                # Only the pull requests based on the branch, and only open ones: without these filters
+                # the script would move every open pull request in the repository.
+                if os.environ.get("FAKE_LIST_FAILS") or args[args.index("--base") + 1] != "feat" \
+                        or args[args.index("--state") + 1] != "open":
                     sys.exit(1)
                 print("\n".join(os.environ.get("FAKE_STACKED", "").split()))
             elif sys.argv[1:3] == ["pr", "edit"]:
@@ -583,6 +587,16 @@ class AfterMerge(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("could not list the pull requests based on feat", r.stderr)
         self.assertTrue(self.branches()[1])
+
+    def test_a_refused_delete_moves_no_pull_request(self):
+        # A commit pushed after the merge stops the delete; the stacked pull request must stay where it is.
+        self.merge_on_origin()
+        late = self.clone("late2", "-b", "feat")
+        self.commit("late", repo=late)
+        self.git(late, "push", "--quiet", "origin", "feat")
+        r = self.run_after("feat", FAKE_STACKED="12")
+        self.assertEqual(r.returncode, 1)
+        self.assertFalse(os.path.exists(self.edits))
 
     def test_squash_merge_deletes_nothing(self):
         self.merge_on_origin(squash=True)

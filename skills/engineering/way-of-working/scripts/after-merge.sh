@@ -5,9 +5,11 @@
 # Usage: after-merge.sh <branch> [--base <branch>]   (default base: main)
 #   Run from the repository. Delete only a branch you opened; someone else's is theirs.
 # Exit 0: base synced, branch gone (or already gone, even if it went mid-run). Exit 1: something on the branch
-#   is not in the base, or an open pull request based on it could not be moved, so nothing is deleted.
-# An open pull request whose base is the branch is moved to the base first: GitHub closes it, without
-#   retargeting, when its base branch is deleted this way.
+#   is not in the base, or an open pull request based on it could not be listed or moved, so nothing is
+#   deleted. A pull request moved before a later move failed stays moved.
+# Just before the remote delete, every open pull request whose base is the branch is moved to the base:
+#   GitHub closed one when its base branch was deleted through the API (enterprise-performance-model #328).
+#   This needs gh, signed in.
 # Tests: test_pr_scripts.py, run by the repository's scripts/check.sh.
 set -euo pipefail
 
@@ -77,8 +79,8 @@ git_unless_gone() {
 # Moves every open pull request based on the branch to the base, or exits 1 having deleted nothing.
 retarget_stacked() {
   local stacked n
-  stacked=$(gh pr list --base "$branch" --state open --json number --jq '.[].number') \
-    || { echo "could not list the pull requests based on $branch; nothing deleted" >&2; exit 1; }
+  stacked=$(gh pr list --base "$branch" --state open --limit 1000 --json number --jq '.[].number') \
+    || { echo "gh could not list the pull requests based on $branch (is gh installed and signed in?); nothing deleted" >&2; exit 1; }
   for n in $stacked; do
     gh pr edit "$n" --base "$base" >/dev/null || { echo "could not move #$n from $branch to $base; nothing deleted" >&2; exit 1; }
     echo "moved #$n from $branch to $base"
@@ -88,13 +90,13 @@ retarget_stacked() {
 rc=$(remote_rc)
 case "$rc" in
   0)
-    retarget_stacked
     if git_unless_gone fetch --quiet "$push_url" "refs/heads/$branch"; then
       remote_sha=$(git rev-parse FETCH_HEAD)
       if ! git merge-base --is-ancestor "$remote_sha" "origin/$base"; then
         echo "origin/$branch has commits that are not in $base; nothing deleted" >&2
         exit 1
       fi
+      retarget_stacked   # only now: every check that could refuse the delete has passed
       if git_unless_gone push --quiet "$push_url" --delete "$branch" --force-with-lease="$branch:$remote_sha"; then
         echo "deleted origin/$branch"
       fi
