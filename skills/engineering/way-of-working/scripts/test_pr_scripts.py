@@ -496,7 +496,41 @@ class AfterMerge(unittest.TestCase):
         self.env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.com", GIT_COMMITTER_NAME="t",
                         GIT_COMMITTER_EMAIL="t@example.com", GIT_CONFIG_GLOBAL=os.devnull,
                         GIT_CONFIG_NOSYSTEM="1")
+        # A fake gh: `pr list` prints the numbers in FAKE_STACKED, `pr edit` records its arguments.
+        bindir = os.path.join(self.tmp, "bin")
+        os.makedirs(bindir)
+        self.edits = os.path.join(self.tmp, "edits")
+        write_exe(bindir, "gh", textwrap.dedent(r'''
+            #!/usr/bin/env python3
+            import os, subprocess, sys
+            if sys.argv[1:3] == ["pr", "list"]:
+                args = sys.argv[3:]
+                # Only the pull requests based on the branch, and only open ones: without these filters
+                # the script would move every open pull request in the repository.
+                if os.environ.get("FAKE_LIST_FAILS") or args[args.index("--base") + 1] != "feat" \
+                        or args[args.index("--state") + 1] != "open":
+                    sys.exit(1)
+                print("\n".join(os.environ.get("FAKE_STACKED", "").split()))
+            elif sys.argv[1:3] == ["pr", "edit"]:
+                with open(os.environ["FAKE_EDITS"] + ".tried", "a") as f:
+                    f.write(" ".join(sys.argv[3:]) + "\n")
+                if os.environ.get("FAKE_DELETE_ON") == sys.argv[3]:
+                    # Someone else deletes the branch while this pull request is being moved.
+                    subprocess.run(["git", "-C", os.environ["FAKE_ORIGIN"], "branch", "-D", "feat"], capture_output=True)
+                if os.environ.get("FAKE_HIDE_ON") == sys.argv[3]:
+                    # The remote becomes unreadable while this pull request is being moved.
+                    os.rename(os.environ["FAKE_ORIGIN"], os.environ["FAKE_ORIGIN"] + ".hidden")
+                    sys.exit(1)
+                # GitHub closes a pull request whose base is deleted, so moving it after that is too late.
+                gone = subprocess.run(["git", "ls-remote", "--exit-code", "--heads",
+                                       os.environ["FAKE_ORIGIN"], "refs/heads/feat"], capture_output=True).returncode
+                if gone or (os.environ.get("FAKE_RESTORE_FAILS") and sys.argv[-1] == "feat"):
+                    sys.exit(1)
+                with open(os.environ["FAKE_EDITS"], "a") as f:
+                    f.write(" ".join(sys.argv[3:]) + "\n")
+            ''').lstrip())
         self.origin = os.path.join(self.tmp, "origin.git")
+        self.env.update(PATH=bindir + os.pathsep + os.environ["PATH"], FAKE_EDITS=self.edits, FAKE_ORIGIN=self.origin)
         self.git(self.tmp, "init", "--quiet", "--bare", "-b", "main", self.origin)
         self.repo = os.path.join(self.tmp, "repo")
         self.git(self.tmp, "clone", "--quiet", self.origin, self.repo)
@@ -532,11 +566,11 @@ class AfterMerge(unittest.TestCase):
             self.git(other, "merge", "--quiet", "--no-ff", "-m", "merge", "origin/feat")
         self.git(other, "push", "--quiet", "origin", "main")
 
-    def run_after(self, *args, hook="", hook_cmd=""):
+    def run_after(self, *args, hook="", hook_cmd="", **extra):
         bindir = tempfile.mkdtemp(dir=self.tmp)
         write_exe(bindir, "git", FAKE_GIT)
         env = dict(self.env, PATH=bindir + os.pathsep + self.env["PATH"], REAL_GIT=REAL_GIT,
-                   FAKE_GIT_HOOK=hook, FAKE_GIT_HOOK_CMD=hook_cmd)
+                   FAKE_GIT_HOOK=hook, FAKE_GIT_HOOK_CMD=hook_cmd, **extra)
         return subprocess.run(["bash", AFTER, *args], cwd=self.repo, env=env,
                               capture_output=True, text=True, timeout=60)
 
@@ -551,6 +585,75 @@ class AfterMerge(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.branches(), (["main"], False))
         self.assertEqual(self.git(self.repo, "rev-parse", "HEAD"), self.git(self.repo, "rev-parse", "origin/main"))
+
+    def test_a_pull_request_based_on_the_branch_is_moved_first(self):
+        # GitHub closed a pull request whose base branch was deleted with git push --delete (EPM #328).
+        self.merge_on_origin()
+        r = self.run_after("feat", FAKE_STACKED="12 15")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(open(self.edits).read().splitlines(), ["12 --base main", "15 --base main"])
+        self.assertIn("moved #12 from feat to main", r.stdout)
+        self.assertEqual(self.branches(), (["main"], False))
+
+    def test_a_failed_listing_deletes_nothing_on_the_remote(self):
+        self.merge_on_origin()
+        r = self.run_after("feat", FAKE_LIST_FAILS="1")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("could not list the pull requests based on feat", r.stderr)
+        self.assertTrue(self.branches()[1])
+
+    def test_a_late_push_moves_no_pull_request(self):
+        # A commit pushed after the merge stops the script before any move.
+        self.merge_on_origin()
+        late = self.clone("late2", "-b", "feat")
+        self.commit("late", repo=late)
+        self.git(late, "push", "--quiet", "origin", "feat")
+        r = self.run_after("feat", FAKE_STACKED="12")
+        self.assertEqual(r.returncode, 1)
+        self.assertFalse(os.path.exists(self.edits))
+
+    def test_a_refused_delete_moves_the_pull_requests_back(self):
+        # The server refuses the delete after the moves: each pull request goes back to the branch.
+        self.merge_on_origin()
+        self.git(self.origin, "config", "receive.denyDeletes", "true")
+        r = self.run_after("feat", FAKE_STACKED="12 15")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(open(self.edits).read().splitlines(),
+                         ["12 --base main", "15 --base main", "12 --base feat", "15 --base feat"])
+        self.assertIn("moved #12 back to feat", r.stderr)
+        self.assertTrue(self.branches()[1])
+
+    def test_a_lease_refusal_moves_the_pull_requests_back(self):
+        # A push racing the delete makes the lease refuse it after the move.
+        self.merge_on_origin()
+        late = self.clone("late", "-b", "feat")
+        r = self.run_after("feat", hook="before-push-delete", FAKE_STACKED="12", hook_cmd=(
+            f"cd '{late}' && git commit --quiet --allow-empty -m race && git push --quiet origin feat"))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("stale info", r.stderr)
+        self.assertEqual(open(self.edits).read().splitlines(), ["12 --base main", "12 --base feat"])
+
+    def test_a_pull_request_that_cannot_be_moved_back_is_named(self):
+        self.merge_on_origin()
+        self.git(self.origin, "config", "receive.denyDeletes", "true")
+        r = self.run_after("feat", FAKE_STACKED="12", FAKE_RESTORE_FAILS="1")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("could not move #12 back to feat: set its base by hand", r.stderr)
+
+    def test_a_branch_deleted_during_the_moves_keeps_the_moved_pull_requests(self):
+        # A failed move after the branch went: nothing is moved back onto a branch that no longer exists.
+        self.merge_on_origin()
+        r = self.run_after("feat", FAKE_STACKED="12 15", FAKE_DELETE_ON="15")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(open(self.edits + ".tried").read().splitlines(), ["12 --base main", "15 --base main"])
+        self.assertIn("origin/feat is gone, so the moved pull requests stay on main: 12\n", r.stderr)
+
+    def test_an_unreadable_remote_after_a_failed_move_names_the_moved_pull_requests(self):
+        self.merge_on_origin()
+        r = self.run_after("feat", FAKE_STACKED="12 15", FAKE_HIDE_ON="15")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(open(self.edits + ".tried").read().splitlines(), ["12 --base main", "15 --base main"])
+        self.assertIn("check the base of each moved pull request: 12\n", r.stderr)
 
     def test_squash_merge_deletes_nothing(self):
         self.merge_on_origin(squash=True)

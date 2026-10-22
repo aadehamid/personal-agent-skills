@@ -5,7 +5,13 @@
 # Usage: after-merge.sh <branch> [--base <branch>]   (default base: main)
 #   Run from the repository. Delete only a branch you opened; someone else's is theirs.
 # Exit 0: base synced, branch gone (or already gone, even if it went mid-run). Exit 1: something on the branch
-#   is not in the base, so nothing is deleted.
+#   is not in the base, or an open pull request based on it could not be listed or moved, so nothing is
+#   deleted. If the run then fails after pull requests were moved, they are moved back while the remote
+#   lists the branch, and stay on the base if it is gone or the remote cannot be read (then they are named
+#   to check by hand); a pull request that cannot be moved back is named.
+# Just before the remote delete, every open pull request whose base is the branch is moved to the base:
+#   GitHub closed one when its base branch was deleted with git push --delete (enterprise-performance-model #328).
+#   This needs gh, signed in.
 # Tests: test_pr_scripts.py, run by the repository's scripts/check.sh.
 set -euo pipefail
 
@@ -72,6 +78,41 @@ git_unless_gone() {
   exit 1
 }
 
+# Moves every open pull request based on the branch to the base, or exits 1 having deleted nothing.
+# Until the delete succeeds, an exit runs restore_moved (the EXIT trap): it moves them back while the remote
+# lists the branch, and leaves them on the base if the branch is gone or the remote cannot be read.
+moved=""
+retarget_stacked() {
+  local stacked n
+  stacked=$(gh pr list --base "$branch" --state open --limit 1000 --json number --jq '.[].number') \
+    || { echo "gh could not list the pull requests based on $branch (is gh installed and signed in?); nothing deleted" >&2; exit 1; }
+  trap restore_moved EXIT
+  for n in $stacked; do
+    gh pr edit "$n" --base "$base" >/dev/null || { echo "could not move #$n from $branch to $base; nothing deleted" >&2; exit 1; }
+    moved="$moved $n"
+    echo "moved #$n from $branch to $base"
+  done
+}
+restore_moved() {
+  local n rc
+  [ -n "$moved" ] || return 0
+  rc=$(remote_rc)
+  if [ "$rc" = 2 ]; then
+    echo "origin/$branch is gone, so the moved pull requests stay on $base:$moved" >&2
+    return 0
+  elif [ "$rc" != 0 ]; then
+    echo "could not read origin (git ls-remote exited $rc): check the base of each moved pull request:$moved" >&2
+    return 0
+  fi
+  for n in $moved; do
+    if gh pr edit "$n" --base "$branch" >/dev/null; then
+      echo "moved #$n back to $branch, since $branch was not deleted" >&2
+    else
+      echo "could not move #$n back to $branch: set its base by hand" >&2
+    fi
+  done
+}
+
 rc=$(remote_rc)
 case "$rc" in
   0)
@@ -81,9 +122,11 @@ case "$rc" in
         echo "origin/$branch has commits that are not in $base; nothing deleted" >&2
         exit 1
       fi
+      retarget_stacked   # after the checks that can refuse the delete; a refused push moves them back
       if git_unless_gone push --quiet "$push_url" --delete "$branch" --force-with-lease="$branch:$remote_sha"; then
         echo "deleted origin/$branch"
       fi
+      moved=""; trap - EXIT   # deleted, or already gone: the moved pull requests stay on the base
     fi
     ;;
   2) echo "origin/$branch is already gone" ;;
