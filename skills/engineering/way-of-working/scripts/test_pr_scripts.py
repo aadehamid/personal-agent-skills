@@ -646,14 +646,14 @@ class AfterMerge(unittest.TestCase):
         r = self.run_after("feat", FAKE_STACKED="12 15", FAKE_DELETE_ON="15")
         self.assertEqual(r.returncode, 1)
         self.assertEqual(open(self.edits + ".tried").read().splitlines(), ["12 --base main", "15 --base main"])
-        self.assertIn("origin/feat is gone, so the moved pull requests stay on main: 12", r.stderr)
+        self.assertIn("origin/feat is gone, so the moved pull requests stay on main: 12\n", r.stderr)
 
     def test_an_unreadable_remote_after_a_failed_move_names_the_moved_pull_requests(self):
         self.merge_on_origin()
         r = self.run_after("feat", FAKE_STACKED="12 15", FAKE_HIDE_ON="15")
         self.assertEqual(r.returncode, 1)
         self.assertEqual(open(self.edits + ".tried").read().splitlines(), ["12 --base main", "15 --base main"])
-        self.assertIn("check the base of each moved pull request: 12", r.stderr)
+        self.assertIn("check the base of each moved pull request: 12\n", r.stderr)
 
     def test_squash_merge_deletes_nothing(self):
         self.merge_on_origin(squash=True)
