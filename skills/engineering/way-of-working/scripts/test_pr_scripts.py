@@ -93,7 +93,7 @@ FAKE_GH_MERGE = textwrap.dedent(r'''
                  "parameters": {"strict_required_status_checks_policy": entry.get("strict", False)}}])
         sys.exit(subprocess.run([os.environ["FAKE_JQ"], "-r", jq], input=json.dumps(doc), text=True).returncode)
     if target.rsplit("/", 1)[-1].isdigit() and target.split("/")[-2] == "pulls":
-        doc = {"body": entry.get("body", "")}  # the pull request itself, for --require-section
+        doc = {"body_html": entry.get("body_html", "")}  # the rendered pull request, for --require-section
         sys.exit(subprocess.run([os.environ["FAKE_JQ"], "-r", jq], input=json.dumps(doc), text=True).returncode)
     if sys.argv[1:3] == ["api", "graphql"]:
         threads = [{"isResolved": False, "isOutdated": False}] * entry.get("unresolved", 0)
@@ -293,39 +293,33 @@ class MergeOnVerdict(unittest.TestCase):
         self.assertIn("admin privileges", self.comments[0])
 
     def test_a_body_without_the_required_section_is_not_merged(self):
-        r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], body="## What this does\nText.\n")],
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], body_html="<h2>What this does</h2><p>Text.</p>")],
                                    "--require-section", "Sweep")
         self.assertEqual(r.returncode, 6, r.stderr)
         self.assertEqual(merges, [])
-        self.assertIn('no "Sweep" section', r.stderr)
+        self.assertIn('no "Sweep" heading', r.stderr)
 
     def test_a_body_with_the_required_section_is_merged(self):
-        r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], body="Intro.\n\n## Sweep\nRan it.\n")],
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], body_html='<p>Intro.</p>\n<h2 dir="auto">Sweep</h2>')],
                                    "--require-section", "Sweep")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(merges, [f"7 --merge --match-head-commit {HEAD}"])
 
-    def test_the_required_heading_is_matched_exactly_and_outside_code(self):
-        bodies = {"```\n## Sweep\n```\n": 6, "## Sweep (by hand)\nText.\n": 6, "## Sweeping\n": 6,
-                  "   ## sweep ##\n": 0, "~~~\nx\n~~~\n# Sweep\n": 0,
-                  # A fence closes only on its own character, at least as long, alone on the line.
-                  "```md\n~~~\n# Sweep\n~~~\n```\n": 6, "```\n~~~\n```\n## Sweep\n": 0,
-                  "````\n```\n## Sweep\n````\n": 6, "```\n```js\n## Sweep\n```\n": 6,
-                  # A closing run of #s needs a space before it; four spaces make a code block.
-                  "## Sweep##\n": 6, "    ## Sweep\n": 6, "####### Sweep\n": 6,
-                  # Setext headings count; headings in HTML comments do not.
-                  "Sweep\n---\n": 0, "Sweep\n===\n": 0, "---\n": 6, "<!--\n## Sweep\n-->\n": 6,
-                  "<!-- note -->\n## Sweep\n": 0, "## Sweep\r\nText.\r\n": 0}
+    def test_only_a_rendered_heading_with_exactly_that_text_counts(self):
+        # GitHub renders the body; a "## Sweep" in a code block or a comment never becomes an h tag.
+        bodies = {"<pre><code>## Sweep\n</code></pre>": 6, "<h2>Sweep (by hand)</h2>": 6, "<h2>Sweeping</h2>": 6,
+                  "<p>Sweep</p>": 6, '<h3 dir="auto"><a id="sweep" href="#sweep"></a>  sweep </h3>': 0,
+                  "<h2>\nSweep\n</h2>": 0, "<h1>Sweep</h1>": 0}
         for body, code in bodies.items():
             with self.subTest(body=body):
-                r, _ = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], body=body)], "--require-section", "Sweep")
+                r, _ = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], body_html=body)], "--require-section", "Sweep")
                 self.assertEqual(r.returncode, code, r.stderr)
 
-    def test_a_heading_with_regex_characters_is_plain_text(self):
-        r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], body="## Sweep (evidence)\n")],
-                                   "--require-section", "Sweep (evidence)")
+    def test_the_heading_is_compared_as_plain_text(self):
+        r, _ = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], body_html="<h2>Sweep &amp; notes (all)</h2>")],
+                              "--require-section", "Sweep & notes (all)")
         self.assertEqual(r.returncode, 0, r.stderr)
-        r, _ = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], body="## Other\n")], "--require-section", ".*")
+        r, _ = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], body_html="<h2>Other</h2>")], "--require-section", ".*")
         self.assertEqual(r.returncode, 6, r.stderr)
 
     def test_the_reason_an_admin_merge_waits_is_said_once(self):
