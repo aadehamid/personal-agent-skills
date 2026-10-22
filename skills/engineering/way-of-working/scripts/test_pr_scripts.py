@@ -309,7 +309,7 @@ class MergeOnVerdict(unittest.TestCase):
         # GitHub renders the body; a "## Sweep" in a code block or a comment never becomes an h tag.
         bodies = {"<pre><code>## Sweep\n</code></pre>": 6, "<h2>Sweep (by hand)</h2>": 6, "<h2>Sweeping</h2>": 6,
                   "<p>Sweep</p>": 6, '<h3 dir="auto"><a id="sweep" href="#sweep"></a>  sweep </h3>': 0,
-                  "<h2>\nSweep\n</h2>": 0, "<h1>Sweep</h1>": 0}
+                  "<h2>\nSweep\n</h2>": 0, "<h1>Sweep</h1>": 0, "<h2>Sweep\u00a0</h2>": 0, "<li><h2>Sweep</h2></li>": 0}
         for body, code in bodies.items():
             with self.subTest(body=body):
                 r, _ = self.run_merge([step(pr(checks=[PASSED]), [review("MERGE")], body_html=body)], "--require-section", "Sweep")

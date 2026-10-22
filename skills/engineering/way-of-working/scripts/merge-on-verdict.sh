@@ -136,10 +136,11 @@ admin_blocker() {
 
 # Exits 6 unless the pull request's body, as GitHub renders it, has a heading (h1 to h6) whose text is
 # $section, compared without regard to case or surrounding spaces. GitHub's renderer decides what is a
-# heading, so a "## Sweep" inside a code block, a list or an HTML comment is not one.
+# heading: a "## Sweep" line inside a code block or an HTML comment is not one, while a heading GitHub
+# renders inside a list item or a block quote is.
 heading_filter='[.body_html // "" | gsub("\n"; " ") | scan("<h[1-6][^>]*>(.*?)</h[1-6]>") | .[0] | gsub("<[^>]+>"; "")
   | gsub("&lt;"; "<") | gsub("&gt;"; ">") | gsub("&quot;"; "\u0022") | gsub("&#39;"; "\u0027") | gsub("&amp;"; "&")
-  | gsub("^\\s+|\\s+$"; "") | ascii_downcase] | any(. == (env.WANT | ascii_downcase))'
+  | gsub("^[\\s\u00a0]+|[\\s\u00a0]+$"; "") | ascii_downcase] | any(. == (env.WANT | ascii_downcase))'
 require_section() {
   [ -n "$section" ] || return 0
   call gh api -H "Accept: application/vnd.github.html+json" "repos/{owner}/{repo}/pulls/$number" \
