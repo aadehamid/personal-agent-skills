@@ -502,7 +502,7 @@ class AfterMerge(unittest.TestCase):
         self.edits = os.path.join(self.tmp, "edits")
         write_exe(bindir, "gh", textwrap.dedent(r'''
             #!/usr/bin/env python3
-            import os, sys
+            import os, subprocess, sys
             if sys.argv[1:3] == ["pr", "list"]:
                 args = sys.argv[3:]
                 # Only the pull requests based on the branch, and only open ones: without these filters
@@ -512,11 +512,16 @@ class AfterMerge(unittest.TestCase):
                     sys.exit(1)
                 print("\n".join(os.environ.get("FAKE_STACKED", "").split()))
             elif sys.argv[1:3] == ["pr", "edit"]:
+                # GitHub closes a pull request whose base is deleted, so moving it after that is too late.
+                gone = subprocess.run(["git", "ls-remote", "--exit-code", "--heads",
+                                       os.environ["FAKE_ORIGIN"], "refs/heads/feat"], capture_output=True).returncode
+                if gone or (os.environ.get("FAKE_RESTORE_FAILS") and sys.argv[-1] == "feat"):
+                    sys.exit(1)
                 with open(os.environ["FAKE_EDITS"], "a") as f:
                     f.write(" ".join(sys.argv[3:]) + "\n")
             ''').lstrip())
-        self.env.update(PATH=bindir + os.pathsep + os.environ["PATH"], FAKE_EDITS=self.edits)
         self.origin = os.path.join(self.tmp, "origin.git")
+        self.env.update(PATH=bindir + os.pathsep + os.environ["PATH"], FAKE_EDITS=self.edits, FAKE_ORIGIN=self.origin)
         self.git(self.tmp, "init", "--quiet", "--bare", "-b", "main", self.origin)
         self.repo = os.path.join(self.tmp, "repo")
         self.git(self.tmp, "clone", "--quiet", self.origin, self.repo)
@@ -588,8 +593,8 @@ class AfterMerge(unittest.TestCase):
         self.assertIn("could not list the pull requests based on feat", r.stderr)
         self.assertTrue(self.branches()[1])
 
-    def test_a_refused_delete_moves_no_pull_request(self):
-        # A commit pushed after the merge stops the delete; the stacked pull request must stay where it is.
+    def test_a_late_push_moves_no_pull_request(self):
+        # A commit pushed after the merge stops the script before any move.
         self.merge_on_origin()
         late = self.clone("late2", "-b", "feat")
         self.commit("late", repo=late)
@@ -597,6 +602,34 @@ class AfterMerge(unittest.TestCase):
         r = self.run_after("feat", FAKE_STACKED="12")
         self.assertEqual(r.returncode, 1)
         self.assertFalse(os.path.exists(self.edits))
+
+    def test_a_refused_delete_moves_the_pull_requests_back(self):
+        # The server refuses the delete after the moves: each pull request goes back to the branch.
+        self.merge_on_origin()
+        self.git(self.origin, "config", "receive.denyDeletes", "true")
+        r = self.run_after("feat", FAKE_STACKED="12 15")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(open(self.edits).read().splitlines(),
+                         ["12 --base main", "15 --base main", "12 --base feat", "15 --base feat"])
+        self.assertIn("moved #12 back to feat", r.stderr)
+        self.assertTrue(self.branches()[1])
+
+    def test_a_lease_refusal_moves_the_pull_requests_back(self):
+        # A push racing the delete makes the lease refuse it after the move.
+        self.merge_on_origin()
+        late = self.clone("late", "-b", "feat")
+        r = self.run_after("feat", hook="before-push-delete", FAKE_STACKED="12", hook_cmd=(
+            f"cd '{late}' && git commit --quiet --allow-empty -m race && git push --quiet origin feat"))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("stale info", r.stderr)
+        self.assertEqual(open(self.edits).read().splitlines(), ["12 --base main", "12 --base feat"])
+
+    def test_a_pull_request_that_cannot_be_moved_back_is_named(self):
+        self.merge_on_origin()
+        self.git(self.origin, "config", "receive.denyDeletes", "true")
+        r = self.run_after("feat", FAKE_STACKED="12", FAKE_RESTORE_FAILS="1")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("could not move #12 back to feat: set its base by hand", r.stderr)
 
     def test_squash_merge_deletes_nothing(self):
         self.merge_on_origin(squash=True)
