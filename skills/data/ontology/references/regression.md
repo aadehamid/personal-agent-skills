@@ -24,7 +24,7 @@ The competency questions are the exam the owner approved and locked at Step 1 (`
 10. **Start the harness early, before most questions can pass, and give each question one status:**
     - **drafted:** written at Step 1, not yet locked or not yet run; the elements it names are expected, and their names may change until Step 3;
     - **answerable:** all its queries run on the released packages;
-    - **partial:** the graph part runs and the rest is named, with what it waits for;
+    - **partial:** the graph part runs and the rest is named, with what it waits for; it closes Step 11 only by a recorded decision (rule 11);
     - **waiting:** it names the step, module or decision it waits for.
     A module's pull request moves its questions to answerable. *Why:* the status list is the build's progress, and a question with no named wait has been forgotten.
 11. **Park a question, or leave it waiting, only by a recorded decision that names its reason and what it waits for;** the Step 11 gate in `SKILL.md` is the rule. *Why:* a question set aside without a record has quietly left the exam the owner locked.

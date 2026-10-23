@@ -58,7 +58,9 @@ before="$(snapshot)"
 
 # 2. Taxonomy, classes and properties: the mechanical checks (identity-taxonomy.md, Step 3, rule 13), on
 #    data files only: shapes files (*-shapes.ttl) may hold blank nodes (identity-taxonomy.md, Step 2, rule 5).
-# TODO: find modules -name '*.ttl' ! -name '*-shapes.ttl' -print0 | xargs -0 uv run --no-project --with rdflib python3 scripts/ontology/check_taxonomy.py
+# TODO: data=(); while IFS= read -r -d '' f; do data+=("$f"); done < <(find modules -name '*.ttl' ! -name '*-shapes.ttl' -print0)
+# TODO: [ "${#data[@]}" -gt 0 ] || { echo "no data Turtle under modules/" >&2; exit 1; }   # an empty set must fail, not pass
+# TODO: uv run --no-project --with rdflib python3 scripts/ontology/check_taxonomy.py "${data[@]}"
 
 # 3. Generated files: every builder rebuilds into a temporary directory and --verify compares
 #    (release.md, rules 9 and 19). One line per module package, then the catalog.

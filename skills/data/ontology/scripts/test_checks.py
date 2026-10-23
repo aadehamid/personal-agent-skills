@@ -458,25 +458,36 @@ class CheckScriptSkeleton(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("the checks changed the working tree", result.stderr)
 
-    def test_taxonomy_line_checks_data_and_skips_shapes(self):
+    TAXONOMY_LINES = ("# TODO: data=()", "# TODO: [ \"${#data[@]}\"", "# TODO: uv run --no-project --with rdflib python3 scripts/ontology/check_taxonomy.py")
+
+    def fill_taxonomy(self, text):
+        lines = []
+        for line in text.split("\n"):
+            if line.startswith(self.TAXONOMY_LINES):
+                lines.append(line[len("# TODO: "):])
+            elif not line.startswith("# TODO:"):
+                lines.append(line)
+        return "\n".join(lines)
+
+    def set_up_taxonomy(self, files):
         modules = os.path.join(self.tmp, "modules", "lending")
         os.makedirs(modules)
-        shutil.copy(SKELETON, os.path.join(modules, "lending.ttl"))
-        shutil.copy(SHAPES, os.path.join(modules, "lending-shapes.ttl"))
+        for src, name in files:
+            shutil.copy(src, os.path.join(modules, name))
         os.makedirs(os.path.join(self.tmp, "scripts", "ontology"))
         shutil.copy(os.path.join(HERE, "check_taxonomy.py"), os.path.join(self.tmp, "scripts", "ontology"))
-        taxonomy_line = "# TODO: find modules -name '*.ttl'"
-
-        def fill(text):
-            lines = []
-            for line in text.split("\n"):
-                if line.startswith(taxonomy_line):
-                    lines.append(line[len("# TODO: "):])
-                elif not line.startswith("# TODO:"):
-                    lines.append(line)
-            return "\n".join(lines)
-        self.edit_script(fill)
+        self.edit_script(self.fill_taxonomy)
         self.commit()
+        return modules
+
+    def test_taxonomy_lines_are_three(self):
+        with open(os.path.join(TEMPLATES, "check.sh"), encoding="utf-8") as f:
+            text = f.read()
+        for prefix in self.TAXONOMY_LINES:
+            self.assertEqual(sum(l.startswith(prefix) for l in text.split("\n")), 1, prefix)
+
+    def test_taxonomy_line_checks_data_and_skips_shapes(self):
+        modules = self.set_up_taxonomy([(SKELETON, "lending.ttl"), (SHAPES, "lending-shapes.ttl")])
         result = self.run_script()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("all checks pass", result.stdout)
@@ -487,6 +498,13 @@ class CheckScriptSkeleton(unittest.TestCase):
         result = self.run_script()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("FAIL untagged", result.stdout)
+
+    def test_taxonomy_line_fails_with_no_data_file(self):
+        # Only a shapes file: an empty set of data files must fail, never pass silently.
+        self.set_up_taxonomy([(SHAPES, "lending-shapes.ttl")])
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("no data Turtle under modules/", result.stderr)
 
 
 if __name__ == "__main__":

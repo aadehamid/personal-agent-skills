@@ -44,7 +44,7 @@ Keep the order, except Step 8, which runs right after Step 0. Before you work on
 10. **Release and publication.** Read `references/release.md`.
     Done when: every released module is a package that passes `--verify`, the combined catalog lists every release and passes `--verify`, and each release is retrievable at its tag. Before the first module release, every row on the source-correction backlog has a fresh verdict (`references/promotion.md`, the first-release gate). "The catalog resolves" waits for the owner's hosting decision.
 11. **Regression.** Read `references/regression.md`.
-    Done when: every competency question passes on the released packages, or is parked or waiting by a recorded decision that names what it waits for.
+    Done when: every competency question passes on the released packages, or is partial, parked or waiting by a recorded decision that names what it waits for.
 12. **Property-graph projection (optional).** Read `references/lpg-projection.md`; its design rules apply from Step 1.
     Done when: over every released package, the in-graph SHACL is clean and its mutant fails, the round-trip diff is empty, and two load orders give equal hashes.
 
