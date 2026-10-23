@@ -23,5 +23,7 @@
   "export_rows": null,
   "schema_rows_skipped": null,
   "schema_relationships": null,
-  "plugin_jars_sha256": {}
+  "plugin_jars_sha256": {},
+  "kinds_without_case": [],
+  "manual_cases": []
 }

@@ -1049,8 +1049,8 @@ class LoadVerifyPure(unittest.TestCase):
     def test_fail_cases_cover_the_library_kinds(self):
         sub, _ = igs.subset(shapes())
         kinds = [k for k, _, _ in lv.fail_cases(sub, module(), config())]
-        self.assertEqual(kinds, ["class", "datatype xsd:integer", "datatype xsd:string", "in", "inverseMinCount",
-                                 "maxCount", "minCount", "nodeKind"])
+        self.assertEqual(kinds, ["class", "datatype xsd:integer", "datatype xsd:string", "in", "inverseMaxCount",
+                                 "inverseMinCount", "maxCount", "minCount", "nodeKind"])
         for kind in kinds:
             self.assertTrue(lv.expected_components(kind))
 
@@ -1106,6 +1106,48 @@ class LoadChecks(unittest.TestCase):
     def test_no_shapes_stops(self):
         with self.assertRaises(lv.Failed):
             lv.load(FakeSession(shape_rows=0, listed=0), self.statements())
+
+
+class RoundThree(unittest.TestCase):
+    """test b2, 1: every kind left in the graph gets a fail case, or the report says it has none."""
+
+    def library_subset(self, change=None):
+        full = shapes()
+        if change:
+            change(full)
+        return igs.subset(full)[0]
+
+    def test_closed_and_disjoint_get_cases(self):
+        def change(s):
+            s.add((lib("PersonShape"), SH.closed, Literal(True)))
+            s.add((lib("AuthorshipShape-agent"), SH.disjoint, lib("creatorRole")))
+        cases = {k: c for k, _, c in lv.fail_cases(self.library_subset(change), module(), config())}
+        self.assertIn("closed", cases)
+        self.assertIn("lib__notInTheShape", cases["closed"])
+        self.assertIn("disjoint", cases)
+        self.assertIn("CREATE (n)-[:`lib__creatorRole`]->(m)", cases["disjoint"])
+        self.assertEqual(lv.expected_components("closed"), {"ClosedConstraintComponent"})
+        self.assertEqual(lv.expected_components("disjoint"), {"DisjointConstraintComponent"})
+
+    def test_every_kept_kind_of_the_library_has_a_case(self):
+        sub = self.library_subset()
+        generated = {k for k, _, _ in lv.fail_cases(sub, module(), config())}
+        self.assertEqual([k for k in lv.kept_kinds(sub, module()) if k not in generated], [])
+
+    def test_a_kind_without_a_case_is_listed(self):
+        sub = self.library_subset(lambda s: s.add((lib("PersonShape-name"), SH.nodeKind, SH.Literal)))
+        generated = {k for k, _, _ in lv.fail_cases(sub, module(), config())}
+        self.assertIn("nodeKind sh:Literal", [k for k in lv.kept_kinds(sub, module()) if k not in generated])
+
+    def test_check_report_fails_on_a_kind_without_a_case(self):
+        man = {"input_fingerprint": "f", "shapes_fingerprint": "s"}
+        rep = Build.good_report(None, man)
+        rep["kinds_without_case"] = ["nodeKind sh:Literal"]
+        self.assertTrue(any("no fail case" in f for f in build.check_report(man, rep)))
+        rep["manual_cases"] = [{"kind": "nodeKind sh:Literal", "passed": False}]
+        self.assertTrue(build.check_report(man, rep))
+        rep["manual_cases"] = [{"kind": "nodeKind sh:Literal", "passed": True}]
+        self.assertEqual(build.check_report(man, rep), [])
 
 
 if __name__ == "__main__":

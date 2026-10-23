@@ -36,12 +36,15 @@ Serves the load step (rule 5, the container) and the running step. Read it befor
    | `shapes_import_rows`, `in_graph_shape_constraints` | The rows the shapes import returned, and the `listShapes()` count (`pipeline.md`, rule 11). |
    | `shacl_violations_in_graph` | Violations after the load; must be 0. |
    | `fail_cases` | One object per generated case: kind, shape, focus, the Cypher, the expected and the reported components, and whether it passed (`pipeline.md`, rule 14). |
+   | `kinds_without_case`, `manual_cases` | Constraint kinds left in the graph, on a property the data uses, with no generated case; and the cases written by hand for them (`pipeline.md`, rule 14). Every listed kind needs a passing manual case. |
    | `mutant`, `in_graph_mutant_violations` | The mutant's focus and property, its violations (must be above 0) and the violations after the restore (must be 0). |
    | `export_rows`, `schema_rows_skipped`, `roundtrip_lost`, `roundtrip_added` | The raw export rows, the schema rows left out, and the triples lost and added; the last two must be 0. |
    | `determinism_hash_sorted`, `determinism_hash_shuffled` | Must be equal (`pipeline.md`, rule 17). |
-   | `nodes`, `relationships`, `schema_relationships` | Counts after the sorted load: every `:Resource` node (schema nodes included), every relationship between two `:Resource` nodes, and how many of those are `n4sch__` schema relationships from `onto.import`. |
+   | `nodes`, `relationships`, `schema_relationships` | Counts after the sorted load: every `:Resource` node (schema nodes included), every relationship between two `:Resource` nodes, and how many of those are `n4sch__` schema relationships from `onto.import`. To compare data between runs, use `nodes` and `relationships` minus `schema_relationships` (the data relationships); the schema part changes whenever a class or property is added. |
    | `versions`, `plugin_jars_sha256` | The configuration's versions, and each jar's SHA-256 in the plugins folder. |
-   | `samples` | Up to ten lost or added triples, five violations and five failed cases. | `build.py check-report` fails when the report's fingerprints differ from the manifest's, or when any check in it did not pass; the template, with its empty values, fails on purpose. *Why:* a projection result that outlives its inputs is a false pass, and a shape can change while the loaded triples do not.
+   | `samples` | Up to ten lost or added triples, five violations and five failed cases. |
+
+   `build.py check-report` fails when the report's fingerprints differ from the manifest's, or when any check in it did not pass; it also fails when a fail case did not fire, when the mutant was not restored, or when `kinds_without_case` is not empty. The template, with its empty values, fails on purpose. *Why:* a projection result that outlives its inputs is a false pass, and a shape can change while the loaded triples do not.
 
 4. **Commit `inferred.nt`, the manifest and the report together, after one full workstation run.** Keep `loadable.nt`, `merged.ttl` and the downloads out of the repository; they are rebuilt from the Turtle files. *Why:* the three describe one run, and CI compares them with each other.
 

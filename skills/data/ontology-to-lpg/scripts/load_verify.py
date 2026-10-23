@@ -64,6 +64,9 @@ EXPECTED = {
     "minCount": {"CountConstraintComponent", "MinCountConstraintComponent"},
     "maxCount": {"CountConstraintComponent", "MaxCountConstraintComponent"},
     "inverseMinCount": {"CountConstraintComponent", "MinCountConstraintComponent"},
+    "inverseMaxCount": {"CountConstraintComponent", "MaxCountConstraintComponent"},
+    "closed": {"ClosedConstraintComponent"},
+    "disjoint": {"DisjointConstraintComponent"},
     "datatype": {"DatatypeConstraintComponent"},
     "class": {"ClassConstraintComponent"},
     "in": {"InConstraintComponent"},
@@ -190,6 +193,12 @@ def fail_cases(subset, data, cfg):
                         cases.setdefault("inverseMinCount", (ps, (
                             f"MATCH (n:`{T}`)<-[:`{k}`]-() WITH DISTINCT n ORDER BY n.uri LIMIT 1 "
                             f"MATCH (n)<-[r:`{k}`]-() DELETE r RETURN DISTINCT n.uri AS focus")))
+                    if subset.value(ps, SH.maxCount) is not None:
+                        cases.setdefault("inverseMaxCount", (ps, (
+                            f"MATCH (n:`{T}`)<-[:`{k}`]-() WITH DISTINCT n ORDER BY n.uri LIMIT 1 "
+                            f"MATCH (o:Resource) WHERE NOT (o)-[:`{k}`]->(n) AND o <> n WITH n, o ORDER BY o.uri "
+                            f"LIMIT {int(subset.value(ps, SH.maxCount)) + 1} CREATE (o)-[:`{k}`]->(n) "
+                            "RETURN DISTINCT n.uri AS focus")))
                     continue
                 if not isinstance(path, URIRef):
                     continue
@@ -239,6 +248,14 @@ def fail_cases(subset, data, cfg):
                     if bound is not None and literal:
                         cases.setdefault(kind, (ps, pick_prop + f"SET n.`{k}` = {bound.toPython()} {delta} "
                                                                 "RETURN n.uri AS focus"))
+                other = subset.value(ps, SH.disjoint)
+                if isinstance(other, URIRef):
+                    k2 = _label(other, cfg)
+                    if literal:
+                        cases.setdefault("disjoint", (ps, pick_prop + f"SET n.`{k2}` = n.`{k}` RETURN n.uri AS focus"))
+                    else:
+                        cases.setdefault("disjoint", (ps, f"MATCH (n:`{T}`)-[:`{k}`]->(m) WITH n, m ORDER BY n.uri, m.uri "
+                                                          f"LIMIT 1 CREATE (n)-[:`{k2}`]->(m) RETURN n.uri AS focus"))
                 for kind in ("minLength", "maxLength"):
                     bound = subset.value(ps, SH[kind])
                     if bound is not None and literal:
@@ -246,11 +263,52 @@ def fail_cases(subset, data, cfg):
                         if kind == "minLength" and int(bound) == 0:
                             continue
                         cases.setdefault(kind, (ps, pick_prop + f"SET n.`{k}` = {value} RETURN n.uri AS focus"))
+            if (ns, SH.closed, Literal(True)) in subset:
+                key = f"{_label(URIRef(cfg.own[0] + 'notInTheShape'), cfg)}"
+                cases.setdefault("closed", (ns, f"MATCH (n:`{T}`) WITH n ORDER BY n.uri LIMIT 1 "
+                                                f"SET n.`{key}` = 'a property the closed shape does not declare' "
+                                                "RETURN n.uri AS focus"))
     return [(kind, ps, cypher) for kind, (ps, cypher) in sorted(cases.items())]
 
 
+def kept_kinds(subset, data):
+    """The constraint kinds left in the graph that can check something now: those on a property the
+    data uses, plus closed node shapes. Each needs a fail case (pipeline.md, rule 14)."""
+    used = set(data.predicates())
+    kinds = set()
+    for ns in subset.subjects(SH.targetClass, None):
+        if (ns, SH.closed, Literal(True)) in subset:
+            kinds.add("closed")
+        for ps in subset.objects(ns, SH.property):
+            path = subset.value(ps, SH.path)
+            inverse = subset.value(path, SH.inversePath) if path is not None and not isinstance(path, URIRef) else None
+            if (inverse or path) not in used:
+                continue
+            min_count = subset.value(ps, SH.minCount)
+            if min_count is not None and int(min_count) >= 1:
+                kinds.add("inverseMinCount" if inverse else "minCount")
+            if subset.value(ps, SH.maxCount) is not None:
+                kinds.add("inverseMaxCount" if inverse else "maxCount")
+            dt = subset.value(ps, SH.datatype)
+            if dt is not None:
+                kinds.add(f"datatype {dt.n3(subset.namespace_manager)}")
+            node_kind = subset.value(ps, SH.nodeKind)
+            if node_kind is not None:
+                kinds.add("nodeKind" if node_kind == SH.IRI else f"nodeKind {node_kind.n3(subset.namespace_manager)}")
+            for p, kind in ((SH["class"], "class"), (SH["in"], "in"), (SH.hasValue, "hasValue"), (SH.disjoint, "disjoint"),
+                            (SH.minInclusive, "minInclusive"), (SH.maxInclusive, "maxInclusive"),
+                            (SH.minExclusive, "minExclusive"), (SH.maxExclusive, "maxExclusive"),
+                            (SH.maxLength, "maxLength")):
+                if subset.value(ps, p) is not None:
+                    kinds.add(kind)
+            min_length = subset.value(ps, SH.minLength)
+            if min_length is not None and int(min_length) > 0:
+                kinds.add("minLength")
+    return sorted(kinds)
+
+
 def expected_components(kind):
-    return EXPECTED["datatype"] if kind.startswith("datatype") else EXPECTED[kind]
+    return EXPECTED["datatype"] if kind.startswith("datatype") else EXPECTED.get(kind, set())
 
 
 def component(value):
@@ -372,6 +430,8 @@ def run(driver, cfg, data_paths, shape_paths, import_dir, merged, loadable, infe
         found = violations(session)
         report["shacl_violations_in_graph"] = len(found)
         report["fail_cases"] = run_fail_cases(session, fail_cases(subset, data, cfg))
+        covered = {c["kind"] for c in report["fail_cases"]}
+        report["kinds_without_case"] = [k for k in kept_kinds(subset, data) if k not in covered]
         target = mutant_case(subset, data, cfg)
         if target is None:
             raise Failed("no minCount shape on a literal value to use as the mutant")
@@ -406,7 +466,7 @@ def passed(report):
             and report["mutant"]["after_restore"] == 0
             and report["roundtrip_lost"] == 0 and report["roundtrip_added"] == 0
             and report["determinism_hash_sorted"] == report["determinism_hash_shuffled"]
-            and all(c["passed"] for c in report["fail_cases"]))
+            and all(c["passed"] for c in report["fail_cases"]) and not report["kinds_without_case"])
 
 
 def main(argv):
@@ -439,6 +499,7 @@ def main(argv):
                                       "relationships", "determinism_hash_sorted", "determinism_hash_shuffled")}
     summary["fail_cases"] = {c["kind"]: ("pass" if c["passed"] else "FAIL") + f" {c['components']}"
                              for c in report["fail_cases"]}
+    summary["kinds_without_case"] = report["kinds_without_case"]
     print(json.dumps(summary, indent=1))
     if not passed(report):
         print("FAIL the verify step did not pass; see the report's samples")

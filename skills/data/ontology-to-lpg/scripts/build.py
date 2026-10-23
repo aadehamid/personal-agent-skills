@@ -170,6 +170,11 @@ def check_report(man, rep):
     failed = [c.get("kind") for c in rep.get("fail_cases") or [] if not c.get("passed")]
     if failed:
         fails.append(f"report fail cases did not fail as expected: {', '.join(map(str, failed))}")
+    by_hand = {c.get("kind") for c in rep.get("manual_cases") or [] if c.get("passed")}
+    missing = [k for k in rep.get("kinds_without_case") or [] if k not in by_hand]
+    if missing:
+        fails.append("report lists constraint kinds left in the graph with no fail case: "
+                     + ", ".join(missing) + " (pipeline.md, rule 14)")
     if isinstance(rep.get("mutant"), dict) and rep["mutant"].get("after_restore") != 0:
         fails.append("report mutant was not restored to zero violations")
     return fails
