@@ -4,8 +4,8 @@
 Run: uv run --no-project --with rdflib --with pyshacl python3 validate_data.py --config <config.json>
          --shapes <shapes.ttl>... <data.ttl or .nt>...
 
-Before serialising, give it the released data files. After serialising, give it loadable.nt and
-inferred.nt together (references/pipeline.md, rules 1 to 3). It runs pySHACL with SHACL-AF on
+Before serialising, give it the released data files. After serialising, and after build.py
+check-serialised has passed on them, give it loadable.nt and inferred.nt together (references/pipeline.md, rules 1 to 3). It runs pySHACL with SHACL-AF on
 (advanced=True, so SPARQL targets and constraints run) and no inference, then the refusals of
 check_projection_rules.roundtrip_refusals: a plain or xsd:string literal that ends like a language
 tag (the pattern @[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*$), and an xsd:decimal whose nearest double,

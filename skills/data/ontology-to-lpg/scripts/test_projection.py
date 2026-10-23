@@ -651,7 +651,7 @@ class InGraphReviewRoundOne(unittest.TestCase):
         self.assertNotIn((None, SH["and"], None), sub)
         self.assertIn((lib("S"), SH["and"]), {(s, p) for s, p, _ in dropped})
 
-    # 11: every entry of the drop list is exercised on its own
+    # 11: every term the subset leaves out is exercised on its own
     # Written out, not read from igs.UNSUPPORTED, so deleting an entry there fails this test.
     DROPPED = (SH["not"], SH.languageIn, SH.node, SH.targetSubjectsOf, SH.targetObjectsOf, SH["and"], SH["or"],
                SH.xone, SH.target, SH.sparql, SH.pattern, SH.flags)
@@ -766,7 +766,8 @@ class Build(unittest.TestCase):
                 "shacl_violations_in_graph": 0, "in_graph_mutant_violations": 1, "roundtrip_lost": 0,
                 "roundtrip_added": 0, "determinism_hash_sorted": "h", "determinism_hash_shuffled": "h",
                 "in_graph_shape_constraints": 9, "shapes_import_rows": 9,
-                "mutant": {"focus": "x", "removed": "k", "violations": 1, "after_restore": 0}}
+                "mutant": {"focus": "x", "removed": "k", "violations": 1, "after_restore": 0},
+                "kinds_without_case": []}
 
     def test_check_report(self):
         man = {"input_fingerprint": "f", "shapes_fingerprint": "s"}
@@ -1325,7 +1326,7 @@ class RoundFour(OneBreak, unittest.TestCase):
         self.assertNotIn((lib("C-p"), SH.minCount, Literal(1)), sub)
         reasons = {(x, p): r for x, p, r in dropped}
         # quick check 3, #4: the reason states what failed for this node, and nothing false about it
-        self.assertIn("it is not typed sh:NodeShape or sh:Shape", reasons[(lib("Copy"), SH.property)])
+        self.assertIn("no shape typed sh:NodeShape or sh:Shape reaches it", reasons[(lib("Copy"), SH.property)])
         self.assertNotIn("not an rdfs:Class", reasons[(lib("Copy"), SH.property)])
         self.assertIn("no shape typed sh:NodeShape or sh:Shape reaches it", reasons[(lib("C-p"), SH.minCount)])
 
@@ -1454,7 +1455,7 @@ class RoundFour(OneBreak, unittest.TestCase):
         g.remove((lib("S"), SH.targetClass, None))
         g.add((lib("S"), igs.TARGET_QUERY, Literal("MATCH (focus:lib__Copy)")))
         sub, _ = igs.subset(g)
-        self.assertIn("minCount", lv.kept_kinds(sub, module()))
+        self.assertIn("minCount (sh:targetQuery)", lv.kept_kinds(sub, module()))
         self.assertNotIn("minCount", [k for k, _, _ in lv.fail_cases(sub, module(), config())])
 
     # 12: every script stops under Rule 4b
@@ -1631,7 +1632,7 @@ class RoundFive(unittest.TestCase):
         self.assertEqual([r for r in igs.property_rows(sub) if r[1] == lib("Bad-p")], [])
         self.assertIn((lib("S-p"), SH.minCount, Literal(1)), sub)
         reasons = {(x, p): r for x, p, r in dropped}
-        self.assertIn("skips this path (line 989)", reasons[(lib("Bad-p"), SH.minCount)])
+        self.assertIn("skips each (line 989)", reasons[(lib("Bad-p"), SH.minCount)])
 
     def test_missing_path_shape_leaves_with_its_edge(self):
         sub, dropped = igs.subset(self.bad_path_graph(None))
@@ -1721,7 +1722,9 @@ class RoundFive(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertFalse(os.path.exists(path))
         with open(path + ".previous", encoding="utf-8") as f:
-            self.assertEqual(f.read(), passing)
+            moved = json.load(f)
+        self.assertEqual(moved["input_fingerprint"], "f")
+        self.assertIn("load_verify.py failed", moved["invalidated"])
         self.assertIn("do not run check-report", out)
         self.assertIn("docker rm -f -v lpg-projection", out)
 
@@ -1788,7 +1791,187 @@ class FinalRun(unittest.TestCase):
         self.assertTrue(any("filter drops" in f for f in build.check_serialised(b"", declaration)))
         label = f'<{LIB}a> <{RDFS.label}> "x" .\n'.encode()
         self.assertTrue(any("filter drops" in f for f in build.check_serialised(b"", label)))
-        self.assertEqual(build.check_serialised(a + b"\n" + b + b"\n", a + b"\n"), [])
+        c = f"<{LIB}c> <{RDF.type}> <{LIB}Work> .".encode()
+        self.assertEqual(build.check_serialised(a + b"\n" + b + b"\n", c + b"\n"), [])
+
+
+class QuickCheckSix(unittest.TestCase):
+    """Quick check 6 of c82da9a and 2caa773: one test per code finding; each failed on 2caa773."""
+
+    # 1: an IRI path beside a blank path keeps the shape, whatever the hash seed
+    def test_iri_path_beside_a_blank_path_is_kept_under_any_hash_seed(self):
+        program = (
+            "import sys; sys.path.insert(0, {here!r}); import in_graph_shapes as igs\n"
+            "from rdflib import Graph, BNode, Literal, URIRef\n"
+            "from rdflib.collection import Collection\n"
+            "from rdflib.namespace import RDF, SH\n"
+            "L = 'https://id.example.org/library/'\n"
+            "g = Graph(); S, P = URIRef(L + 'S'), URIRef(L + 'P')\n"
+            "g.add((S, RDF.type, SH.NodeShape)); g.add((S, SH.targetClass, URIRef(L + 'Copy')))\n"
+            "g.add((S, SH.property, P)); g.add((P, SH.path, URIRef(L + 'barcode')))\n"
+            "seq = BNode(); Collection(g, seq, [URIRef(L + 'a'), URIRef(L + 'b')]); g.add((P, SH.path, seq))\n"
+            "g.add((P, SH.minCount, Literal(1)))\n"
+            "sub, _ = igs.subset(g)\n"
+            "print((P, SH.minCount, Literal(1)) in sub, (P, SH.path, URIRef(L + 'barcode')) in sub, (P, SH.path, seq) in sub)\n"
+        ).format(here=HERE)
+        import subprocess, sys as _sys
+        results = set()
+        for seed in ("0", "1", "2", "3", "7", "42"):
+            out = subprocess.run([_sys.executable, "-c", program], capture_output=True, text=True,
+                                 env=dict(os.environ, PYTHONHASHSEED=seed, PYTHONDONTWRITEBYTECODE="1"))
+            self.assertEqual(out.returncode, 0, out.stderr)
+            results.add(out.stdout.strip())
+        self.assertEqual(results, {"True True False"})
+
+    def test_non_literal_count_is_dropped(self):
+        sub, dropped = igs.subset(minimal_shape(SH.maxCount, lib("one")))
+        self.assertNotIn((lib("S-p"), SH.maxCount, None), sub)
+        self.assertIn((lib("S-p"), SH.minCount, Literal(1)), sub)
+        self.assertIn("would throw", {(x, p): r for x, p, r in dropped}[(lib("S-p"), SH.maxCount)])
+
+    # 2: a reason describes only the dropped object
+    def test_dropped_link_reason_does_not_describe_a_kept_sibling(self):
+        g = minimal_shape(SH.minCount, Literal(1))
+        g.add((lib("S"), SH.property, lib("Bad-p")))
+        g.add((lib("Bad-p"), SH.path, BNode()))
+        sub, dropped = igs.subset(g)
+        self.assertIn((lib("S-p"), SH.minCount, Literal(1)), sub)
+        reasons = [r for x, p, r in dropped if x == lib("S") and p == SH.property]
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("Bad-p", reasons[0])
+        self.assertNotIn("S-p", reasons[0])
+        self.assertNotIn("no sh:targetClass", reasons[0])
+
+    def test_closed_false_beside_closed_true_names_its_own_condition(self):
+        g = minimal_shape(SH.minCount, Literal(1))
+        g.add((lib("S"), SH.closed, Literal(True)))
+        g.add((lib("S"), SH.closed, Literal(False)))
+        sub, dropped = igs.subset(g)
+        self.assertIn((lib("S"), SH.closed, Literal(True)), sub)
+        reason = {(x, p): r for x, p, r in dropped}[(lib("S"), SH.closed)]
+        self.assertIn("only sh:closed true is read", reason)
+        self.assertNotIn("no sh:targetClass", reason)
+
+    # 3: check-serialised is a real gate
+    def test_check_serialised_rejects_blank_lines_comments_and_asserted_inferences(self):
+        a = f"<{LIB}a> <{RDF.type}> <{LIB}Work> .".encode()
+        b = f"<{LIB}b> <{RDF.type}> <{LIB}Work> .".encode()
+        self.assertTrue(any("not exactly one" in f for f in build.check_serialised(a + b"\n\n" + b + b"\n", b"")))
+        self.assertTrue(any("not exactly one" in f for f in build.check_serialised(a + b"\n# note\n", b"")))
+        self.assertTrue(any("repeats an asserted triple" in f for f in build.check_serialised(a + b"\n", a + b"\n")))
+        self.assertTrue(any("newline" in f for f in build.check_serialised(a, b"")))
+
+    # 5: a sh:targetQuery shape needs its own case even beside a class-targeted sibling
+    def test_target_query_sibling_is_its_own_kind(self):
+        g = minimal_shape(SH.minCount, Literal(1))
+        g.add((lib("Q"), RDF.type, SH.NodeShape))
+        g.add((lib("Q"), igs.TARGET_QUERY, Literal("MATCH (focus:lib__Copy)")))
+        g.add((lib("Q"), SH.property, lib("Q-p")))
+        g.add((lib("Q-p"), SH.path, lib("barcode")))
+        g.add((lib("Q-p"), SH.minCount, Literal(1)))
+        sub, _ = igs.subset(g)
+        kept = lv.kept_kinds(sub, module())
+        generated = {k for k, _, _ in lv.fail_cases(sub, module(), config())}
+        self.assertIn("minCount", generated)
+        self.assertIn("minCount (sh:targetQuery)", [k for k in kept if k not in generated])
+
+    # 6: a manual case must report the kind's component, and the list must be present
+    def report(self, **extra):
+        man = {"input_fingerprint": "f", "shapes_fingerprint": "s"}
+        rep = Build.good_report(None, man)
+        rep.update(extra)
+        return man, rep
+
+    def test_manual_case_with_the_wrong_component_does_not_count(self):
+        case = {"kind": "nodeClass", "passed": True, "cypher": "MATCH", "focus": "x", "components": ["NotAComponent"]}
+        man, rep = self.report(kinds_without_case=["nodeClass"], manual_cases=[case])
+        self.assertTrue(any("no fail case" in f for f in build.check_report(man, rep)))
+        case["components"] = ["http://www.w3.org/ns/shacl#ClassConstraintComponent"]
+        self.assertEqual(build.check_report(man, rep), [])
+
+    def test_missing_kinds_without_case_fails(self):
+        man, rep = self.report()
+        rep.pop("kinds_without_case")
+        self.assertIn("report has no kinds_without_case list (load_verify.py writes one, empty or not)",
+                      build.check_report(man, rep))
+
+    # 7: no carry without versions and jar checksums
+    def test_no_carry_when_versions_or_jars_are_empty(self):
+        case = {"kind": "closed", "cypher": "MATCH", "focus": "x", "components": ["C"], "passed": True}
+        same = {"input_fingerprint": "f", "shapes_fingerprint": "s", "versions": {"n10s": "1"},
+                "plugin_jars_sha256": {}}
+        self.assertEqual(lv.carried_manual_cases(dict(same, manual_cases=[case]), dict(same)), [])
+        same = dict(same, plugin_jars_sha256={"n10s.jar": "a"})
+        old = {k: v for k, v in same.items() if k != "versions"}
+        self.assertEqual(lv.carried_manual_cases(dict(old, manual_cases=[case]), dict(old)), [])
+
+    # 8: no exit leaves a report check-report would accept
+    def test_exit_2_sets_a_passing_report_aside(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "r.json")
+            man, rep = self.report()
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(rep, f)
+            env = {k: v for k, v in os.environ.items() if k != "NEO4J_PASSWORD"}
+            with mock.patch.dict(os.environ, env, clear=True):
+                code, out = run_main(lv.main, ["--config", CONFIG, "--shapes", SHAPES, "--bolt", "bolt://x",
+                                               "--import-dir", tmp, "--merged", MODULE, "--loadable", MODULE,
+                                               "--inferred", MODULE, "--report", path, MODULE])
+            self.assertEqual(code, 2, out)
+            self.assertFalse(os.path.exists(path))
+            with open(path + ".previous", encoding="utf-8") as f:
+                moved = json.load(f)
+        self.assertIn("report was invalidated", " ".join(build.check_report(man, moved)))
+
+    # 10: printed commands are shell-quoted
+    def test_printed_container_name_is_quoted(self):
+        self.assertEqual(lv.remove_command({"--container": "a; rm -rf x"}), "docker rm -f -v 'a; rm -rf x'")
+        self.assertIn("--report 'my report.json'", lv.check_report_command("my report.json"))
+
+
+def skill_text(*parts):
+    with open(os.path.join(HERE, "..", *parts), encoding="utf-8") as f:
+        return f.read()
+
+
+class DocsAgreeWithScripts(unittest.TestCase):
+    """Quick check 6, documentation findings: the copies an agent follows say what the scripts do."""
+
+    # 4: the step 4 gate is on every list that leads past step 4
+    def test_check_serialised_is_on_every_copy_of_the_procedure(self):
+        running = skill_text("references", "running.md")
+        ci = running[running.index("1. **Split the steps"):running.index("2. **Pin every tool")]
+        self.assertIn("build.py check-serialised", ci)
+        pipeline = skill_text("references", "pipeline.md")
+        self.assertIn("check-serialised", pipeline[pipeline.index("5. **Write `loadable.nt`"):pipeline.index("7. **Rule 4b only")])
+        self.assertIn("check-serialised", skill_text("README.md"))
+        self.assertIn("check-serialised", skill_text("scripts", "validate_data.py"))
+        self.assertIn("check-serialised", skill_text("..", "ontology", "SKILL.md"))
+
+    # 9: no copy says the load follows the property kind
+    def test_no_copy_says_the_load_follows_the_kind(self):
+        self.assertNotIn("decide relationship or value from the kind", skill_text("..", "ontology", "references", "domain-model.md"))
+        rules = skill_text("references", "design-rules.md")
+        self.assertNotIn("make every value of it load the same way", rules)
+        self.assertNotIn("owl:AnnotationProperty .                         # node property\n", rules)
+
+    # 10: the run file quotes its values, and every source line is quoted
+    def test_run_env_is_written_quoted(self):
+        running = skill_text("references", "running.md")
+        self.assertIn("CONTAINER=%q", running)
+        self.assertNotIn(". <run folder>/run.env", running)
+        self.assertNotIn("cypher-shell -u neo4j -p", skill_text("references", "pipeline.md"))
+
+    # 11: step 2 and the changelog use the own_namespaces definition
+    def test_own_namespaces_wording(self):
+        self.assertNotIn("every namespace you own, and every standard namespace", skill_text("SKILL.md"))
+        self.assertNotIn("The rules cover every namespace you own**", skill_text("references", "versions.md"))
+
+    # 12 and 13: the docstrings say what the code does
+    def test_docstrings(self):
+        self.assertIn("leaves the subset with its edges", igs.__doc__)
+        self.assertIn("--container, else $LPG_CONTAINER, else", lv.__doc__)
 
 
 if __name__ == "__main__":

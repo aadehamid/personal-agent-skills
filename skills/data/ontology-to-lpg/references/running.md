@@ -10,6 +10,7 @@ Serves the load step (rule 5, the container) and the running step. Read it befor
    check_projection_rules.py --config <config> --shapes <shapes>... --releases <folder> <data>...
    validate_data.py --config <config> --shapes <shapes>... <data>...
    build.py loadable --output <temporary>/loadable.nt <data>...
+   build.py check-serialised --loadable <temporary>/loadable.nt --inferred inferred.nt
    validate_data.py --config <config> --shapes <shapes>... <temporary>/loadable.nt inferred.nt
    build.py manifest --config <config> --shapes <shapes>... --loadable <temporary>/loadable.nt \
      --inferred inferred.nt --output projection-manifest.json --verify <data>...
@@ -36,7 +37,7 @@ Serves the load step (rule 5, the container) and the running step. Read it befor
    | `shapes_import_rows`, `in_graph_shape_constraints` | The rows the shapes import returned, and the `listShapes()` count (`pipeline.md`, rule 11). |
    | `shacl_violations_in_graph` | Violations after the load; must be 0. |
    | `fail_cases` | One object per generated case: kind, shape, focus, the Cypher, the expected and the reported components, and whether it passed (`pipeline.md`, rule 14). |
-   | `kinds_without_case`, `manual_cases` | Constraint kinds left in the graph (on a property the data uses, a closed shape, or a node-level `sh:class`, listed as `nodeClass`) with no generated case; and the cases written by hand for them (`pipeline.md`, rule 14). Every listed kind needs a passing manual case. |
+   | `kinds_without_case`, `manual_cases` | Constraint kinds left in the graph (on a property the data uses, a closed shape, or a node-level `sh:class`, listed as `nodeClass`; a kind on a `sh:targetQuery` shape carries the suffix ` (sh:targetQuery)`) with no generated case; and the cases written by hand for them (`pipeline.md`, rule 14). Every listed kind needs a passing manual case that reports one of the kind's components (`EXPECTED` in `build.py`). |
    | `mutant`, `in_graph_mutant_violations` | The mutant's focus and property, its violations (must be above 0) and the violations after the restore (must be 0). |
    | `export_rows`, `schema_rows_skipped`, `roundtrip_lost`, `roundtrip_added` | The raw export rows, the schema rows left out, and the triples lost and added; the last two must be 0. |
    | `determinism_hash_sorted`, `determinism_hash_shuffled` | Must be equal (`pipeline.md`, rule 17). |
@@ -44,7 +45,7 @@ Serves the load step (rule 5, the container) and the running step. Read it befor
    | `versions`, `plugin_jars_sha256` | The configuration's versions, and each jar's SHA-256 in the plugins folder. |
    | `samples` | Up to ten lost or added triples, five violations and five failed cases. |
 
-   `build.py check-report` fails when the report's fingerprints differ from the manifest's, or when any check in it did not pass; it also fails when a fail case did not fire, when the mutant object is missing, caught nothing or was not restored, or when a kind in `kinds_without_case` has no complete passing manual case (`pipeline.md`, rule 14). The template, with its empty values, fails on purpose. *Why:* a projection result that outlives its inputs is a false pass, and a shape can change while the loaded triples do not.
+   `build.py check-report` fails when the report's fingerprints differ from the manifest's, or when any check in it did not pass; it also fails when a fail case did not fire, when the mutant object is missing, caught nothing or was not restored, when the report has no `kinds_without_case` list, when a listed kind has no complete passing manual case that reports one of its components (`pipeline.md`, rule 14), or when the report carries an `invalidated` field (a report `load_verify.py` set aside). The template, with its empty values, fails on purpose. *Why:* a projection result that outlives its inputs is a false pass, and a shape can change while the loaded triples do not.
 
 4. **Commit `inferred.nt`, the manifest and the report together, after one full workstation run.** Keep `loadable.nt`, `merged.ttl` and the downloads out of the repository; they are rebuilt from the Turtle files. *Why:* the three describe one run, and CI compares them with each other.
 
@@ -58,7 +59,7 @@ Serves the load step (rule 5, the container) and the running step. Read it befor
    RUN=$(mktemp -d); chmod 711 "$RUN"; echo "$RUN"          # note this path; every later command starts from it
    mkdir -m 755 "$RUN/plugins" "$RUN/import"
    cp <downloads>/neosemantics-2025.06.1.jar "$RUN/plugins/"
-   ( umask 077; printf 'CONTAINER=%s\nPORT=%s\nPASSWORD=%s\nRUN=%s\n' lpg-projection 17687 "$(openssl rand -hex 12)" "$RUN" > "$RUN/run.env" )
+   ( umask 077; printf 'CONTAINER=%q\nPORT=%q\nPASSWORD=%q\nRUN=%q\n' lpg-projection 17687 "$(openssl rand -hex 12)" "$RUN" > "$RUN/run.env" )
    . "$RUN/run.env"
    docker run -d --name "$CONTAINER" -p "127.0.0.1:$PORT:7687" \
      -e NEO4J_AUTH="neo4j/$PASSWORD" -e NEO4J_PLUGINS='["apoc"]' \
@@ -71,7 +72,7 @@ Serves the load step (rule 5, the container) and the running step. Read it befor
    Then wait for the start, and stop on a failure. The check is a function that returns, so a failure ends the command and not your shell:
 
    ```bash
-   . <run folder>/run.env
+   . "<run folder>/run.env"
    wait_for_neo4j() {
      for i in $(seq 1 60); do
        docker logs "$CONTAINER" 2>&1 | grep -q 'Started.' && return 0
@@ -84,9 +85,9 @@ Serves the load step (rule 5, the container) and the running step. Read it befor
    wait_for_neo4j
    ```
 
-   Then, in this order, each command starting with `. <run folder>/run.env`:
+   Then, in this order, each command starting with `. "<run folder>/run.env"`:
    1. run `load_verify.py` as its docstring shows, with `NEO4J_PASSWORD="$PASSWORD"`, `--bolt "bolt://127.0.0.1:$PORT"`, `--import-dir "$RUN/import"`, `--plugins-dir "$RUN/plugins"`, `--container "$CONTAINER"` and the configuration, shape, data, `merged.ttl`, `loadable.nt`, `inferred.nt` and `--report` arguments. It prints its next step with that container name;
-   2. if it lists kinds that still need a case, run a case for each by hand against the same container and add it to the report's `manual_cases` (`pipeline.md`, rule 14). The script writes the key as an empty list, and keeps cases already in the report only when a rerun has the same input and shapes fingerprints, tool versions and plugin jar checksums. If the existing report is not valid JSON, the script stops with exit 2 before it touches the database, so fix or move it. If `load_verify.py` exits 1 or 2, stop here: it has moved any previous report to `<report>.previous`, so do not run `check-report`; go to step 4;
+   2. if it lists kinds that still need a case, run a case for each by hand against the same container and add it to the report's `manual_cases` (`pipeline.md`, rule 14). Each case must report one of its kind's components (`EXPECTED` in `build.py`). The script writes the key as an empty list, and keeps cases already in the report only when a rerun has the same input and shapes fingerprints and the same, non-empty, tool versions and plugin jar checksums (a run without `--plugins-dir` carries nothing). If `load_verify.py` exits 1 or 2, stop here, do not run `check-report`, and go to step 4. What it leaves: on exit 2 because the existing report is not valid JSON, that file stays as it is; on any other exit 2, and on a run that fails, a previous report is moved to `<report>.previous` with an `invalidated` field, which `check-report` rejects; on exit 1 because a verify check failed, the report at `--report` holds the failing values, which `check-report` also rejects;
    3. run `build.py check-report --manifest projection-manifest.json --report projection-report.json`, as in rule 1;
    4. only then `docker rm -f -v "$CONTAINER"`, then delete the run folder with its `run.env`. If you stop before `check-report` passes, do the same anyway; `docker ps -a` then lists no projection container. The `-v` removes the container's anonymous `/data` and `/logs` volumes; without it each run leaves them behind, and after a few runs Docker's disk fills and Neo4j fails to start ("Database name 'system' is invalid"). *Why:* the load script reads `file:///import/...`; Community edition has one user database, so the determinism check empties it between loads (`pipeline.md`, rule 17); and a forgotten container with a known password is an open database on the workstation.
 

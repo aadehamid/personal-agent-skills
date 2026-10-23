@@ -15,7 +15,7 @@ From the projection of a multi-module enterprise ontology, every released packag
 
 1. **The guideline becomes this skill.** Repositories that kept a copy of 2.2 point here instead. The examples move to the library domain.
 2. **Inputs are released packages** (`inputs.md`, rules 1 and 2): each at its newest version, pinned by hand and checked against the release folder, each with its own shapes, plus the whole-graph shapes.
-3. **The rules cover every namespace you own**, each with a fixed prefix, and the standard namespaces are registered too (`inputs.md`, rules 3 and 4).
+3. **The rules cover every namespace you own whose terms are predicates or classes**, each with a fixed prefix, and the standard namespaces are registered too (`inputs.md`, rules 3 and 4).
 4. **Release exceptions are a mechanism, not a checklist line** (`inputs.md`, rules 5 and 6): keyed by the checker's exact message, each with its fix, failing on a stale entry. `scripts/check_projection_rules.py` implements it.
 5. **Rule 4a counts an inverse link as an end** and requires exactly one such link per node (`design-rules.md`, rule 4). Every qualified-relation class is registered with its ends.
 6. **`sh:pattern` and literal `sh:in` lists leave the graph**, found by testing n10s 2025.06.1 against the source (`pipeline.md`, rule 13); `sh:in` lists of IRIs stay. Each constraint kind is tested in the engine with a pass and a fail case (rule 14). `scripts/in_graph_shapes.py` generates the subset.
@@ -43,6 +43,8 @@ From the projection of a multi-module enterprise ontology, every released packag
 21. **From the fourth quick check:** a property shape whose path n10s cannot read leaves the subset with its `sh:property` link; drop reasons name only the conditions that failed; a node-level `sh:class` is a kind (`nodeClass`) that needs a manual case; a previous report that is not valid JSON stops `load_verify.py` before the database; hand cases carry over only when fingerprints, versions and plugin jars all match; a failed run moves the previous report to `<report>.previous`; the query constants are tested against the Java selection lines.
 
 22. **From the final run on a real multi-module ontology:** `build.py check-serialised` checks the step 4 gate; `load_verify.py --container` (or `$LPG_CONTAINER`) names the container in its next steps; `running.md` rule 5 keeps the run's container name, port and password in a mode-600 `run.env`, because agent tools start a fresh shell per command, and its start check returns instead of exiting the shell; the shapes list is built from the configuration's pins; `own_namespaces` needs only namespaces whose terms are predicates or classes; the pipeline's sections carry SKILL.md's step numbers.
+
+23. **From quick check 6:** a property shape keeps its usable paths beside a skipped one, in a fixed order; drop reasons describe only the dropped object; `check-serialised` rejects lines that are not one triple and inferences already asserted, and runs in CI; a constraint on a `sh:targetQuery` shape is its own kind; a manual case must report one of its kind's components, and the report must carry `kinds_without_case`; hand cases carry only with the same, non-empty, versions and jar checksums; every exit 2 except an unreadable report, and every failed run, moves a previous report aside marked `invalidated`; printed commands are shell-quoted.
 
 ## Migrating a project from 2.2
 

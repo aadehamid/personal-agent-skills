@@ -31,8 +31,12 @@ sh:hasValue, sh:in, sh:disjoint), except values n10s mishandles:
                                                checked before the load only
   sh:in with a literal member                  n10s compares a literal list as strings
   sh:hasValue with a literal                   n10s compares a literal value as a string
-  a path other than a predicate or an inverse  the query reads only sh:path and sh:path/sh:inversePath
-                                               (lines 76 and 77)
+  sh:path values other than a predicate or    the query reads only sh:path and sh:path/sh:inversePath
+  an inverse path                              (lines 76 and 77) and skips the rest (line 989); a
+                                               shape with no usable path, or none at all (line 992
+                                               throws), leaves the subset with its edges
+  a count, range or length that is not a       n10s reads it as a literal number and would throw
+  literal
   sh:message, sh:severity and the other        not constraints; left out of the in-graph file
   non-validating terms
 A shape with sh:deactivated true is removed first: SHACL skips it, and n10s does not read the flag.
@@ -137,16 +141,55 @@ def value_reason(shapes, p, o):
     return None
 
 
+NUMERIC_TERMS = {SH.minCount, SH.maxCount, SH.minLength, SH.maxLength, SH.minInclusive, SH.maxInclusive,
+                 SH.minExclusive, SH.maxExclusive}
+
+
 def path_reason(g, path):
-    """Why n10s cannot use this sh:path value, or None. It reads ?path and ?invPath (lines 76 and 77);
-    a blank-node path that is not an inverse path is skipped (line 989), and a missing path throws at
-    path.stringValue() (line 992), which the catch at line 1161 turns into the loss of every later row.
-    So a property shape with either is kept out of the subset entirely, edges included."""
-    if path is None:
-        return "it has no sh:path; n10s would throw on it and stop reading the remaining shapes (lines 992, 1161)"
-    if isinstance(path, URIRef) or isinstance(g.value(path, SH.inversePath), URIRef):
+    """Why n10s cannot use this one sh:path value, or None. It reads ?path and ?invPath (lines 76 and
+    77); a blank-node path that is not an inverse path is skipped (line 989)."""
+    if isinstance(path, URIRef) or (path is not None and isinstance(g.value(path, SH.inversePath), URIRef)):
         return None
     return "n10s reads a predicate or an inverse path only (lines 76 and 77); it skips this path (line 989)"
+
+
+def usable_paths(g, ps):
+    """The sh:path values of ps that n10s compiles, in a fixed order (not the store's order)."""
+    return sorted((o for o in g.objects(ps, SH.path) if path_reason(g, o) is None), key=lambda t: (isinstance(t, BNode), str(t)))
+
+
+def shape_path_reason(g, ps):
+    """Why n10s compiles no path of ps, or None when at least one of its sh:path values is usable. A
+    missing path throws at path.stringValue() (line 992), and the catch at line 1161 loses every
+    later row; a shape with only skipped paths compiles nothing. Either way the shape leaves the
+    subset with its edges."""
+    paths = list(g.objects(ps, SH.path))
+    if not paths:
+        return "it has no sh:path; n10s would throw on it and stop reading the remaining shapes (lines 992, 1161)"
+    if not usable_paths(g, ps):
+        return "none of its sh:path values is a predicate or an inverse path; n10s skips each (line 989)"
+    return None
+
+
+def value_reason(shapes, p, o):
+    """Why n10s cannot run this term of an applied property shape, or None when it can."""
+    if p in KNOWN_REASONS:
+        return KNOWN_REASONS[p]
+    if p == SH.node:
+        return "n10s does not run sh:node on a property shape (a value shape)"
+    if p == SH.datatype and o not in N10S_DATATYPES:
+        return f"n10s throws for sh:datatype {o.n3(shapes.namespace_manager)}"
+    if p == SH["in"] and any(isinstance(m, Literal) for m in Collection(shapes, o)):
+        return "n10s compares a literal sh:in list as strings"
+    if p == SH.hasValue and isinstance(o, Literal):
+        return "n10s compares a literal sh:hasValue as a string"
+    if p in NUMERIC_TERMS and not isinstance(o, Literal):
+        return f"n10s reads {p.n3(shapes.namespace_manager)} as a literal number; this value would throw"
+    if p == SH.path:
+        return path_reason(shapes, o)
+    if str(p).startswith(str(SH)) and p not in PROPERTY_TERMS:
+        return f"n10s's shape query does not read {p.n3(shapes.namespace_manager)}"
+    return None
 
 
 def _copy_tree(src, dst, node):
@@ -169,69 +212,78 @@ def _short(g, term):
     return term.n3(g.namespace_manager)
 
 
-def _property_reason(g, ps):
-    if path_reason(g, g.value(ps, SH.path)) is not None:
-        return "PROP_CONSTRAINT_QUERY: " + path_reason(g, g.value(ps, SH.path))
-    reachers = {n for n in g.subjects(SH.property, ps) if _is_shape(g, n)}
-    reachers |= {n for m in g.subjects(SH.property, ps) for n in g.subjects(SH.node, m) if _is_shape(g, n)}
-    if not reachers:
+def _source_facts(g, s):
+    """The conditions that keep s from being the ?ns of a property row, for any property shape."""
+    facts = []
+    if not _is_shape(g, s):
+        facts.append("it is not typed sh:NodeShape or sh:Shape (lines 72 to 74)")
+    if not _has_target(g, s):
+        facts.append("it has no sh:targetClass or sh:targetQuery (lines 84 to 94)")
+    return facts
+
+
+def property_reason(g, ps):
+    """Why no row of the property query applies ps, naming only the conditions that failed."""
+    reason = shape_path_reason(g, ps)
+    if reason:
+        return "PROP_CONSTRAINT_QUERY: " + reason
+    reachers = {n for n in g.subjects(SH.property, ps)} | {n for m in g.subjects(SH.property, ps)
+                                                            for n in g.subjects(SH.node, m)}
+    typed = sorted((n for n in reachers if _is_shape(g, n)), key=str)
+    if not typed:
         return ("PROP_CONSTRAINT_QUERY (lines 72 to 74) returns no row: no shape typed sh:NodeShape or sh:Shape "
                 "reaches it through sh:node?/sh:property")
-    return ("PROP_CONSTRAINT_QUERY (lines 84 to 94) returns no row: the shapes that reach it ("
-            + ", ".join(_short(g, n) for n in sorted(reachers, key=str))
+    return ("PROP_CONSTRAINT_QUERY (lines 84 to 94) returns no row: the typed shapes that reach it ("
+            + ", ".join(_short(g, n) for n in typed)
             + ") have no sh:targetClass or sh:targetQuery, and no rdfs:Class has it as its own sh:property")
 
 
-def structural_reason(g, s, p, kept_ps):
-    """Why no n10s query keeps this triple of s, naming only the conditions that failed for s."""
-    is_property_shape = (s, SH.path, None) in g or ((None, SH.property, s) in g and not _is_shape(g, s))
-    if is_property_shape:
-        return _property_reason(g, s)
+def node_reason(g, s, p, o, kept_ps):
+    """Why the triple (s, p, o) of a node shape is not in the subset, naming only what failed for it."""
+    if p == SH.property:
+        if o in kept_ps:
+            return "this link is not read, though the property shape is applied through another shape: " + \
+                "; ".join(_source_facts(g, s) or ["no row of the property query uses it"])
+        return f"its property shape {_short(g, o)} is not applied: " + property_reason(g, o)
+    if p == SH.node:
+        if (o, SH.property, None) not in g:
+            return f"PROP_CONSTRAINT_QUERY returns no row through it: {_short(g, o)} has no sh:property"
+        facts = _source_facts(g, s)
+        if (o, RDF.type, RDFS.Class) not in g:
+            facts.append(f"{_short(g, o)} is not an rdfs:Class with its own sh:property")
+        return "PROP_CONSTRAINT_QUERY returns no row through it: " + "; ".join(
+            facts or ["no property shape behind it is applied"])
     if p in (SH.closed, SH.ignoredProperties):
         facts = []
+        if p == SH.closed and o != Literal(True):
+            facts.append("only sh:closed true is read")
         if (s, RDF.type, SH.NodeShape) not in g:
             facts.append("it is not typed sh:NodeShape (sh:Shape is not enough for this query)")
-        if (s, SH.closed, Literal(True)) not in g:
+        if p == SH.ignoredProperties and (s, SH.closed, Literal(True)) not in g:
             facts.append("it does not say sh:closed true")
         if not _has_target(g, s):
-            if (s, RDF.type, RDFS.Class) in g:
-                facts.append("it has no sh:targetClass or sh:targetQuery, and its class branch cannot stand in: "
-                             "filter(?targetClass = ?ns) sits inside the union group (line 138), where ?ns is "
-                             "unbound, so that branch returns no row")
-            else:
-                facts.append("it has no sh:targetClass or sh:targetQuery")
-        return "NODE_CONSTRAINT_QUERY (lines 129 to 151) returns no row: " + "; ".join(facts)
+            facts.append("it has no sh:targetClass or sh:targetQuery" + (
+                ", and its class branch cannot stand in: filter(?targetClass = ?ns) sits inside the union group "
+                "(line 138), where ?ns is unbound, so that branch returns no row"
+                if (s, RDF.type, RDFS.Class) in g else ""))
+        return "NODE_CONSTRAINT_QUERY (lines 129 to 151) returns no row: " + "; ".join(facts or ["no row reads it"])
     if p == SH["class"]:
         facts = []
+        if not (isinstance(o, URIRef) or isinstance(g.value(o, SH["not"]), URIRef)):
+            facts.append("this sh:class value is neither an IRI nor sh:not of one")
         if (s, RDF.type, SH.NodeShape) not in g:
             facts.append("it is not typed sh:NodeShape")
         if not _has_target(g, s):
             facts.append("it has no sh:targetClass or sh:targetQuery" + (
                 " (its class branch filters on ?ns inside the union group, line 167, and returns no row)"
                 if (s, RDF.type, RDFS.Class) in g else ""))
-        if not any(isinstance(o, URIRef) or isinstance(g.value(o, SH["not"]), URIRef) for o in g.objects(s, SH["class"])):
-            facts.append("its sh:class is neither an IRI nor sh:not of one")
-        return "NODE_ADDITIONAL_CONSTRAINT_QUERY (lines 158 to 180) returns no row: " + "; ".join(facts)
-    if not _is_shape(g, s):
-        return "PROP_CONSTRAINT_QUERY (lines 72 to 74) returns no row: it is not typed sh:NodeShape or sh:Shape"
-    if p == SH.node:
-        reached = sorted(g.objects(s, SH.node), key=str)
-        own = [t for t in reached if (t, RDF.type, RDFS.Class) in g and (t, SH.property, None) in g]
-        if not _has_target(g, s) and not own:
-            return ("PROP_CONSTRAINT_QUERY (lines 84 to 94) returns no row: it has no sh:targetClass or sh:targetQuery, "
-                    "and the node it reaches (" + ", ".join(_short(g, t) for t in reached)
-                    + ") is not an rdfs:Class with its own sh:property")
-        behind = [ps for t in reached for ps in g.objects(t, SH.property)]
-        if not behind:
-            return "PROP_CONSTRAINT_QUERY returns no row: the node it reaches has no sh:property"
-        return "no property shape behind it is applied: " + "; ".join(
-            f"{_short(g, ps)}: {_property_reason(g, ps)}" for ps in sorted(behind, key=str))
-    pss = sorted(g.objects(s, SH.property), key=str)
-    if not pss:
-        return ("no n10s query returns a row for it: it has no sh:property, and it is not a targeted sh:NodeShape "
-                "with sh:closed true or a node-level sh:class")
-    return "none of its property shapes is applied: " + "; ".join(
-        f"{_short(g, ps)}: {_property_reason(g, ps)}" for ps in pss)
+        return "NODE_ADDITIONAL_CONSTRAINT_QUERY (lines 158 to 180) returns no row: " + "; ".join(
+            facts or ["no row reads it"])
+    facts = _source_facts(g, s)
+    if facts:
+        return "no n10s query applies this shape: " + "; ".join(facts)
+    return ("no n10s query applies this shape: none of its property shapes is applied, and it is not a "
+            "targeted sh:NodeShape with sh:closed true or a node-level sh:class")
 
 
 def _add_target(g, out, ns, target, is_query):
@@ -241,6 +293,10 @@ def _add_target(g, out, ns, target, is_query):
         out.add((ns, SH.targetClass, target))
     else:
         out.add((target, RDF.type, RDFS.Class))
+
+
+def _is_property_shape(g, s):
+    return (s, SH.path, None) in g or ((None, SH.property, s) in g and not _is_shape(g, s))
 
 
 def subset(shapes):
@@ -260,8 +316,7 @@ def subset(shapes):
     out = Graph()
     for prefix, ns in shapes.namespaces():
         out.bind(prefix, ns)
-    all_rows = property_rows(g)
-    rows = [row for row in all_rows if path_reason(g, g.value(row[1], SH.path)) is None]
+    rows = [row for row in property_rows(g) if shape_path_reason(g, row[1]) is None]
     for ns, ps, target, is_query in rows:
         for t in (SH.NodeShape, SH.Shape):
             if (ns, RDF.type, t) in g:
@@ -302,19 +357,21 @@ def subset(shapes):
         if (s, p, o) in out or p in NOT_CONSTRAINTS:
             continue
         recordable = str(p).startswith(str(SH)) or (p == RDF.type and o in SHAPE_TYPES)
-        if not recordable or (isinstance(s, BNode) and (s, SH.path, None) not in g
-                              and (None, SH.property, s) not in g):
+        if not recordable or (isinstance(s, BNode) and not _is_property_shape(g, s)):
             continue
         if s in kept_ps:
-            reason = value_reason(g, p, o)
-            reason = reason or f"n10s's shape query does not read {_short(g, p)}"
+            reason = value_reason(g, p, o) or f"n10s's shape query does not read {_short(g, p)}"
+        elif p in KNOWN_REASONS:
+            reason = KNOWN_REASONS[p]
+        elif _is_property_shape(g, s):
+            reason = property_reason(g, s)
         else:
-            reason = KNOWN_REASONS.get(p) or structural_reason(g, s, p, kept_ps)
+            reason = node_reason(g, s, p, o, kept_ps)
         dropped.append((s, p, reason))
     seen, unique = set(), []
-    for s, p, r in sorted(dropped, key=lambda t: (str(t[0]), str(t[1]))):
-        if (s, p) not in seen:
-            seen.add((s, p))
+    for s, p, r in sorted(dropped, key=lambda t: (str(t[0]), str(t[1]), t[2])):
+        if (s, p, r) not in seen:
+            seen.add((s, p, r))
             unique.append((s, p, r))
     return out, unique
 

@@ -7,7 +7,8 @@ Run: NEO4J_PASSWORD=... uv run --no-project --with rdflib --with neo4j python3 l
          --inferred inferred.nt --report projection-report.json [--plugins-dir <folder>]
          [--container <name>] <data.ttl>...
 
-The container name only goes into the printed next steps (default: $LPG_CONTAINER, else lpg-projection).
+The container name only goes into the printed next steps: --container, else $LPG_CONTAINER, else
+lpg-projection. Printed names and paths are shell-quoted.
 
 What it does, in order (references/pipeline.md, rules 8 to 17):
   1. Writes shapes-in-graph.ttl (in_graph_shapes.subset) and copies merged.ttl, loadable.nt and
@@ -27,9 +28,11 @@ What it does, in order (references/pipeline.md, rules 8 to 17):
   8. Hashes the graph, empties it, overwrites the import copy of loadable.nt with its lines shuffled
      (random.Random(12)), loads again, hashes again, and puts the sorted file back.
   9. Writes the report, with an empty manual_cases list, or with the cases already in the report when
-     its fingerprints, tool versions and plugin jars are the same. A previous report that is not valid
-     JSON stops the run before step 2 (exit 2). When the run fails, the previous report is moved to
-     <report>.previous, so check-report cannot accept it. Exits 0 when the generated checks passed (kinds still needing a
+     its fingerprints, tool versions and plugin jars are the same and present. A previous report that
+     is not valid JSON stops the run before step 2 (exit 2) and stays where it is. On any other exit 2,
+     and when the run fails, a previous report is moved to <report>.previous with an "invalidated"
+     field, which check-report rejects. When the verify checks fail, the report written at --report
+     holds the failing values, which check-report also rejects. Exits 0 when the generated checks passed (kinds still needing a
      case are left to build.py check-report and printed as the next step), 1 otherwise, 2 on bad input.
 
 The graph hash (graph_hash): every :Resource node as [uri, sorted labels, properties] and every
@@ -45,6 +48,7 @@ import json
 import os
 import random
 import re
+import shlex
 import shutil
 import sys
 
@@ -67,26 +71,8 @@ VALIDATE = ("CALL n10s.validation.shacl.validate() YIELD focusNode, propertyShap
 TAGGED_TEXT = re.compile(r"^(.*)@([A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*)$", re.S)
 INTEGERS = {XSD.integer, XSD.long, XSD.int, XSD.short, XSD.byte, XSD.nonNegativeInteger, XSD.positiveInteger}
 COMPONENT = "http://www.w3.org/ns/shacl#"
-EXPECTED = {
-    "minCount": {"CountConstraintComponent", "MinCountConstraintComponent"},
-    "maxCount": {"CountConstraintComponent", "MaxCountConstraintComponent"},
-    "inverseMinCount": {"CountConstraintComponent", "MinCountConstraintComponent"},
-    "inverseMaxCount": {"CountConstraintComponent", "MaxCountConstraintComponent"},
-    "closed": {"ClosedConstraintComponent"},
-    "nodeClass": {"ClassConstraintComponent"},
-    "disjoint": {"DisjointConstraintComponent"},
-    "datatype": {"DatatypeConstraintComponent"},
-    "class": {"ClassConstraintComponent"},
-    "in": {"InConstraintComponent"},
-    "nodeKind": {"NodeKindConstraintComponent"},
-    "hasValue": {"HasValueConstraintComponent"},
-    "minInclusive": {"ValueRangeConstraintComponent", "MinInclusiveConstraintComponent"},
-    "maxInclusive": {"ValueRangeConstraintComponent", "MaxInclusiveConstraintComponent"},
-    "minExclusive": {"ValueRangeConstraintComponent", "MinExclusiveConstraintComponent"},
-    "maxExclusive": {"ValueRangeConstraintComponent", "MaxExclusiveConstraintComponent"},
-    "minLength": {"LengthConstraintComponent", "MinLengthConstraintComponent"},
-    "maxLength": {"LengthConstraintComponent", "MaxLengthConstraintComponent"},
-}
+# Each constraint kind's components, shared with build.py check-report.
+EXPECTED = build.EXPECTED
 
 
 class Failed(Exception):
@@ -197,7 +183,7 @@ def fail_cases(subset, data, cfg):
     cases = {}
     for cls, ps in target_pairs(subset):
         T = _label(cls, cfg)
-        path = subset.value(ps, SH.path)
+        path = _first_path(subset, ps)
         if path is None:
             continue
         inverse = subset.value(path, SH.inversePath) if not isinstance(path, URIRef) else None
@@ -287,46 +273,62 @@ def fail_cases(subset, data, cfg):
     return [(kind, ps, cypher) for kind, (ps, cypher) in sorted(cases.items())]
 
 
+def _first_path(subset, ps):
+    """The path a case uses: the first usable sh:path in a fixed order (in_graph_shapes.usable_paths)."""
+    paths = igs.usable_paths(subset, ps)
+    return paths[0] if paths else None
+
+
+def _property_kinds(subset, ps, used):
+    kinds = set()
+    for path in igs.usable_paths(subset, ps):
+        inverse = subset.value(path, SH.inversePath) if not isinstance(path, URIRef) else None
+        if (inverse or path) in used:
+            break
+    else:
+        return kinds
+    min_count = subset.value(ps, SH.minCount)
+    if min_count is not None and int(min_count) >= 1:
+        kinds.add("inverseMinCount" if inverse else "minCount")
+    if subset.value(ps, SH.maxCount) is not None:
+        kinds.add("inverseMaxCount" if inverse else "maxCount")
+    dt = subset.value(ps, SH.datatype)
+    if dt is not None:
+        kinds.add(f"datatype {dt.n3(subset.namespace_manager)}")
+    node_kind = subset.value(ps, SH.nodeKind)
+    if node_kind is not None:
+        kinds.add("nodeKind" if node_kind == SH.IRI else f"nodeKind {node_kind.n3(subset.namespace_manager)}")
+    for p, kind in ((SH["class"], "class"), (SH["in"], "in"), (SH.hasValue, "hasValue"), (SH.disjoint, "disjoint"),
+                    (SH.minInclusive, "minInclusive"), (SH.maxInclusive, "maxInclusive"),
+                    (SH.minExclusive, "minExclusive"), (SH.maxExclusive, "maxExclusive"),
+                    (SH.maxLength, "maxLength")):
+        if subset.value(ps, p) is not None:
+            kinds.add(kind)
+    min_length = subset.value(ps, SH.minLength)
+    if min_length is not None and int(min_length) > 0:
+        kinds.add("minLength")
+    return kinds
+
+
 def kept_kinds(subset, data):
     """The constraint kinds left in the graph that can check something now: those on a property the
-    data uses, closed node shapes and node-level sh:class. Each needs a fail case (pipeline.md, rule 14)."""
+    data uses, closed node shapes and node-level sh:class. Each needs a fail case (pipeline.md, rule 14).
+    A kind on a sh:targetQuery shape is its own kind (suffix " (sh:targetQuery)"): the generator picks
+    nodes by class only, so a class-targeted case of the same constraint does not cover it."""
     used = set(data.predicates())
     kinds = set()
-    if igs.closed_rows(subset):
-        kinds.add("closed")
-    if igs.node_class_rows(subset):
+    for _, _, is_query in igs.closed_rows(subset):
+        kinds.add("closed" + (build.QUERY_SUFFIX if is_query else ""))
+    for _, _, is_query in igs.node_class_rows(subset):
         # A node-level sh:class (NODE_ADDITIONAL_CONSTRAINT_QUERY): no generator, so it needs a manual case.
-        kinds.add("nodeClass")
-    for ps in sorted({row[1] for row in igs.property_rows(subset)}, key=str):
-        path = subset.value(ps, SH.path)
-        inverse = subset.value(path, SH.inversePath) if path is not None and not isinstance(path, URIRef) else None
-        if (inverse or path) not in used:
-            continue
-        min_count = subset.value(ps, SH.minCount)
-        if min_count is not None and int(min_count) >= 1:
-            kinds.add("inverseMinCount" if inverse else "minCount")
-        if subset.value(ps, SH.maxCount) is not None:
-            kinds.add("inverseMaxCount" if inverse else "maxCount")
-        dt = subset.value(ps, SH.datatype)
-        if dt is not None:
-            kinds.add(f"datatype {dt.n3(subset.namespace_manager)}")
-        node_kind = subset.value(ps, SH.nodeKind)
-        if node_kind is not None:
-            kinds.add("nodeKind" if node_kind == SH.IRI else f"nodeKind {node_kind.n3(subset.namespace_manager)}")
-        for p, kind in ((SH["class"], "class"), (SH["in"], "in"), (SH.hasValue, "hasValue"), (SH.disjoint, "disjoint"),
-                        (SH.minInclusive, "minInclusive"), (SH.maxInclusive, "maxInclusive"),
-                        (SH.minExclusive, "minExclusive"), (SH.maxExclusive, "maxExclusive"),
-                        (SH.maxLength, "maxLength")):
-            if subset.value(ps, p) is not None:
-                kinds.add(kind)
-        min_length = subset.value(ps, SH.minLength)
-        if min_length is not None and int(min_length) > 0:
-            kinds.add("minLength")
+        kinds.add("nodeClass" + (build.QUERY_SUFFIX if is_query else ""))
+    for _, ps, _, is_query in igs.property_rows(subset):
+        kinds |= {k + (build.QUERY_SUFFIX if is_query else "") for k in _property_kinds(subset, ps, used)}
     return sorted(kinds)
 
 
 def expected_components(kind):
-    return EXPECTED["datatype"] if kind.startswith("datatype") else EXPECTED.get(kind, set())
+    return build.expected_components(kind)
 
 
 def component(value):
@@ -337,7 +339,7 @@ def mutant_case(subset, data, cfg):
     """The deliberate mutant: the first minCount case on a literal value (pipeline.md, rule 15)."""
     literal_preds = {p for _, p, o in data if isinstance(o, Literal)}
     for cls, ps in target_pairs(subset):
-        path, mc = subset.value(ps, SH.path), subset.value(ps, SH.minCount)
+        path, mc = _first_path(subset, ps), subset.value(ps, SH.minCount)
         if isinstance(path, URIRef) and path in literal_preds and mc is not None and int(mc) >= 1:
             return _label(cls, cfg), _label(path, cfg)
     return None
@@ -478,7 +480,7 @@ def run(driver, cfg, data_paths, shape_paths, import_dir, merged, loadable, infe
 
 
 def check_report_command(report_path):
-    return f"build.py check-report --manifest <projection-manifest.json> --report {report_path}"
+    return f"build.py check-report --manifest <projection-manifest.json> --report {shlex.quote(report_path)}"
 
 
 DEFAULT_CONTAINER = "lpg-projection"
@@ -490,7 +492,9 @@ def container_name(opts):
 
 
 def remove_command(opts):
-    return f"docker rm -f -v {container_name(opts)}"
+    return f"docker rm -f -v {shlex.quote(container_name(opts))}"
+
+
 # A hand case ran against one engine, one set of jars and one configuration; when any of these
 # changes, the case must run again.
 CARRY_KEYS = ("input_fingerprint", "shapes_fingerprint", "versions", "plugin_jars_sha256")
@@ -513,19 +517,35 @@ def read_previous_report(report_path):
 
 def carried_manual_cases(old, report):
     """Manual cases from the previous report, kept only when it describes the same inputs, shapes,
-    tool versions and plugin jars as this run."""
+    tool versions and plugin jars as this run. Missing or empty versions or jar checksums (a run
+    without --plugins-dir) never match: nothing shows the cases ran against this engine."""
     if not old:
         return []
+    for key in ("versions", "plugin_jars_sha256"):
+        if not old.get(key) or not report.get(key):
+            return []
     same = all(old.get(k) == report.get(k) for k in CARRY_KEYS)
     return (old.get("manual_cases") or []) if same else []
 
 
-def set_aside(report_path):
-    """Move a previous report out of the way after a failed run, so check-report cannot accept it."""
-    if os.path.exists(report_path):
-        os.replace(report_path, report_path + ".previous")
-        return report_path + ".previous"
-    return None
+def set_aside(report_path, why):
+    """After a run that stops (exit 1 or 2), move a previous report to <report>.previous, marked
+    "invalidated" with the reason, so check-report accepts neither file. A file that is not a JSON
+    object stays where it is: check-report cannot read it either, and hand edits are kept."""
+    if not report_path or not os.path.exists(report_path):
+        return None
+    try:
+        with open(report_path, encoding="utf-8") as f:
+            old = json.load(f)
+    except ValueError:
+        return None
+    if not isinstance(old, dict):
+        return None
+    old["invalidated"] = why
+    with open(report_path + ".previous", "w", encoding="utf-8") as f:
+        f.write(json.dumps(old, indent=2, sort_keys=True, default=str) + "\n")
+    os.remove(report_path)
+    return report_path + ".previous"
 
 
 def passed(report):
@@ -536,32 +556,43 @@ def passed(report):
             and all(c["passed"] for c in report["fail_cases"]))
 
 
+def stop_with_2(opts, message):
+    moved = set_aside(opts.get("--report"), f"load_verify.py stopped with exit 2: {message}")
+    print(f"ERROR {message}", file=sys.stderr)
+    if moved:
+        print(f"The previous report is now {moved}, marked invalidated; do not run check-report.", file=sys.stderr)
+    return 2
+
+
 def main(argv):
+    opts = {}
     try:
         opts, data = build.options(argv)
         build.need(opts, "--config", "--bolt", "--import-dir", "--merged", "--loadable", "--inferred", "--report")
+        previous = read_previous_report(opts["--report"])
+    except (OSError, ValueError) as exc:
+        return stop_with_2(opts, str(exc))
+    try:
         if not data or not opts.get("--shapes"):
             raise ValueError("give the data files and at least one --shapes file")
         password = os.environ.get("NEO4J_PASSWORD")
         if not password:
             raise ValueError("set NEO4J_PASSWORD")
         cfg = build.load_config(opts["--config"])
-        previous = read_previous_report(opts["--report"])
     except (OSError, ValueError) as exc:
-        print(f"ERROR {exc}", file=sys.stderr)
-        return 2
+        return stop_with_2(opts, str(exc))
     if cfg.rule4 == "4b":
-        print(cpr.RULE_4B_STOP.format(script="load_verify.py"), file=sys.stderr)
-        return 2
+        return stop_with_2(opts, cpr.RULE_4B_STOP.format(script="load_verify.py").removeprefix("ERROR "))
     from neo4j import GraphDatabase
     driver = GraphDatabase.driver(opts["--bolt"], auth=("neo4j", password))
     try:
         report = run(driver, cfg, data, opts["--shapes"], opts["--import-dir"], opts["--merged"],
                      opts["--loadable"], opts["--inferred"], opts.get("--plugins-dir"))
     except Exception as exc:  # Failed, a driver error or a file error: the run produced no report
-        moved = set_aside(opts["--report"])
+        moved = set_aside(opts["--report"], f"load_verify.py failed: {exc}")
         print(f"FAIL {exc}")
-        print("Stop: do not run check-report. " + (f"The previous report is now {moved}. " if moved else "")
+        print("Stop: do not run check-report. "
+              + (f"The previous report is now {moved}, marked invalidated. " if moved else "")
               + f"Remove the container ({remove_command(opts)}), fix the cause, and rerun.")
         return 1
     finally:

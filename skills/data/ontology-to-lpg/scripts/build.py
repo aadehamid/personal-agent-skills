@@ -158,15 +158,76 @@ REPORT_CHECKS = (
 )
 
 
+QUERY_SUFFIX = " (sh:targetQuery)"
+EXPECTED = {
+    "minCount": {"CountConstraintComponent", "MinCountConstraintComponent"},
+    "maxCount": {"CountConstraintComponent", "MaxCountConstraintComponent"},
+    "inverseMinCount": {"CountConstraintComponent", "MinCountConstraintComponent"},
+    "inverseMaxCount": {"CountConstraintComponent", "MaxCountConstraintComponent"},
+    "closed": {"ClosedConstraintComponent"},
+    "nodeClass": {"ClassConstraintComponent"},
+    "disjoint": {"DisjointConstraintComponent"},
+    "datatype": {"DatatypeConstraintComponent"},
+    "class": {"ClassConstraintComponent"},
+    "in": {"InConstraintComponent"},
+    "nodeKind": {"NodeKindConstraintComponent"},
+    "hasValue": {"HasValueConstraintComponent"},
+    "minInclusive": {"ValueRangeConstraintComponent", "MinInclusiveConstraintComponent"},
+    "maxInclusive": {"ValueRangeConstraintComponent", "MaxInclusiveConstraintComponent"},
+    "minExclusive": {"ValueRangeConstraintComponent", "MinExclusiveConstraintComponent"},
+    "maxExclusive": {"ValueRangeConstraintComponent", "MaxExclusiveConstraintComponent"},
+    "minLength": {"LengthConstraintComponent", "MinLengthConstraintComponent"},
+    "maxLength": {"LengthConstraintComponent", "MaxLengthConstraintComponent"},
+}
+
+
+def expected_components(kind):
+    """The components a case of this kind must report. A kind on a sh:targetQuery shape has the
+    same components as the class-targeted kind."""
+    base = kind[:-len(QUERY_SUFFIX)] if kind.endswith(QUERY_SUFFIX) else kind
+    for family in ("datatype", "nodeKind"):
+        if base.startswith(family):
+            return EXPECTED[family]
+    return EXPECTED.get(base, set())
+
+
+def component_name(value):
+    return str(value).rsplit("#", 1)[-1].strip()
+
+
+def _lines_and_graph(name, data, fails):
+    """Every line of an N-Triples file must be exactly one triple: no blank line, no comment, no
+    other text. Returns (lines, graph)."""
+    text = data.decode("utf-8")
+    if text and not text.endswith("\n"):
+        fails.append(f"{name} does not end with a newline")
+    lines = text.split("\n")[:-1] if text.endswith("\n") else text.split("\n") if text else []
+    graph = Graph()
+    for number, line in enumerate(lines, 1):
+        one = Graph()
+        try:
+            one.parse(data=line + "\n", format="nt")
+        except Exception:  # rdflib raises several parser types
+            one = Graph()
+        if len(one) != 1 or line != line.strip():
+            fails.append(f"{name} line {number} is not exactly one N-Triples triple: {line[:80]!r}")
+        graph += one
+    return [line.encode("utf-8") for line in lines], graph
+
+
 def check_serialised(loadable_bytes, inferred_bytes):
-    """The step 4 gate: byte order without duplicates in both files, and only kept inferences."""
+    """The step 4 gate: each file holds one triple per line, in byte order, without duplicates;
+    inferred.nt holds only kept inferences, none of them already asserted in loadable.nt."""
     fails = []
+    graphs = {}
     for name, data in (("loadable.nt", loadable_bytes), ("inferred.nt", inferred_bytes)):
-        lines = [line for line in data.split(b"\n") if line.strip()]
+        lines, graphs[name] = _lines_and_graph(name, data, fails)
         if lines != sorted(set(lines)):
             fails.append(f"{name} is not in byte order without duplicates (LC_ALL=C sort -u)")
-    inferred_graph = Graph().parse(data=inferred_bytes.decode("utf-8"), format="nt")
+    inferred_graph, loadable_graph = graphs["inferred.nt"], graphs["loadable.nt"]
     for s, p, o in sorted(inferred_graph, key=lambda t: tuple(str(x) for x in t)):
+        if (s, p, o) in loadable_graph:
+            fails.append(f"inferred.nt repeats an asserted triple from loadable.nt: {s.n3()} {p.n3()} {o.n3()}")
         if p not in KEPT_PREDICATES or not isinstance(s, URIRef) or not isinstance(o, URIRef) \
                 or str(o).startswith(BUILTIN):
             fails.append(f"inferred.nt holds a triple the inferred filter drops: {s.n3()} {p.n3()} {o.n3()}")
@@ -191,10 +252,18 @@ def check_report(man, rep):
         fails.append(f"report fail cases did not fail as expected: {', '.join(map(str, failed))}")
     # A manual case counts only when it records what it ran and what it saw: the Cypher change, the
     # focus node, and at least one component validate() reported on that node.
+    # It counts only when it reported a component the kind expects (EXPECTED).
     by_hand = {c.get("kind") for c in rep.get("manual_cases") or []
                if c.get("passed") is True and str(c.get("cypher") or "").strip() and str(c.get("focus") or "").strip()
-               and isinstance(c.get("components"), list) and any(str(x).strip() for x in c["components"])}
-    missing = [k for k in rep.get("kinds_without_case") or [] if k not in by_hand]
+               and isinstance(c.get("components"), list)
+               and {component_name(x) for x in c["components"]} & expected_components(str(c.get("kind")))}
+    if rep.get("invalidated"):
+        fails.append(f"report was invalidated: {rep['invalidated']}")
+    listed = rep.get("kinds_without_case")
+    if not isinstance(listed, list):
+        fails.append("report has no kinds_without_case list (load_verify.py writes one, empty or not)")
+        listed = []
+    missing = [k for k in listed if k not in by_hand]
     if missing:
         fails.append("report lists constraint kinds left in the graph with no fail case: "
                      + ", ".join(missing) + " (pipeline.md, rule 14)")
