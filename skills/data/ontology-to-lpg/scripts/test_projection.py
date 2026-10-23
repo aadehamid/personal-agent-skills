@@ -1731,5 +1731,65 @@ class RoundFive(unittest.TestCase):
         self.assertFalse(os.path.exists(path))
 
 
+class FinalRun(unittest.TestCase):
+    """The final real-ontology run's code items; each failed on c82da9a."""
+
+    # 6: the container name comes from --container or $LPG_CONTAINER and is printed
+    def main_with(self, extra_args=(), env=None):
+        import sys as _sys
+        from unittest import mock
+        report = {"shacl_violations_in_graph": 0, "in_graph_mutant_violations": 1, "mutant": {"after_restore": 0},
+                  "roundtrip_lost": 0, "roundtrip_added": 0, "determinism_hash_sorted": "h",
+                  "determinism_hash_shuffled": "h", "fail_cases": [], "kinds_without_case": [],
+                  "shapes_import_rows": 1, "in_graph_shape_constraints": 1, "nodes": 1, "relationships": 0}
+        environ = {"NEO4J_PASSWORD": "x"}
+        environ.update(env or {})
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, environ, clear=False), \
+                mock.patch.dict(_sys.modules, {"neo4j": mock.MagicMock()}), \
+                mock.patch.object(lv, "run", return_value=report):
+            if not env:
+                os.environ.pop("LPG_CONTAINER", None)
+            args = ["--config", CONFIG, "--shapes", SHAPES, "--bolt", "bolt://127.0.0.1:1", "--import-dir", tmp,
+                    "--merged", MODULE, "--loadable", MODULE, "--inferred", MODULE,
+                    "--report", os.path.join(tmp, "r.json"), *extra_args, MODULE]
+            return run_main(lv.main, args)
+
+    def test_container_option_is_printed(self):
+        code, out = self.main_with(["--container", "lpg-run-7"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("docker rm -f -v lpg-run-7", out)
+        self.assertNotIn("lpg-projection", out)
+
+    def test_container_environment_variable_is_printed(self):
+        code, out = self.main_with(env={"LPG_CONTAINER": "lpg-env-run"})
+        self.assertEqual(code, 0, out)
+        self.assertIn("docker rm -f -v lpg-env-run", out)
+
+    def test_default_container_name(self):
+        code, out = self.main_with()
+        self.assertIn("docker rm -f -v lpg-projection", out)
+
+    # 7: build.py checks the step 4 gate items
+    def test_check_serialised_passes_on_the_build_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            loadable, inferred_path = os.path.join(tmp, "loadable.nt"), os.path.join(tmp, "inferred.nt")
+            self.assertEqual(run_main(build.main, ["loadable", "--output", loadable, MODULE])[0], 0)
+            with open(inferred_path, "w", encoding="utf-8") as f:
+                f.write(f"<{LIB}work/W-0043> <{RDF.type}> <{LIB}Work> .\n")
+            code, out = run_main(build.main, ["check-serialised", "--loadable", loadable, "--inferred", inferred_path])
+        self.assertEqual(code, 0, out)
+
+    def test_check_serialised_finds_order_duplicates_and_declarations(self):
+        a = f"<{LIB}a> <{RDF.type}> <{LIB}Work> .".encode()
+        b = f"<{LIB}b> <{RDF.type}> <{LIB}Work> .".encode()
+        self.assertTrue(any("byte order" in f for f in build.check_serialised(b + b"\n" + a + b"\n", b"")))
+        self.assertTrue(any("byte order" in f for f in build.check_serialised(a + b"\n" + a + b"\n", b"")))
+        declaration = f"<{LIB}a> <{RDF.type}> <{OWL.NamedIndividual}> .\n".encode()
+        self.assertTrue(any("filter drops" in f for f in build.check_serialised(b"", declaration)))
+        label = f'<{LIB}a> <{RDFS.label}> "x" .\n'.encode()
+        self.assertTrue(any("filter drops" in f for f in build.check_serialised(b"", label)))
+        self.assertEqual(build.check_serialised(a + b"\n" + b + b"\n", a + b"\n"), [])
+
+
 if __name__ == "__main__":
     unittest.main()

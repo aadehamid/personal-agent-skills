@@ -46,7 +46,7 @@ Keep the order, except Step 8, which runs right after Step 0. Before you work on
 11. **Regression.** Read `references/regression.md`.
     Done when: every competency question passes on the released packages, or is partial, parked or waiting by a recorded decision that names what it waits for.
 12. **Property-graph projection (optional).** Read `references/lpg-projection.md`, then load the `ontology-to-lpg` skill, which holds the method; its design rules apply from Step 1.
-    Done when: `ontology-to-lpg`'s step 6 is done over every released package: its `build.py check-report` passes on the report, manual cases included, and the container has been removed with `docker rm -f -v lpg-projection`.
+    Done when: `ontology-to-lpg`'s step 6 is done over every released package: its `build.py check-report` passes on the report, manual cases included, and the container has been removed with `docker rm -f -v <container>`.
 
 ## Rules that apply at every step
 

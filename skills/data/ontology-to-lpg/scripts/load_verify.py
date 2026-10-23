@@ -4,7 +4,10 @@
 Run: NEO4J_PASSWORD=... uv run --no-project --with rdflib --with neo4j python3 load_verify.py \
          --config <config.json> --shapes <shapes.ttl>... --bolt bolt://127.0.0.1:<port> \
          --import-dir <folder mounted at /import> --merged merged.ttl --loadable loadable.nt \
-         --inferred inferred.nt --report projection-report.json [--plugins-dir <folder>] <data.ttl>...
+         --inferred inferred.nt --report projection-report.json [--plugins-dir <folder>]
+         [--container <name>] <data.ttl>...
+
+The container name only goes into the printed next steps (default: $LPG_CONTAINER, else lpg-projection).
 
 What it does, in order (references/pipeline.md, rules 8 to 17):
   1. Writes shapes-in-graph.ttl (in_graph_shapes.subset) and copies merged.ttl, loadable.nt and
@@ -478,7 +481,16 @@ def check_report_command(report_path):
     return f"build.py check-report --manifest <projection-manifest.json> --report {report_path}"
 
 
-REMOVE = "docker rm -f -v lpg-projection"
+DEFAULT_CONTAINER = "lpg-projection"
+
+
+def container_name(opts):
+    """The container the printed next steps name: --container, else $LPG_CONTAINER, else lpg-projection."""
+    return opts.get("--container") or os.environ.get("LPG_CONTAINER") or DEFAULT_CONTAINER
+
+
+def remove_command(opts):
+    return f"docker rm -f -v {container_name(opts)}"
 # A hand case ran against one engine, one set of jars and one configuration; when any of these
 # changes, the case must run again.
 CARRY_KEYS = ("input_fingerprint", "shapes_fingerprint", "versions", "plugin_jars_sha256")
@@ -550,7 +562,7 @@ def main(argv):
         moved = set_aside(opts["--report"])
         print(f"FAIL {exc}")
         print("Stop: do not run check-report. " + (f"The previous report is now {moved}. " if moved else "")
-              + f"Remove the container ({REMOVE}), fix the cause, and rerun.")
+              + f"Remove the container ({remove_command(opts)}), fix the cause, and rerun.")
         return 1
     finally:
         driver.close()
@@ -566,16 +578,16 @@ def main(argv):
     print(json.dumps(summary, indent=1))
     if not passed(report):
         print(f"FAIL the verify step did not pass; see the report's samples in {opts['--report']}. "
-              f"Stop: do not run check-report; remove the container ({REMOVE}), fix the cause, and rerun.")
+              f"Stop: do not run check-report; remove the container ({remove_command(opts)}), fix the cause, and rerun.")
         return 1
     if report["kinds_without_case"]:
         print(f"wrote {opts['--report']}: the generated checks passed, and these kinds still need a case: "
               + ", ".join(report["kinds_without_case"]) + ". Next: keep the container up, run a case for each by hand, "
               "add it to the report's manual_cases, run " + check_report_command(opts["--report"])
-              + f", then remove the container ({REMOVE}) (pipeline.md, rule 14; running.md, rule 5).")
+              + f", then remove the container ({remove_command(opts)}) (pipeline.md, rule 14; running.md, rule 5).")
         return 0
     print(f"wrote {opts['--report']}: the generated checks passed. Next: run {check_report_command(opts['--report'])}, "
-          f"then remove the container ({REMOVE}) (running.md, rule 5).")
+          f"then remove the container ({remove_command(opts)}) (running.md, rule 5).")
     return 0
 
 

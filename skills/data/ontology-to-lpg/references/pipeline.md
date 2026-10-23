@@ -1,12 +1,12 @@
 # The pipeline: check, reason, serialise, load, verify
 
-Serves the pipeline steps. Read it before writing or changing the projection's code. The five steps work from ten triples to hundreds of millions; only the loader changes with scale (`running.md`, rule 6). The tool versions named here are the ones tested: Neo4j 2025.06.2 (Community edition), n10s (neosemantics) 2025.06.1 with APOC, ROBOT 1.9.10. Every script named here is in this skill's `scripts/`; run each with `uv run --no-project --with rdflib python3 <script>` (add `--with pyshacl` for `validate_data.py`, `--with neo4j` for `load_verify.py`). `load_verify.py` runs steps 4 and 5 against the container end to end and writes the report; the rules below say what it does, so a project can also write its own.
+Serves the pipeline steps. Read it before writing or changing the projection's code. The five steps work from ten triples to hundreds of millions; only the loader changes with scale (`running.md`, rule 6). The tool versions named here are the ones tested: Neo4j 2025.06.2 (Community edition), n10s (neosemantics) 2025.06.1 with APOC, ROBOT 1.9.10. Every script named here is in this skill's `scripts/`; run each with `uv run --no-project --with rdflib python3 <script>` (add `--with pyshacl` for `validate_data.py`, `--with neo4j` for `load_verify.py`). `load_verify.py` runs the load and verify sections below (SKILL.md steps 5 and 6) against the container end to end and writes the report; the rules below say what it does, so a project can also write its own.
 
 ```
  module.ttl ──┐
- shapes.ttl ──┤  1 check  ─▶  2 reason  ─▶  3 serialise  ─▶  4 load  ─▶  5 verify
- config ──────┘   (rules,      (ELK,         (sorted N-Triples;  (n10s,      (SHACL in the graph,
-                   SHACL)       once)         4b: flatten)        SHORTEN)    round trip, determinism)
+ shapes.ttl ──┤  check  ─▶  reason  ─▶  serialise  ─▶  load  ─▶  verify      (SKILL.md steps 3 to 6)
+ config ──────┘  (rules,    (ELK,       (sorted N-Triples;  (n10s,    (SHACL in the graph,
+                  SHACL)     once)       4b: flatten)        SHORTEN)  round trip, determinism)
 ```
 
 | Purpose | Tool |
@@ -17,7 +17,7 @@ Serves the pipeline steps. Read it before writing or changing the projection's c
 | Load | n10s |
 | Diff | rdflib `compare`, or Jena `rdfcompare` |
 
-## 1. Check
+## Check (SKILL.md step 3)
 
 1. **Check the design rules over the ontology, then validate the data with every shape, and stop the build on any failure.** Run `check_projection_rules.py --config <config> --shapes <every shape file> --releases <folder> <every released data file>`, then `validate_data.py --config <config> --shapes <every shape file> <every released data file>`, which runs pySHACL with SHACL-AF on (`advanced=True`, so SPARQL targets and constraints run) and the refusals of rule 3. Under Rule 4b every script of this skill stops with exit 2 (`check_projection_rules.py`, `validate_data.py`, `build.py cypher` and `load_verify.py`; rdflib cannot read triple terms): run the same checks in Jena SHACL or RDF4J, or stop and ask the owner which tool to use. *Why:* this is the full check; the graph later runs only a subset of the shapes (rule 13), so a constraint skipped here is never checked.
 
@@ -29,7 +29,7 @@ Serves the pipeline steps. Read it before writing or changing the projection's c
 
    *Why:* the round-trip comparison (rule 16) treats these as equal or as tagged, so it would hide a real change.
 
-## 2. Reason
+## Reason (SKILL.md step 4)
 
 4. **Reason once, upstream, with ELK through ROBOT, over the merged released data:**
 
@@ -43,7 +43,7 @@ Serves the pipeline steps. Read it before writing or changing the projection's c
 
    `merged.ttl` holds every released data file (each package's module Turtle) and nothing else: no shapes, no inferred triples, no configuration. ELK is ROBOT's default reasoner. By default `reason` asserts only inferred subclass axioms, so name `ClassAssertion` to get inferred types too, and it asserts only direct ones, so add `--include-indirect true`: without it, an individual asserted as a `lib:Book` gets only its direct type, which is already asserted, and nothing is inferred. ROBOT fails the step on an incoherent ontology (an inconsistency or an unsatisfiable class). With the flag, `inferred.nt` holds every entailed type and superclass link, indirect ones included, except OWL and RDFS built-ins: a node then carries a label for each of its classes, so `MATCH (:lib__Work)` finds books. That is intended, and it does what add-on A asks for. To load only the asserted types, leave the flag out and accept that only axioms which change an individual's most specific type produce inferences. *Why:* a property graph does no OWL reasoning, so inferences must arrive as data.
 
-## 3. Serialise
+## Serialise (SKILL.md step 4)
 
 5. **Write `loadable.nt` and `inferred.nt` as sorted, de-duplicated N-Triples, and record the input fingerprint.** `uv run --no-project --with rdflib python3 build.py loadable --output loadable.nt <every released data file>`. Sorted means one triple per line, lines ordered by their UTF-8 bytes, duplicates removed: the order `LC_ALL=C sort -u` gives. The input fingerprint is the SHA-256 of the bytes of `loadable.nt` followed directly by the bytes of `inferred.nt` (one hash over the concatenation, not a hash of the two hashes); `build.py manifest` computes it. On the first run, write the manifest without `--verify`: `build.py manifest --config <config> --shapes <shapes>... --loadable loadable.nt --inferred inferred.nt --output projection-manifest.json <data>...`. It records each file's path relative to the manifest's own folder. *Why:* a fixed byte order makes the files diffable and their hash repeatable, and keeping inferences apart keeps them distinguishable from assertions.
 
@@ -70,11 +70,11 @@ Serves the pipeline steps. Read it before writing or changing the projection's c
 
    The 4b path has not been run end to end; the tested runs used 4a.
 
-## 4. Load
+## Load (SKILL.md step 5)
 
 Start the container first, as `running.md`, rule 5 says.
 
-8. **Generate every Cypher statement from the ontology and the configuration, and give the database its four files.** `build.py cypher --config <config> --shapes <every shape file> <every released data file> > load.cypher` writes the load script. It reads four files from the import folder mounted at `/import`: `merged.ttl` (rule 4), `shapes-in-graph.ttl` (rule 13), `loadable.nt` and `inferred.nt` (rules 5 and 6). `load_verify.py` copies them there and runs the script one statement at a time, checking each result (rule 11). By hand, copy the four files into the import folder and run the script inside the container: `docker exec -i lpg-projection cypher-shell -u neo4j -p "$PASSWORD" < load.cypher`. Use MERGE and SET with explicit ordering in anything you add. *Why:* hand-written Cypher drifts from the ontology, and n10s defaults are not deterministic (multivalued properties default to overwrite, and unknown namespaces get invented prefixes).
+8. **Generate every Cypher statement from the ontology and the configuration, and give the database its four files.** `build.py cypher --config <config> --shapes <every shape file> <every released data file> > load.cypher` writes the load script. It reads four files from the import folder mounted at `/import`: `merged.ttl` (rule 4), `shapes-in-graph.ttl` (rule 13), `loadable.nt` and `inferred.nt` (rules 5 and 6). `load_verify.py` copies them there and runs the script one statement at a time, checking each result (rule 11). By hand, copy the four files into the import folder and run the script inside the container: `. <run folder>/run.env; docker exec -i "$CONTAINER" cypher-shell -u neo4j -p "$PASSWORD" < load.cypher` (`running.md`, rule 5). Use MERGE and SET with explicit ordering in anything you add. *Why:* hand-written Cypher drifts from the ontology, and n10s defaults are not deterministic (multivalued properties default to overwrite, and unknown namespaces get invented prefixes).
 
 9. **Configure n10s with SHORTEN, not MAP**, and add the configuration's prefixes in its order:
 
@@ -117,7 +117,7 @@ Start the container first, as `running.md`, rule 5 says.
     DELETE plain;
     ```
 
-## Shapes in the graph
+## Shapes in the graph (SKILL.md step 5)
 
 13. **Load into the graph only the constraints the engine can run, choose them with the engine's own queries, and record what was dropped and why:** `uv run --no-project --with rdflib python3 in_graph_shapes.py --output shapes-in-graph.ttl <every shape file>`. n10s 2025.06.1 compiles shapes with three SPARQL queries in `SHACLValidator.java`: `PROP_CONSTRAINT_QUERY` (lines 59 to 123), `NODE_CONSTRAINT_QUERY` (lines 125 to 151, `sh:closed`) and `NODE_ADDITIONAL_CONSTRAINT_QUERY` (lines 154 to 180, node-level `sh:class`). The script runs their selection patterns with rdflib over the shapes and keeps only what a row reaches, so the kept set is by construction what n10s reads. The property query selects
 
@@ -163,7 +163,7 @@ Start the container first, as `running.md`, rule 5 says.
 
     *Why:* the drop list and this table came from such tests, not from documentation.
 
-## 5. Verify
+## Verify (SKILL.md step 6)
 
 15. **Run SHACL in the graph and require zero violations; then prove the check can fail.** Commit a deliberate mutant: remove one literal value a loaded `sh:minCount` shape requires, validate, require at least one violation on that node, restore the value, and require zero violations again. `load_verify.py` does it on the first such shape (`mutant_case`):
 

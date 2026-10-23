@@ -50,35 +50,45 @@ Serves the load step (rule 5, the container) and the running step. Read it befor
 
 5. **Run Neo4j in a container bound to localhost, with the pinned plugins, and remove it once `check-report` has passed, or when you stop.** Use the `neo4j:2025.06.2` image (Community edition), mount a plugins folder holding the checked n10s jar at `/plugins` and the import folder at `/import`, let the image install APOC, allow both procedure namespaces, and bind Bolt to `127.0.0.1` on a non-default port, with a password made for this run.
 
-   The plugins folder must be writable: the image changes its owner and writes `apoc.jar` into it, so a read-only mount (`:ro`) stops the container. Make new folders for each run, and copy the checked n10s jar into the plugins folder, so the image never writes into the folder that holds your downloads. Open both folders to other users (`chmod 755`): `mktemp -d` makes a folder only its owner can open, and with it the container exits at once ("Folder /plugins is not accessible for user: neo4j").
+   The plugins folder must be writable: the image changes its owner and writes `apoc.jar` into it, so a read-only mount (`:ro`) stops the container. Make new folders for each run, and copy the checked n10s jar into the plugins folder, so the image never writes into the folder that holds your downloads.
+
+   Agent tools often start a fresh shell for every command, so keep the run's settings in a file, not in shell variables: a mode-600 `run.env` in a new run folder, read at the start of each later command and deleted with the folder after removal. Pick a container name and a free host port for this run; the examples use `lpg-projection` and 17687.
 
    ```bash
-   PLUGINS=$(mktemp -d); chmod 755 "$PLUGINS"; cp <downloads>/neosemantics-2025.06.1.jar "$PLUGINS"/
-   IMPORT=$(mktemp -d); chmod 755 "$IMPORT"
-   PASSWORD=$(openssl rand -hex 12)
-   docker run -d --name lpg-projection -p 127.0.0.1:17687:7687 \
-     -e NEO4J_AUTH=neo4j/$PASSWORD -e NEO4J_PLUGINS='["apoc"]' \
+   RUN=$(mktemp -d); chmod 711 "$RUN"; echo "$RUN"          # note this path; every later command starts from it
+   mkdir -m 755 "$RUN/plugins" "$RUN/import"
+   cp <downloads>/neosemantics-2025.06.1.jar "$RUN/plugins/"
+   ( umask 077; printf 'CONTAINER=%s\nPORT=%s\nPASSWORD=%s\nRUN=%s\n' lpg-projection 17687 "$(openssl rand -hex 12)" "$RUN" > "$RUN/run.env" )
+   . "$RUN/run.env"
+   docker run -d --name "$CONTAINER" -p "127.0.0.1:$PORT:7687" \
+     -e NEO4J_AUTH="neo4j/$PASSWORD" -e NEO4J_PLUGINS='["apoc"]' \
      -e NEO4J_dbms_security_procedures_unrestricted='apoc.*,n10s.*' \
-     -v "$IMPORT":/import -v "$PLUGINS":/plugins neo4j:2025.06.2
+     -v "$RUN/import":/import -v "$RUN/plugins":/plugins neo4j:2025.06.2
    ```
 
-   Then wait for the start, and stop on a failure:
+   The `chmod 711` on the run folder and `755` on the two mounted folders matter: a folder only its owner can open (what `mktemp -d` makes) stops the container at once ("Folder /plugins is not accessible for user: neo4j"), while `run.env` itself stays readable by you alone.
+
+   Then wait for the start, and stop on a failure. The check is a function that returns, so a failure ends the command and not your shell:
 
    ```bash
-   for i in $(seq 1 60); do
-     docker logs lpg-projection 2>&1 | grep -q 'Started.' && break
-     [ "$(docker inspect -f '{{.State.Running}}' lpg-projection)" = true ] || { docker logs lpg-projection | tail -20; exit 1; }
-     docker logs lpg-projection 2>&1 | grep -q ' ERROR ' && { docker logs lpg-projection | tail -20; exit 1; }
-     sleep 3
-   done
-   docker logs lpg-projection 2>&1 | grep -q 'Started.' || { echo 'Neo4j did not start in 180 seconds'; exit 1; }
+   . <run folder>/run.env
+   wait_for_neo4j() {
+     for i in $(seq 1 60); do
+       docker logs "$CONTAINER" 2>&1 | grep -q 'Started.' && return 0
+       [ "$(docker inspect -f '{{.State.Running}}' "$CONTAINER")" = true ] || { docker logs "$CONTAINER" 2>&1 | tail -20; return 1; }
+       docker logs "$CONTAINER" 2>&1 | grep -q ' ERROR ' && { docker logs "$CONTAINER" 2>&1 | tail -20; return 1; }
+       sleep 3
+     done
+     echo 'Neo4j did not start in 180 seconds'; return 1
+   }
+   wait_for_neo4j
    ```
 
-   Then, in this order:
-   1. run `load_verify.py` as its docstring shows, with `NEO4J_PASSWORD="$PASSWORD"`, `--bolt bolt://127.0.0.1:17687`, `--import-dir "$IMPORT"`, `--plugins-dir "$PLUGINS"` and the configuration, shape, data, `merged.ttl`, `loadable.nt`, `inferred.nt` and `--report` arguments;
+   Then, in this order, each command starting with `. <run folder>/run.env`:
+   1. run `load_verify.py` as its docstring shows, with `NEO4J_PASSWORD="$PASSWORD"`, `--bolt "bolt://127.0.0.1:$PORT"`, `--import-dir "$RUN/import"`, `--plugins-dir "$RUN/plugins"`, `--container "$CONTAINER"` and the configuration, shape, data, `merged.ttl`, `loadable.nt`, `inferred.nt` and `--report` arguments. It prints its next step with that container name;
    2. if it lists kinds that still need a case, run a case for each by hand against the same container and add it to the report's `manual_cases` (`pipeline.md`, rule 14). The script writes the key as an empty list, and keeps cases already in the report only when a rerun has the same input and shapes fingerprints, tool versions and plugin jar checksums. If the existing report is not valid JSON, the script stops with exit 2 before it touches the database, so fix or move it. If `load_verify.py` exits 1 or 2, stop here: it has moved any previous report to `<report>.previous`, so do not run `check-report`; go to step 4;
    3. run `build.py check-report --manifest projection-manifest.json --report projection-report.json`, as in rule 1;
-   4. only then `docker rm -f -v lpg-projection` and `unset PASSWORD`. If you stop before `check-report` passes, run the same removal anyway; `docker ps -a` then lists no projection container. The `-v` removes the container's anonymous `/data` and `/logs` volumes; without it each run leaves them behind, and after a few runs Docker's disk fills and Neo4j fails to start ("Database name 'system' is invalid"). *Why:* the load script reads `file:///import/...`; Community edition has one user database, so the determinism check empties it between loads (`pipeline.md`, rule 17); and a forgotten container with a known password is an open database on the workstation.
+   4. only then `docker rm -f -v "$CONTAINER"`, then delete the run folder with its `run.env`. If you stop before `check-report` passes, do the same anyway; `docker ps -a` then lists no projection container. The `-v` removes the container's anonymous `/data` and `/logs` volumes; without it each run leaves them behind, and after a few runs Docker's disk fills and Neo4j fails to start ("Database name 'system' is invalid"). *Why:* the load script reads `file:///import/...`; Community edition has one user database, so the determinism check empties it between loads (`pipeline.md`, rule 17); and a forgotten container with a known password is an open database on the workstation.
 
 6. **Change only the loader as the graph grows:**
 

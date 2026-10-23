@@ -17,6 +17,10 @@ Run with: uv run --no-project --with rdflib python3 build.py <command> ...
             --inferred inferred.nt --output manifest.json [--verify] <data.ttl>...
             Writes the manifest, or with --verify fails when the committed one differs. File paths
             are recorded relative to the manifest's own folder, so moving the tree changes nothing.
+  check-serialised --loadable loadable.nt --inferred inferred.nt
+            Fails unless both files are in byte order without duplicates, and inferred.nt holds only
+            rdf:type and rdfs:subClassOf triples between two IRIs whose object is outside the OWL and
+            RDFS namespaces (the step 4 gate in SKILL.md).
   check-report --manifest manifest.json --report report.json
             Fails unless the report names the manifest's fingerprints and every verify check passed.
 
@@ -25,7 +29,7 @@ Definitions (references/pipeline.md, rule 5):
   input fingerprint SHA-256 of the bytes of loadable.nt followed directly by the bytes of inferred.nt
   shapes fingerprint SHA-256 of the bytes of every shape file, concatenated in the order given
 
-Exit 0 on success, 1 when --verify or check-report finds a difference or a failed check, 2 when a
+Exit 0 on success, 1 when --verify, check-serialised or check-report finds a difference or a failed check, 2 when a
 file cannot be read or the arguments are wrong.
 """
 import hashlib
@@ -154,6 +158,21 @@ REPORT_CHECKS = (
 )
 
 
+def check_serialised(loadable_bytes, inferred_bytes):
+    """The step 4 gate: byte order without duplicates in both files, and only kept inferences."""
+    fails = []
+    for name, data in (("loadable.nt", loadable_bytes), ("inferred.nt", inferred_bytes)):
+        lines = [line for line in data.split(b"\n") if line.strip()]
+        if lines != sorted(set(lines)):
+            fails.append(f"{name} is not in byte order without duplicates (LC_ALL=C sort -u)")
+    inferred_graph = Graph().parse(data=inferred_bytes.decode("utf-8"), format="nt")
+    for s, p, o in sorted(inferred_graph, key=lambda t: tuple(str(x) for x in t)):
+        if p not in KEPT_PREDICATES or not isinstance(s, URIRef) or not isinstance(o, URIRef) \
+                or str(o).startswith(BUILTIN):
+            fails.append(f"inferred.nt holds a triple the inferred filter drops: {s.n3()} {p.n3()} {o.n3()}")
+    return fails
+
+
 def check_report(man, rep):
     fails = []
     for key in ("input_fingerprint", "shapes_fingerprint"):
@@ -273,6 +292,14 @@ def main(argv):
             else:
                 write(opts["--output"], text)
                 print(f"wrote {opts['--output']}")
+        elif command == "check-serialised":
+            need(opts, "--loadable", "--inferred")
+            fails = check_serialised(read_bytes(opts["--loadable"]), read_bytes(opts["--inferred"]))
+            for message in fails:
+                print(f"FAIL {message}")
+            if fails:
+                return 1
+            print("loadable.nt and inferred.nt are in byte order, and inferred.nt holds only kept inferences")
         elif command == "check-report":
             need(opts, "--manifest", "--report")
             with open(opts["--manifest"], encoding="utf-8") as f:
