@@ -3,8 +3,12 @@
 
 Run: uv run --with pyyaml python3 check_requirements.py requirements.yaml
 
-The schema is written at the top of templates/requirements.yaml, and this script enforces
-each line of it; the rule is references/governance.md, rule 2. A conflict is a competency
+The schema is written at the top of templates/requirements.yaml; the rule is
+references/governance.md, rule 2. This script enforces its structure: every field present,
+each value of the stated type, every enumerated value from its list, ids unique, and the
+assumption-record states. It cannot judge meaning: that the purpose is one sentence, that
+users are roles rather than personal names, or that a question and its rationale say what
+they should. A person reviews those. A conflict is a competency
 question that needs an area scope.in does not list, or that needs, or whose rationale
 names, an area scope.out lists (a whole-word match, ignoring case), or an area listed both
 in and out of scope.
@@ -74,16 +78,18 @@ def check(req):
         entry = inputs.get(kind)
         if not isinstance(entry, dict) or entry.get("status") not in ("have", "thin", "missing"):
             fails.append(("inputs", f"input '{kind}' needs a status of have, thin or missing"))
+        elif not isinstance(entry.get("note"), str):
+            fails.append(("inputs", f"input '{kind}' needs a 'note' string (it may be empty when the status is have)"))
         elif entry["status"] != "have" and not text(entry.get("note")):
             fails.append(("inputs", f"input '{kind}' is {entry['status']} and needs a note saying how the gap limits the design"))
 
     scope = req["scope"]
     if (not isinstance(scope, dict) or not text_list(scope.get("in"), allow_empty=False)
-            or not text_list(scope.get("out", []))):
+            or "out" not in scope or not text_list(scope.get("out"))):
         fails.append(("schema", "'scope' needs 'in' (a non-empty list of areas) and 'out' (a list of areas)"))
-        scope = {"in": [], "out": []}
-    in_scope = {a.casefold() for a in scope.get("in") or []}
-    out_scope = {a.casefold() for a in scope.get("out") or []}
+        scope = None  # conflicts against a malformed scope would only repeat this failure
+    in_scope = {a.casefold() for a in scope["in"]} if scope else set()
+    out_scope = {a.casefold() for a in scope["out"]} if scope else set()
     for area in sorted(in_scope & out_scope):
         fails.append(("conflict", f"area '{area}' is both in and out of scope"))
 
@@ -94,25 +100,27 @@ def check(req):
     seen = set()
     for i, cq in enumerate(cqs):
         cid = cq.get("id") if isinstance(cq, dict) else None
-        label = cid or f"question {i + 1}"
+        label = cid if text(cid) else f"question {i + 1}"
         if not isinstance(cq, dict):
             fails.append(("schema", f"{label} is not a mapping"))
             continue
         for field in CQ_FIELDS:
             if not cq.get(field):
                 fails.append(("schema", f"{label} has no '{field}'"))
+            elif field != "needs" and not text(cq[field]):
+                fails.append(("schema", f"{label} '{field}' must be a string"))
         if cid in seen:
             fails.append(("schema", f"{cid} is used twice"))
         seen.add(cid)
-        if cq.get("priority") and cq["priority"] not in ("must", "should", "could"):
+        if text(cq.get("priority")) and cq["priority"] not in ("must", "should", "could"):
             fails.append(("schema", f"{label} priority '{cq['priority']}' is not must, should or could"))
-        if cq.get("status") and cq["status"] not in ("drafted", "locked"):
+        if text(cq.get("status")) and cq["status"] not in ("drafted", "locked"):
             fails.append(("schema", f"{label} status '{cq['status']}' is not drafted or locked"))
         needs = cq.get("needs") or []
         if not text_list(needs):
             fails.append(("schema", f"{label} 'needs' must be a list of area names"))
             needs = []
-        for need in needs:
+        for need in needs if scope else []:
             need_key = need.casefold()
             if need_key in out_scope:
                 fails.append(("conflict", f"{label} needs '{need}', which scope.out excludes"))
@@ -129,12 +137,16 @@ def check(req):
         assumptions = []
     for i, a in enumerate(assumptions):
         label = (a.get("id") if isinstance(a, dict) else None) or f"assumption {i + 1}"
-        if not isinstance(a, dict) or not text(a.get("id")) or not text(a.get("text")) or "record" not in a:
-            fails.append(("assumptions", f"{label} needs an 'id', a 'text' and a 'record' field"))
+        if (not isinstance(a, dict) or not text(a.get("id")) or not text(a.get("text"))
+                or not isinstance(a.get("record"), str)):
+            fails.append(("assumptions", f"{label} needs an 'id', a 'text' and a 'record' string"))
         elif a.get("status") not in ("ASSUMED", "confirmed"):
             fails.append(("assumptions", f"{label} needs a status of ASSUMED or confirmed"))
-        elif a["status"] == "confirmed" and not text(a.get("record")):
+        elif a["status"] == "confirmed" and not text(a["record"]):
             fails.append(("assumptions", f"{label} is confirmed but names no decision record"))
+        elif a["status"] == "ASSUMED" and text(a["record"]):
+            fails.append(("assumptions", f"{label} is ASSUMED but names record '{a['record']}'; "
+                                         f"leave it empty until the owner confirms"))
     return fails
 
 

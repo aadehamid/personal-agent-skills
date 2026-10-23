@@ -11,26 +11,30 @@ Checks (references/identity-taxonomy.md and references/domain-model.md):
   untagged       every plain literal has a language tag, except skos:notation and
                  owl:versionInfo, which are codes, not language text (foundations.md, policy 5)
   label          each concept has one skos:prefLabel per language, and at least one;
-                 each class and property has an rdfs:label
-  definition     each concept, class and property has a skos:definition
+                 each class and property (annotation properties too) has an rdfs:label
+  definition     each concept, class and property (annotation properties too) has a
+                 skos:definition
   notation       each concept has a skos:notation, unique within each scheme
   scheme         each concept is skos:inScheme a declared scheme; skos:topConceptOf names a declared
                  scheme; a scheme's top concepts are declared concepts and say so
   parent         one skos:broader per concept except top concepts, which have none;
                  the parent is a declared concept; no cycles
   collision      no two concepts in one scheme share a preferred label (ignoring case)
-  property-kind  each property is exactly one of owl:ObjectProperty, owl:DatatypeProperty
-  domain-range   each property has exactly one rdfs:domain and one rdfs:range;
-                 no rdfs:Literal range; every domain, range and rdfs:subClassOf target is
-                 declared in the files (owl:Class, rdfs:Class, rdfs:Datatype) or sits in a
+  class-kind     each class is an owl:Class; an rdfs:Class without owl:Class fails
+                 (domain-model.md, rule 4)
+  property-kind  each property is exactly one of owl:ObjectProperty, owl:DatatypeProperty,
+                 owl:AnnotationProperty (domain-model.md, rule 5); a bare rdf:Property fails
+  domain-range   each object and datatype property has exactly one rdfs:domain and one
+                 rdfs:range (annotation properties need neither); no rdfs:Literal range;
+                 every domain, range and rdfs:subClassOf target is an IRI (a literal, even
+                 one typed xsd:anyURI, fails) declared in the files (owl:Class, rdfs:Class, rdfs:Datatype) or sits in a
                  known namespace: XSD, RDF, RDFS, OWL, SKOS, W3C ORG, PROV-O, DCAT, DCMI
                  terms, plus each --allow-namespace given. A misspelling inside a known
                  namespace is not caught.
   kind-range     an owl:DatatypeProperty's range is a datatype (an XSD datatype,
                  rdf:langString, rdf:HTML, rdf:XMLLiteral or a declared rdfs:Datatype); an
                  owl:ObjectProperty's range is not
-  untyped        every IRI that carries a SKOS or RDFS term property (a label, definition,
-                 notation, scheme, parent, domain, range or superclass) has an rdf:type
+  untyped        every IRI used as the subject of any triple in the files has an rdf:type
 
 Exit 0 when every check passes, 1 when any fails (one line per failure), 2 when a file
 cannot be read or parsed, or when the arguments are wrong.
@@ -42,12 +46,11 @@ from rdflib import BNode, Graph, Literal, URIRef
 from rdflib.namespace import DCAT, DCTERMS, OWL, PROV, RDF, RDFS, SKOS, XSD
 
 CODES = {SKOS.notation, OWL.versionInfo}
-PROPERTY_KINDS = (OWL.ObjectProperty, OWL.DatatypeProperty)
+PROPERTY_KINDS = (OWL.ObjectProperty, OWL.DatatypeProperty, OWL.AnnotationProperty)
+VALUE_KINDS = (OWL.ObjectProperty, OWL.DatatypeProperty)
 KNOWN_NAMESPACES = (str(XSD), str(RDF), str(RDFS), str(OWL), str(SKOS),
                     "http://www.w3.org/ns/org#", str(PROV), str(DCAT), str(DCTERMS))
 RDF_DATATYPES = {RDF.langString, RDF.HTML, RDF.XMLLiteral}
-TERM_PREDICATES = (SKOS.prefLabel, SKOS.definition, SKOS.notation, SKOS.inScheme, SKOS.broader,
-                   SKOS.topConceptOf, RDFS.label, RDFS.domain, RDFS.range, RDFS.subClassOf)
 
 
 def check(g, allowed_namespaces=()):
@@ -65,10 +68,9 @@ def check(g, allowed_namespaces=()):
     def resolves(term):
         return term in declared_types or any(str(term).startswith(ns) for ns in known)
 
-    untyped = sorted({s for p in TERM_PREDICATES for s in g.subjects(p, None)
-                      if isinstance(s, URIRef) and (s, RDF.type, None) not in g})
+    untyped = sorted({s for s in g.subjects() if isinstance(s, URIRef) and (s, RDF.type, None) not in g})
     for s in untyped:
-        fails.append(("untyped", f"{short(s)} has SKOS or RDFS term properties but no rdf:type"))
+        fails.append(("untyped", f"{short(s)} is the subject of triples but has no rdf:type"))
 
     for s, p, o in g:
         if isinstance(s, BNode) or isinstance(o, BNode):
@@ -146,7 +148,10 @@ def check(g, allowed_namespaces=()):
         if len(names) > 1:
             fails.append(("notation", f"{', '.join(names)} share the notation \"{code}\" in {short(scheme)}"))
 
-    classes = {c for c in g.subjects(RDF.type, OWL.Class) if isinstance(c, URIRef)}
+    classes = {c for kind in (OWL.Class, RDFS.Class) for c in g.subjects(RDF.type, kind) if isinstance(c, URIRef)}
+    for c in sorted(classes):
+        if (c, RDF.type, OWL.Class) not in g:
+            fails.append(("class-kind", f"{short(c)} is an rdfs:Class; write classes as owl:Class"))
     properties = {p for kind in PROPERTY_KINDS for p in g.subjects(RDF.type, kind)}
     properties |= set(g.subjects(RDF.type, RDF.Property))
     for term in sorted(classes | properties):
@@ -159,8 +164,10 @@ def check(g, allowed_namespaces=()):
         name = short(prop)
         kinds = [k for k in PROPERTY_KINDS if (prop, RDF.type, k) in g]
         if len(kinds) != 1:
-            fails.append(("property-kind", f"{name} is typed {len(kinds)} of owl:ObjectProperty and "
-                                           f"owl:DatatypeProperty; it needs exactly one"))
+            fails.append(("property-kind", f"{name} is typed {len(kinds)} of owl:ObjectProperty, "
+                                           f"owl:DatatypeProperty and owl:AnnotationProperty; it needs exactly one"))
+        if not any((prop, RDF.type, k) in g for k in VALUE_KINDS):
+            continue  # an annotation property needs a label and a definition, not a domain or range
         for axis, pred in (("domain", RDFS.domain), ("range", RDFS.range)):
             values = list(g.objects(prop, pred))
             if len(values) != 1:
@@ -168,7 +175,7 @@ def check(g, allowed_namespaces=()):
         if (prop, RDFS.range, RDFS.Literal) in g:
             fails.append(("domain-range", f"{name} has range rdfs:Literal; name a concrete datatype"))
         for rng in g.objects(prop, RDFS.range):
-            if rng == RDFS.Literal:
+            if rng == RDFS.Literal or not isinstance(rng, URIRef):
                 continue
             if (prop, RDF.type, OWL.DatatypeProperty) in g and not is_datatype(rng):
                 fails.append(("kind-range", f"{name} is an owl:DatatypeProperty but its range {short(rng)} is not a datatype"))
@@ -176,7 +183,9 @@ def check(g, allowed_namespaces=()):
                 fails.append(("kind-range", f"{name} is an owl:ObjectProperty but its range {short(rng)} is a datatype"))
     for pred, axis in ((RDFS.domain, "rdfs:domain"), (RDFS.range, "rdfs:range"), (RDFS.subClassOf, "rdfs:subClassOf")):
         for s, o in sorted(g.subject_objects(pred), key=str):
-            if isinstance(o, URIRef) and not resolves(o):
+            if isinstance(o, Literal):
+                fails.append(("domain-range", f"{short(s)} has {axis} {short(o)}, a literal; it must be an IRI"))
+            elif isinstance(o, URIRef) and not resolves(o):
                 fails.append(("domain-range", f"{short(s)} has {axis} {short(o)}, which is neither declared "
                                               f"in the files nor in a known namespace"))
     return fails

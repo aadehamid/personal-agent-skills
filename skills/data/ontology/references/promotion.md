@@ -40,6 +40,8 @@ Review one verb per pass. *Why:* a reviewer holding one definition applies it co
 
 Two citation rules hold for every verb. **Boundary wording is never a route:** "excludes X", "owned by" and "may be handled by" say where a boundary lies, not that a relationship holds. **A row verdict is not an architecture decision:** only a recorded architecture decision counts as decision evidence.
 
+**The evidence gate (Step 4).** A script run against the evidence files pinned to the current commit (rule 1) passes only when every APPROVE and STAND row cites at least one evidence item that rule 5 accepts for its verb, every cited source row exists in the pinned source, and no row's only citation is boundary wording or a row verdict (the two citation rules above). It fails on any other row and names it. *Why:* a verdict records that a reviewer agreed; the gate shows that the evidence the verdict rests on exists at the pinned commit.
+
 ## The release gate and the source-correction backlog
 
 Before the first module release:

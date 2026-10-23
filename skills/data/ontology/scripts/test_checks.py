@@ -173,8 +173,8 @@ class TaxonomyChecks(OneBreak, unittest.TestCase):
         fails = check_taxonomy.check(g)
         # Two kinds also makes the range wrong for one of them, so both checks fire.
         self.assertEqual({n for n, _ in fails}, {"property-kind", "kind-range"}, fails)
-        self.assertIn(("property-kind", "lib:dueDate is typed 2 of owl:ObjectProperty and "
-                                        "owl:DatatypeProperty; it needs exactly one"), fails)
+        self.assertIn(("property-kind", "lib:dueDate is typed 2 of owl:ObjectProperty, "
+                                        "owl:DatatypeProperty and owl:AnnotationProperty; it needs exactly one"), fails)
 
     def test_bare_rdf_property(self):
         def mutate(g):
@@ -217,10 +217,65 @@ class TaxonomyChecks(OneBreak, unittest.TestCase):
             g.add((lib("hold"), SKOS.inScheme, lib("lending")))
             g.add((lib("hold"), SKOS.broader, lib("circulation")))
             g.add((lib("hold"), SKOS.prefLabel, Literal("Hold", lang="en")))
-        self.broken(mutate, "untyped", "lib:hold has SKOS or RDFS term properties but no rdf:type")
+        self.broken(mutate, "untyped", "lib:hold is the subject of triples but has no rdf:type")
 
     def test_notation_and_version_need_no_tag(self):
         self.assertFalse([f for f in check_taxonomy.check(skeleton()) if f[0] == "untagged"])
+
+    # untyped: any IRI used as a subject (finding #1 of the db5ae6d review)
+    def test_untyped_subject_with_any_predicate(self):
+        for pred, obj in ((SKOS.altLabel, Literal("Reservation", lang="en")),
+                          (SKOS.note, Literal("A note.", lang="en")),
+                          (SKOS.narrower, lib("renewal")),
+                          (RDFS.comment, Literal("A comment.", lang="en"))):
+            with self.subTest(pred=pred):
+                self.broken(lambda g: g.add((lib("hold"), pred, obj)),
+                            "untyped", "lib:hold is the subject of triples but has no rdf:type")
+
+    # annotation properties (finding #3)
+    def test_incomplete_annotation_property(self):
+        g = skeleton()
+        g.add((lib("lpgName"), RDF.type, OWL.AnnotationProperty))
+        fails = check_taxonomy.check(g)
+        self.assertEqual(sorted(fails), [("definition", "lib:lpgName has no skos:definition"),
+                                         ("label", "lib:lpgName has no rdfs:label")])
+
+    def test_complete_annotation_property_needs_no_domain_or_range(self):
+        g = skeleton()
+        g.add((lib("lpgName"), RDF.type, OWL.AnnotationProperty))
+        g.add((lib("lpgName"), RDFS.label, Literal("property-graph name", lang="en")))
+        g.add((lib("lpgName"), SKOS.definition, Literal("Relates a term to the name it takes in the property graph.", lang="en")))
+        self.assertEqual(check_taxonomy.check(g), [])
+
+    # literal targets (finding #4)
+    def test_literal_domain_range_and_superclass(self):
+        target = Literal(LIB + "Member", datatype=XSD.anyURI)
+        for pred, subject, axis in ((RDFS.domain, "borrower", "rdfs:domain"),
+                                    (RDFS.range, "borrower", "rdfs:range"),
+                                    (RDFS.subClassOf, "Member", "rdfs:subClassOf")):
+            with self.subTest(axis=axis):
+                self.broken(lambda g: g.set((lib(subject), pred, target)),
+                            "domain-range", f"lib:{subject} has {axis}")
+                g = skeleton()
+                g.set((lib(subject), pred, target))
+                self.assertTrue(any("a literal; it must be an IRI" in m for _, m in check_taxonomy.check(g)))
+
+    # rdfs:Class (finding #8)
+    def test_bare_rdfs_class_is_checked(self):
+        g = skeleton()
+        g.add((lib("Fine"), RDF.type, RDFS.Class))
+        g.set((lib("borrower"), RDFS.range, lib("Fine")))
+        fails = check_taxonomy.check(g)
+        self.assertEqual(sorted(fails), [("class-kind", "lib:Fine is an rdfs:Class; write classes as owl:Class"),
+                                         ("definition", "lib:Fine has no skos:definition"),
+                                         ("label", "lib:Fine has no rdfs:label")])
+
+    def test_documented_rdfs_class_still_fails_class_kind(self):
+        def mutate(g):
+            g.add((lib("Fine"), RDF.type, RDFS.Class))
+            g.add((lib("Fine"), RDFS.label, Literal("Fine", lang="en")))
+            g.add((lib("Fine"), SKOS.definition, Literal("A charge a member owes.", lang="en")))
+        self.broken(mutate, "class-kind", "lib:Fine is an rdfs:Class")
 
     # the command line
     def test_cli_pass_is_0(self):
@@ -278,10 +333,7 @@ class RequirementsChecks(OneBreak, unittest.TestCase):
     def test_malformed_scope(self):
         req = requirements()
         req["scope"] = ["lending"]
-        fails = check_requirements.check(req)
-        # With no usable scope, every need is also unlisted; the schema failure comes first.
-        self.assertEqual(fails[0][0], "schema")
-        self.assertIn("'scope' needs 'in'", fails[0][1])
+        self.assertOnly(check_requirements.check(req), "schema", "'scope' needs 'in'")
 
     def test_empty_question_list(self):
         self.broken(lambda r: r.update(competency_questions=[]), "schema", "'competency_questions' must be a non-empty list")
@@ -340,10 +392,30 @@ class RequirementsChecks(OneBreak, unittest.TestCase):
         self.broken(lambda r: r["assumptions"][0].update(status="maybe"), "assumptions", "A1 needs a status of ASSUMED or confirmed")
 
     def test_assumption_without_text(self):
-        self.broken(lambda r: r["assumptions"][0].pop("text"), "assumptions", "A1 needs an 'id', a 'text' and a 'record' field")
+        self.broken(lambda r: r["assumptions"][0].pop("text"), "assumptions", "A1 needs an 'id', a 'text' and a 'record' string")
 
     def test_confirmed_assumption_needs_record(self):
         self.broken(lambda r: r["assumptions"][0].update(status="confirmed"), "assumptions", "A1 is confirmed but names no decision record")
+
+    # structural schema (finding #2 of the db5ae6d review)
+    def test_missing_scope_out(self):
+        self.broken(lambda r: r["scope"].pop("out"), "schema", "'scope' needs 'in'")
+
+    def test_assumed_item_with_a_record(self):
+        self.broken(lambda r: r["assumptions"][0].update(record="DEC-001"),
+                    "assumptions", "A1 is ASSUMED but names record 'DEC-001'")
+
+    def test_input_without_note_key(self):
+        self.broken(lambda r: r["inputs"]["purpose"].pop("note"), "inputs", "input 'purpose' needs a 'note' string")
+
+    def test_question_text_not_a_string(self):
+        for value in (["What is a loan?"], 42):
+            with self.subTest(value=value):
+                self.broken(lambda r: r["competency_questions"][0].update(question=value),
+                            "schema", "CQ1 'question' must be a string")
+
+    def test_rationale_not_a_string(self):
+        self.broken(lambda r: r["competency_questions"][1].update(rationale=7), "schema", "CQ2 'rationale' must be a string")
 
     # the command line
     def test_cli_exit_codes(self):

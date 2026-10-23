@@ -30,7 +30,7 @@ Keep the order, except Step 8, which runs right after Step 0. Before you work on
 3. **Taxonomy, classes and properties.** Read `references/domain-model.md`, `references/identity-taxonomy.md` and `references/quality.md`; start from `templates/ontology-skeleton.ttl` and `templates/shapes-skeleton.ttl`.
    Done when: every concept has a label and a definition that meets the quality bar for its kind; every concept except the top concepts has exactly one parent; every class and property has a label and a definition, and every property one domain, one range and a cardinality shape; `scripts/check_taxonomy.py` passes; the review is recorded in `templates/definition-review.md`.
 4. **Relationships.** Read `references/promotion.md`.
-   Done when: every row has a recorded verdict (APPROVE, STAND or HOLD), the conservation ledger reconciles, and the evidence gate passes. The release gate for the first module release (the source-correction backlog) is in `references/promotion.md`; Step 10 checks it.
+   Done when: every row has a recorded verdict (APPROVE, STAND or HOLD), the conservation ledger reconciles, and the evidence gate in `references/promotion.md` passes. The release gate for the first module release (the source-correction backlog) is in `references/promotion.md`; Step 10 checks it.
 5. **Organizations and roles.** Read `references/organization.md`.
    Done when: under a recorded scope, every in-scope process has its RACI assignments and none is inferred from the hierarchy; every role string is in the role register; every reference instance cites its source and an as-of date.
 6. **Plans and runs.** Read `references/provenance.md`.
@@ -40,7 +40,7 @@ Keep the order, except Step 8, which runs right after Step 0. Before you work on
 8. **Scope review.** Read `references/foundations.md`; record in `templates/scope-review.md`.
    Done when: every candidate area has an in or out call and a reason, and every out call has a boundary note and a revival trigger.
 9. **SHACL.** Read `references/shacl.md`.
-   Done when: every module's shapes, the whole-graph gate and the release-package test run with zero unexplained violations, and each guard has a negative test that asserts its violation.
+   Done when: every module's shapes, the whole-graph gate and the release-package test meet the pass condition in `references/shacl.md`, rule 7, and each guard has a negative test that asserts its violation.
 10. **Release and publication.** Read `references/release.md`.
     Done when: every released module is a package that passes `--verify`, the combined catalog lists every release and passes `--verify`, and each release is retrievable at its tag. Before the first module release, every row on the source-correction backlog has a fresh verdict (`references/promotion.md`, the first-release gate). "The catalog resolves" waits for the owner's hosting decision.
 11. **Regression.** Read `references/regression.md`.
