@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Mechanical checks for Steps 2 and 3 of the ontology skill.
 
-Run: uv run --with rdflib python3 check_taxonomy.py [--allow-namespace=<IRI>]... <file.ttl>...
+Run: uv run --with rdflib python3 check_taxonomy.py [--allow-namespace=<IRI>]... [--code-property=<IRI>]... <file.ttl>...
 
 Run it on data files only (each module's and code list's Turtle), never on shapes files:
 SHACL builds shapes from blank nodes (identity-taxonomy.md, Step 2, rule 5).
 
 Checks (references/identity-taxonomy.md and references/domain-model.md):
   blank-node     no blank node anywhere (Step 2, rule 5)
-  untagged       every plain literal has a language tag, except skos:notation and
-                 owl:versionInfo, which are codes, not language text (foundations.md, policy 5)
+  untagged       every plain literal has a language tag, except skos:notation, owl:versionInfo
+                 and each --code-property given, which carry codes, not language text
+                 (foundations.md, policy 5)
   label          each concept has one skos:prefLabel per language, and at least one;
                  each class and property (annotation properties too) has an rdfs:label
   definition     each concept, class and property (annotation properties too) has a
@@ -57,7 +58,7 @@ CHARACTERISTICS = (OWL.TransitiveProperty, OWL.SymmetricProperty, OWL.Asymmetric
                    OWL.IrreflexiveProperty, OWL.FunctionalProperty, OWL.InverseFunctionalProperty)
 
 
-def check(g, allowed_namespaces=()):
+def check(g, allowed_namespaces=(), code_properties=()):
     """Return a list of (check name, message) pairs for every failure in graph g."""
     fails = []
     short = lambda t: t.n3(g.namespace_manager)
@@ -80,7 +81,8 @@ def check(g, allowed_namespaces=()):
         if isinstance(s, BNode) or isinstance(o, BNode):
             fails.append(("blank-node", f"{short(s)} {short(p)} {short(o)}"))
         if (isinstance(o, Literal) and o.language is None
-                and o.datatype in (None, XSD.string) and p not in CODES):
+                and o.datatype in (None, XSD.string) and p not in CODES
+                and str(p) not in code_properties):
             fails.append(("untagged", f"{short(s)} {short(p)} \"{o}\" has no language tag"))
 
     concepts = {c for c in g.subjects(RDF.type, SKOS.Concept) if isinstance(c, URIRef)}
@@ -209,9 +211,11 @@ def check(g, allowed_namespaces=()):
 
 def main(argv):
     allowed = [a.split("=", 1)[1] for a in argv if a.startswith("--allow-namespace=")]
-    paths = [a for a in argv if not a.startswith("--allow-namespace=")]
-    if not paths or any(p.startswith("-") for p in paths) or any(not ns for ns in allowed):
-        print("usage: check_taxonomy.py [--allow-namespace=<IRI>]... <file.ttl>...", file=sys.stderr)
+    codes = [a.split("=", 1)[1] for a in argv if a.startswith("--code-property=")]
+    paths = [a for a in argv if not a.startswith(("--allow-namespace=", "--code-property="))]
+    if not paths or any(p.startswith("-") for p in paths) or any(not v for v in allowed + codes):
+        print("usage: check_taxonomy.py [--allow-namespace=<IRI>]... [--code-property=<IRI>]... <file.ttl>...",
+              file=sys.stderr)
         return 2
     g = Graph()
     for path in paths:
@@ -220,7 +224,7 @@ def main(argv):
         except Exception as exc:  # rdflib raises several parser types; any of them stops the check
             print(f"ERROR cannot read {path}: {exc}", file=sys.stderr)
             return 2
-    fails = check(g, allowed)
+    fails = check(g, allowed, codes)
     for name, message in fails:
         print(f"FAIL {name}: {message}")
     if fails:

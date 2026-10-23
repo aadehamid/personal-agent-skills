@@ -23,7 +23,7 @@ A record's Decision section says only what the owner said. A sentence an agent a
 - **Anything the agent adds** (background, an interpretation, a plan for a later change) goes in Context or Evidence, written as the agent's, never as the owner's.
 - **A detail the owner did not address stays open.** Say "not decided" rather than carry it over from the question.
 
-Where the project's check script reads decision records, have it compare each quoted recommendation in the Decision section with the same quote under the owner's words, character for character. That catches a paraphrase mechanically.
+Where the project's check script reads decision records, have it compare each quoted recommendation or option text with the question and options saved in the answers file's comment, and each quote of the owner's words with the answers file's body, character for character. That catches a paraphrase mechanically.
 
 ## When a decision lands
 

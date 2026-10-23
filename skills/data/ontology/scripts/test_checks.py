@@ -261,6 +261,12 @@ class TaxonomyChecks(OneBreak, unittest.TestCase):
         self.broken(lambda g: g.add((lib("editorialStatus"), RDFS.range, XSD.string)),
                     "domain-range", "lib:editorialStatus is an annotation property and has an rdfs:range")
 
+    def test_code_property_values_need_no_tag(self):
+        g = skeleton()
+        g.add((lib("renewal"), lib("editorialStatus"), Literal("drafted")))
+        self.assertOnly(check_taxonomy.check(g), "untagged", 'lib:renewal lib:editorialStatus "drafted" has no language tag')
+        self.assertEqual(check_taxonomy.check(g, code_properties=[LIB + "editorialStatus"]), [])
+
     def test_complete_annotation_property_needs_no_domain_or_range(self):
         g = skeleton()
         g.add((lib("lpgName"), RDF.type, OWL.AnnotationProperty))
@@ -318,6 +324,7 @@ class TaxonomyChecks(OneBreak, unittest.TestCase):
         self.assertEqual(run_main(check_taxonomy.main, [])[0], 2)
         self.assertEqual(run_main(check_taxonomy.main, [REQUIREMENTS])[0], 2)
         self.assertEqual(run_main(check_taxonomy.main, ["--allow-namespace=", SKELETON])[0], 2)
+        self.assertEqual(run_main(check_taxonomy.main, ["--code-property=", SKELETON])[0], 2)
 
 
 class RequirementsChecks(OneBreak, unittest.TestCase):
@@ -470,26 +477,34 @@ class ShapesSkeleton(unittest.TestCase):
                   ' lib:dueDate "2026-11-01"^^xsd:date ; lib:loanState lib:on-loan .')
 
     def results(self, data_ttl, shapes=None):
-        """Validate the skeleton plus data_ttl; return (conforms, {(focus, source shape, severity)})."""
+        """Validate the skeleton plus data_ttl.
+
+        Return (conforms, {(focus, source shape, severity, constraint component)}) read from the
+        validation report graph.
+        """
         from pyshacl import validate
         data = Graph().parse(SKELETON, format="turtle")
         data.parse(data=self.PREFIXES + data_ttl, format="turtle")
         shapes = shapes if shapes is not None else Graph().parse(SHAPES, format="turtle")
         conforms, report, _ = validate(data, shacl_graph=shapes)
-        found = {(report.value(r, SH.focusNode), report.value(r, SH.sourceShape), report.value(r, SH.resultSeverity))
+        found = {(report.value(r, SH.focusNode), report.value(r, SH.sourceShape),
+                  report.value(r, SH.resultSeverity), report.value(r, SH.sourceConstraintComponent))
                  for r in report.subjects(RDF.type, SH.ValidationResult)}
         return conforms, found
 
-    def assertOneViolation(self, data_ttl, focus, shape, shapes=None):
+    def assertViolations(self, data_ttl, focus, shape, components, shapes=None):
+        """Exactly one sh:Violation per named constraint component, all on focus from shape."""
         conforms, found = self.results(data_ttl, shapes)
         self.assertFalse(conforms)
-        self.assertEqual(found, {(lib(focus), lib(shape), SH.Violation)})
+        self.assertEqual(found, {(lib(focus), lib(shape), SH.Violation, getattr(SH, c)) for c in components})
+
+    TWO_DATES = '"2026-11-01"^^xsd:date, "2026-11-15"^^xsd:date'
 
     def test_valid_loan_conforms(self):
-        conforms, found = self.results(self.VALID_LOAN)
+        conforms, found = self.results(self.VALID_LOAN + ' lib:renewal lib:editorialStatus "drafted" .')
         self.assertTrue(conforms, found)
 
-    def test_every_declared_property_has_a_cardinality_shape(self):
+    def test_every_declared_property_has_a_type_and_cardinality_shape(self):
         shapes = Graph().parse(SHAPES, format="turtle")
         declared = {p for kind in (OWL.ObjectProperty, OWL.DatatypeProperty, OWL.AnnotationProperty)
                     for p in skeleton().subjects(RDF.type, kind)}
@@ -497,40 +512,59 @@ class ShapesSkeleton(unittest.TestCase):
         for prop in sorted(declared):
             with self.subTest(prop=prop):
                 stated = [s for s in shapes.subjects(SH.path, prop)
-                          if (s, SH.minCount, None) in shapes or (s, SH.maxCount, None) in shapes]
-                self.assertTrue(stated, f"{prop} has no property shape stating its cardinality")
+                          if ((s, SH.minCount, None) in shapes or (s, SH.maxCount, None) in shapes)
+                          and ((s, SH["class"], None) in shapes or (s, SH.datatype, None) in shapes)]
+                self.assertTrue(stated, f"{prop} has no property shape stating its type and cardinality")
 
     def test_loan_without_borrower(self):
-        self.assertOneViolation(self.VALID_LOAN.replace(" lib:borrower lib:m1 ;", ""), "loan1", "LoanShape-borrower")
+        self.assertViolations(self.VALID_LOAN.replace(" lib:borrower lib:m1 ;", ""),
+                              "loan1", "LoanShape-borrower", ["MinCountConstraintComponent"])
 
     def test_loan_of_two_copies(self):
-        self.assertOneViolation(self.VALID_LOAN.replace("lib:loanOf lib:c1", "lib:loanOf lib:c1, lib:c2"),
-                                "loan1", "LoanShape-loanOf")
+        self.assertViolations(self.VALID_LOAN.replace("lib:loanOf lib:c1", "lib:loanOf lib:c1, lib:c2"),
+                              "loan1", "LoanShape-loanOf", ["MaxCountConstraintComponent"])
 
     def test_loan_with_two_due_dates(self):
-        self.assertOneViolation(self.VALID_LOAN.replace('"2026-11-01"^^xsd:date', '"2026-11-01"^^xsd:date, "2026-11-15"^^xsd:date'),
-                                "loan1", "LoanShape-dueDate")
+        self.assertViolations(self.VALID_LOAN.replace('"2026-11-01"^^xsd:date', self.TWO_DATES),
+                              "loan1", "LoanShape-dueDate", ["MaxCountConstraintComponent"])
 
     def test_value_from_wrong_list_fails(self):
-        self.assertOneViolation(self.VALID_LOAN.replace("lib:on-loan", "lib:circulation"), "loan1", "LoanShape-loanState")
+        self.assertViolations(self.VALID_LOAN.replace("lib:on-loan", "lib:circulation"),
+                              "loan1", "LoanShape-loanState", ["InConstraintComponent"])
+
+    def test_loan_state_that_is_not_a_concept(self):
+        self.assertViolations(self.VALID_LOAN.replace("lib:on-loan", "lib:m1"),
+                              "loan1", "LoanShape-loanState", ["ClassConstraintComponent", "InConstraintComponent"])
 
     def test_concept_with_two_editorial_statuses(self):
-        self.assertOneViolation('lib:renewal lib:editorialStatus "drafted"@en, "approved"@en .',
-                                "renewal", "ConceptShape-editorialStatus")
+        self.assertViolations('lib:renewal lib:editorialStatus "drafted", "approved" .',
+                              "renewal", "ConceptShape-editorialStatus", ["MaxCountConstraintComponent"])
 
-    # The two mutations the review of 0700aea describes: each must turn a test red.
+    def test_editorial_status_that_is_not_a_string(self):
+        self.assertViolations("lib:renewal lib:editorialStatus 42 .",
+                              "renewal", "ConceptShape-editorialStatus", ["DatatypeConstraintComponent"])
+
+    # Mutations named by earlier reviews: each must turn a test red.
     def test_dropping_due_date_max_count_is_caught(self):
         shapes = Graph().parse(SHAPES, format="turtle")
         shapes.remove((lib("LoanShape-dueDate"), SH.maxCount, None))
         with self.assertRaises(AssertionError):
-            self.assertOneViolation(self.VALID_LOAN.replace('"2026-11-01"^^xsd:date', '"2026-11-01"^^xsd:date, "2026-11-15"^^xsd:date'),
-                                    "loan1", "LoanShape-dueDate", shapes)
+            self.assertViolations(self.VALID_LOAN.replace('"2026-11-01"^^xsd:date', self.TWO_DATES),
+                                  "loan1", "LoanShape-dueDate", ["MaxCountConstraintComponent"], shapes)
 
     def test_lowering_loan_state_severity_is_caught(self):
         shapes = Graph().parse(SHAPES, format="turtle")
         shapes.add((lib("LoanShape-loanState"), SH.severity, SH.Warning))
         with self.assertRaises(AssertionError):
-            self.assertOneViolation(self.VALID_LOAN.replace("lib:on-loan", "lib:circulation"), "loan1", "LoanShape-loanState", shapes)
+            self.assertViolations(self.VALID_LOAN.replace("lib:on-loan", "lib:circulation"),
+                                  "loan1", "LoanShape-loanState", ["InConstraintComponent"], shapes)
+
+    def test_dropping_editorial_status_datatype_is_caught(self):
+        shapes = Graph().parse(SHAPES, format="turtle")
+        shapes.remove((lib("ConceptShape-editorialStatus"), SH.datatype, None))
+        with self.assertRaises(AssertionError):
+            self.assertViolations("lib:renewal lib:editorialStatus 42 .",
+                                  "renewal", "ConceptShape-editorialStatus", ["DatatypeConstraintComponent"], shapes)
 
     def test_shapes_hold_blank_nodes_so_check_taxonomy_skips_them(self):
         fails = check_taxonomy.check(Graph().parse(SHAPES, format="turtle"))

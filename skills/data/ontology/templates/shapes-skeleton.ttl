@@ -30,18 +30,18 @@ lib:LoanShape-dueDate a sh:PropertyShape ;
     sh:message "A loan has exactly one due date."@en .
 
 lib:LoanShape-loanState a sh:PropertyShape ;
-    sh:path lib:loanState ;
+    sh:path lib:loanState ; sh:class skos:Concept ;
     sh:in ( lib:on-loan lib:overdue lib:returned ) ;
     sh:minCount 1 ; sh:maxCount 1 ;
     sh:message "A loan has exactly one state from the loan-state list."@en .
 
-# The annotation property gets a cardinality too (shacl.md, rule 5): a concept has at most one
-# editorial status.
+# The annotation property gets a type and a cardinality too (domain-model.md, rule 7; shacl.md, rule 5):
+# a concept has at most one editorial status, a plain string.
 lib:ConceptShape a sh:NodeShape ;
     sh:targetClass skos:Concept ;
     sh:property lib:ConceptShape-editorialStatus .
 
 lib:ConceptShape-editorialStatus a sh:PropertyShape ;
-    sh:path lib:editorialStatus ;
+    sh:path lib:editorialStatus ; sh:datatype xsd:string ;
     sh:maxCount 1 ;
     sh:message "A concept has at most one editorial status."@en .

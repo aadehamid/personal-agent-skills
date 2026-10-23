@@ -66,7 +66,7 @@ Status facts that change over time, checked 2026-10-22:
 - rdflib RDF 1.2 support: https://github.com/RDFLib/rdflib/issues/3524 (all stages open).
 - Apache Jena: full RDF 1.2 syntax and SPARQL 1.2 from 6.1.0 (5.4.0 to 6.0.x was an experimental preview), per https://github.com/apache/jena/blob/main/CHANGES.txt.
 - Eclipse RDF4J: RDF 1.2 from 6.0.0, https://rdf4j.org/release-notes/6.0.0/
-- n10s: https://github.com/neo4j-labs/neosemantics (last commit 29 May 2026, Neo4j 2025.06.2, no RDF 1.2).
+- n10s: https://github.com/neo4j-labs/neosemantics. The skill cites the implementation at tag 2025.06.1, commit `6a5846b` (29 May 2026), which runs on Neo4j 2025.06.2 and has no RDF 1.2 support. The default branch's latest commit is `d5cfd2a` (9 October 2026, "Add Neo4j Labs disclaimer"), checked 2026-10-23.
 
 **How to check for updates:** `gh api repos/neo4j-labs/neosemantics/releases --jq '.[0] | "\(.tag_name) \(.published_at)"'`; re-run the pass-and-fail test in `shacl.md`, rule 16, on any new n10s release before relying on it; recheck the RDF 1.2 and library links above.
 
