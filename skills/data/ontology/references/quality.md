@@ -13,7 +13,7 @@ Every authored definition meets all ten:
 5. **Sibling-disjoint.** No two siblings claim the same primary activity.
 6. **Stable terms.** One meaning per material term across the scheme.
 7. **Park, don't smuggle,** as `foundations.md` sets it out.
-8. **Evidence-based.** References inform; nothing is copied verbatim.
+8. **Evidence-based.** References inform; nothing is copied verbatim, because copied text carries another organization's scope and licence.
 9. **Baseline preserved.** A comparison (actual against plan) uses the approved plan and its assumptions at the time, not a later forecast.
 10. **Clean provenance.** Who wrote it, who approved it, when.
 
@@ -21,7 +21,7 @@ Every authored definition meets all ten:
 
 **Say only what the source says.** When a definition cites a filing, every claim in it must be in that filing, with the item that holds it. *Why:* a plausible claim with no primary source is the builder's, not the source's.
 
-Candidate text collected from references goes through a human gate, exactly like text a person wrote: a validator first (required fields, controlled values, no label collisions, no open questions on approved rows), then a person reviews the meaning. Nothing merges on assumption.
+**The human gate.** Candidate text collected from references goes through it, exactly like text a person wrote: a validator first (required fields, controlled values, no label collisions, no open questions on approved rows), then a person reviews the meaning. Nothing merges on assumption.
 
 ## Soundness checks on every change
 
@@ -44,7 +44,4 @@ Candidate text collected from references goes through a human gate, exactly like
 - A migration proves replacement, not deletion: a per-predicate ledger, a held-items report reconciled row by row, and a dry-run count reviewed before emission.
 - Turn ordering dependencies into assertions that fail fast on known stale state. A rerun on unchanged input reproduces identical output.
 
-**Sampling.**
-- Draw samples only from promotions, with a fixed, recorded seed.
-- A sample is pending until the owner reviews it.
-- One wrong sample stops the pass; it is not averaged away.
+**Sampling:** `promotion.md`, rule 6.

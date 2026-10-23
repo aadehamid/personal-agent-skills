@@ -1,6 +1,6 @@
 # Projecting an ontology into a labelled property graph
 
-Serves Step 12, and Step 1's target-format policy. Read it when the ontology will be loaded into Neo4j or another labelled property graph (LPG): the design rules apply from Step 1, the pipeline runs at Step 12. It condenses the Ontology-to-LPG Conversion Playbook v2.2 (October 2026; see `SOURCES.md`) and what running it over a released multi-module ontology taught. The Turtle release stays the master copy.
+Serves Step 12, and Step 1's target-format policy. Read it when the ontology will be loaded into Neo4j or another labelled property graph (LPG): the design rules apply from Step 1, the pipeline runs at Step 12. It condenses the Ontology-to-LPG Conversion Playbook, version 2.2 (October 2026), and what running it over a released multi-module ontology taught. The Turtle release stays the master copy.
 
 ## Mental model
 
@@ -19,7 +19,7 @@ everything else    -> stays in the Turtle files
 3. **Stable IRIs, no blank nodes, one registered prefix per namespace.** *Why:* the IRI becomes the node's identity in the graph, and a blank node has none.
 4. **Relationship properties go on qualified-relation nodes (the guideline's option 4a, its default).** Choose one option for the whole ontology. Option 4b, RDF 1.2 reifiers, fits only when every tool that reads and validates the data reads triple terms (Apache Jena 6.1.0+ or Eclipse RDF4J 6.0.0+); rdflib and pySHACL do not, and n10s cannot load them. A link the business tracks as a thing in its own right (its own lifecycle or identity, referred to by other records) is a domain class, an ordinary node outside this rule. *Why:* as of October 2026, RDF 1.2 is a W3C Candidate Recommendation (Snapshot, 7 April 2026), and a qualified-relation node loads as an ordinary node with no flatten step.
    - **Each qualified-relation node has exactly one value for each end.** An end may be reached by an inverse link from the end to the node (`prov:qualifiedAssociation`, `org:hasMembership`); count that link as the end, and check that exactly one such link points to each node. *Why:* the arcs that define the node are not domain links, and the guideline allows the inverse form.
-5. **Explicit LPG names through one annotation property (`lpg:name`)**, with a CI check for collisions. n10s applies them only in MAP mode; in SHORTEN mode (rule 9) add them as a generated, idempotent rename after the load and reverse it in the export. *Why:* MAP mode breaks in-graph SHACL in n10s (neosemantics issue #237, open since 2021-11-09).
+5. **Explicit LPG names through one annotation property (`lpg:name`)**, with a CI check for collisions. n10s applies them only in MAP mode; in SHORTEN mode (rule 12) add them as a generated, idempotent rename after the load and reverse it in the export. *Why:* MAP mode breaks in-graph SHACL in n10s (neosemantics issue #237, open since 2021-11-09).
 
 Keep reasoning within the OWL 2 EL profile. EL has no inverse properties: store one direction per fact and materialize inverses before the load if consumers need them.
 

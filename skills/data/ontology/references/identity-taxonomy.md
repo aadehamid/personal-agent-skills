@@ -6,7 +6,7 @@ Serves Steps 2 and 3. Read it before you mint any IRI, build or regenerate the c
 
 1. **Slugs and IRIs are identity; labels are presentation.** Never use a label as a join, lookup, access-control or API key. *Why:* labels change and collide; identity must not.
 2. **Keep the source's local IDs as `skos:notation` and derive slugs from them.** Mint a slug only where a node has no ID. Reference-framework IDs attach by `dcterms:references` and never replace local IDs. *Why:* the local ID is what the business already uses to find the thing.
-3. **Put no version in a term IRI.** Versions live on the ontology header (`release.md`). *Why:* identity must survive a definition change.
+3. **Put no version in a term IRI; term IRIs are permanent.** Versions live on the ontology header (`release.md`, rule 1). *Why:* identity must survive a definition change, and a consumer who bookmarked a concept IRI must still get a correct answer years later.
 4. **Use a persistent base scoped to the organization**, never a person or a project. *Why:* usernames and project names change; the base should change by one redirect.
 5. **Give every node something can point at an IRI, including n-ary and qualified-relation nodes. Released data has no blank nodes.** *Why:* a blank node has no stable identity across builds, so a consumer cannot reference it and a property-graph load cannot reproduce it.
 6. **Derive minted IRIs from content, never from position.** Build an assignment's IRI from its ends plus a short hash of the source string (`.../assignment/lend-item--accountable--circulation-lead--3f9a1c20`), not from its place in a list. *Why:* a source edit that reorders a list must not remint identities.
@@ -22,7 +22,7 @@ Serves Steps 2 and 3. Read it before you mint any IRI, build or regenerate the c
 3. **Slot every new concept into the hierarchy; allow no floating nodes.** *Why:* a floating node escapes the parent test and every scope query.
 4. **One `skos:prefLabel` per language per concept, and a language tag on every literal.** *Why:* two preferred labels in one language make the name a coin toss.
 5. **Put `skos:definition` on every concept and a scope note on every approved one, to the quality bar in `quality.md`.** *Why:* a concept without a definition means whatever each reader assumes.
-6. **Send collected definition text through a human gate.** Reference text informs a definition; never copy it verbatim. *Why:* copied text carries another organization's scope and licence.
+6. **Send every definition, collected or written, through the human gate in `quality.md`.**
 7. **Classify by primary purpose, not by location, asset or department.** Write one primary question per domain ("what is the financial position, performance, obligation and exposure?" for Finance) and use it as the placement test for every new concept. *Why:* purpose is stable when the org chart and the systems change.
 8. **Add aliases selectively.** `skos:altLabel` is a live search commitment: make a former name an alias only if it is unique, accurate and useful. Keep other former names in a history annotation. *Why:* a stale alias returns the wrong concept to a search.
 9. **Split a source field that mixes dimensions.** A field holding "event-driven", "monthly" and "tactical" holds three dimensions (operating mode, cadence, planning level); model three controlled fields, each with its own code list, and record "unspecified" honestly where a value is missing. *Why:* one mixed field cannot be validated or queried by any one dimension.

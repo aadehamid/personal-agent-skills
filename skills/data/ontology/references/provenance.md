@@ -4,7 +4,7 @@ Serves Step 6. Read it before you model planned inputs and outputs, link a run o
 
 The rule behind this step: the ontology holds definitions; consuming systems hold what happened. The recipe is not the meal.
 
-Standards: PROV-O (W3C Recommendation, 30 April 2013, https://www.w3.org/TR/prov-o/); P-Plan (release 17 September 2013, revision 1.1, http://purl.org/net/p-plan#), which says the association of a whole plan with its execution "can be modeled with PROV (with the prov:hadPlan property)".
+Standards: PROV-O (W3C Recommendation, 30 April 2013, https://www.w3.org/TR/prov-o/); P-Plan, the ontology at http://purl.org/net/p-plan# (`owl:versionInfo` "1.2", `dcterms:modified` 2013-05-17; its documentation at https://www.opmw.org/model/p-plan/ is "Release 17 September 2013", revision 1.1). The documentation says the relation of a plan with agents and activities is not specified in P-Plan, "since it can be modeled with PROV (with the prov:hadPlan property)".
 
 ## Rules
 

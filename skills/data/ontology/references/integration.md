@@ -8,7 +8,7 @@ Serves Step 7. Read it before you bring back a parked overlay (measures, data pr
 2. **Reference process nodes; never duplicate them.** An overlay node is its own thing that points at processes. *Why:* a value stream cuts across the hierarchy, and every concept has exactly one parent, so a value stream can never be a parent.
 3. **Define only what a source describes.** An item an overlay names without describing (a data product, a system) gets an editorial note that its definition waits for its owners, never a definition written from its name. A shape requires the definition or the note, and rejects both together. *Why:* a definition guessed from a name is read as the owners' meaning.
 4. **Resolve each gap an earlier step exposed (an empty output set, a missing owner) as its own recorded decision**: linked, or parked with a trigger, never filled by an invented owner (`foundations.md`). *Why:* the Step 7 gate counts decisions.
-5. **Apply the external mappings assigned to this step at Step 0** (`external-ontologies.md`), each with its trigger if it must wait.
+5. **Apply the external mappings that the Step 0 survey assigned to Step 7** (`external-ontologies.md`, rule 1), and park any that must wait with its trigger.
 
 ## Measures: definitions, never values
 
@@ -32,7 +32,7 @@ Serves Step 7. Read it before you bring back a parked overlay (measures, data pr
 ## Market series
 
 16. **Separate a measure from its published series.** A series is one form of a measure, built from parts its source names. Two series are the same only when every attribute their sources use to tell them apart is the same; otherwise they are two series of one measure, not two measures. Record which attributes decide it in a decision record. *Why:* treating series as measures splits one definition; treating them as one hides a real difference.
-    Example: Marathon Petroleum's Form 10-K for fiscal 2025 says "The benchmark crack spreads below do not reflect the market cost of RINs". A Gulf Coast 3-2-1 crack spread that deducts that cost is a different series of the same crack-spread measure, even with the same crude and product markets.
+    Example: Marathon Petroleum's Form 10-K for fiscal 2025 (filed 2026-02-26, accession 0001510295-26-000009) says "The benchmark crack spreads below do not reflect the market cost of RINs necessary to meet the EPA renewable volume obligations for attributable products under the Renewable Fuel Standard." A Gulf Coast 3-2-1 crack spread that deducts that cost is a different series of the same crack-spread measure, even with the same crude and product markets.
 17. **Store the recipe, never the prices.** A leg names a benchmark and its quantity; weights that change by period go in a cited note. *Why:* prices are observed values (`foundations.md`, policy 2).
 18. **Keep price markets apart from the company's own reporting regions** as two schemes. *Why:* they answer different questions and change on different schedules.
 

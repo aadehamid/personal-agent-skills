@@ -4,7 +4,7 @@ Serves Step 10, and every module release from Step 4 on. Read it before you clas
 
 ## The rule
 
-1. **Term IRIs are permanent and carry no version.** Versions live on each module's `owl:Ontology` header (`owl:versionInfo`, `owl:versionIRI`) and on versioned distributions (`.../releases/1.2.0/core.ttl`). *Why:* a consumer who bookmarked a concept IRI must still get a correct answer years later.
+1. **Put versions on each module's `owl:Ontology` header (`owl:versionInfo`, `owl:versionIRI`) and on versioned distributions (`.../releases/1.2.0/core.ttl`), never in term IRIs** (`identity-taxonomy.md`, Step 2, rule 3). *Why:* the header and the distribution are what a consumer pins.
 2. **Version each module, and each release as a whole, with `MAJOR.MINOR.PATCH`.** A release records exactly which module versions it bundles. *Why:* a consumer pins what it tested against.
 
 ## Classify every change

@@ -19,7 +19,7 @@ Build the ontology in **gated** steps. Each step ends on its "Done when" gate; s
 Keep the order, except Step 8, which runs right after Step 0. Before you work on a step, read the reference it names.
 
 0. **Reference framework and existing ontologies.** Read `references/foundations.md` and `references/external-ontologies.md`.
-   Done when: every cited framework ID is verified against the published source, every divergence has a boundary note, and every surveyed source has a treatment and a target step.
+   Done when: every cited framework ID is verified against the published source, every divergence has a boundary note, and the survey meets the "Done when" in `references/external-ontologies.md`.
 1. **Foundations: the ten policies.** Read `references/foundations.md`; for target formats, `references/lpg-projection.md`.
    Done when: all ten policies are recorded with their reasons, and the owner has approved and locked the competency questions.
 2. **Identity.** Read `references/identity-taxonomy.md`.
@@ -27,7 +27,7 @@ Keep the order, except Step 8, which runs right after Step 0. Before you work on
 3. **SKOS taxonomy.** Read `references/identity-taxonomy.md` and `references/quality.md`.
    Done when: every concept has a label and a definition that meets the quality bar; every concept except the top concepts has exactly one parent; the mechanical checks pass.
 4. **Relationships.** Read `references/promotion.md`.
-   Done when: every row has a recorded verdict (APPROVE, STAND or HOLD), the conservation ledger reconciles, and the evidence gate passes. Before the first module release, the source-correction backlog is recorded and every row on it has a fresh verdict.
+   Done when: every row has a recorded verdict (APPROVE, STAND or HOLD), the conservation ledger reconciles, and the evidence gate passes. The release gate for the first module release (the source-correction backlog) is in `references/promotion.md`; Step 10 checks it.
 5. **Organizations and roles.** Read `references/organization.md`.
    Done when: under a recorded scope, every in-scope process has its RACI assignments and none is inferred from the hierarchy; every role string is in the role register; every reference instance cites its source and an as-of date.
 6. **Plans and runs.** Read `references/provenance.md`.
@@ -47,12 +47,14 @@ Keep the order, except Step 8, which runs right after Step 0. Before you work on
 
 ## Rules that apply at every step
 
-- **Define, don't record.** Concepts, definitions, relationships and dated, cited public reference facts go in; event records and observed values stay in the systems that use the ontology (`references/foundations.md`, policy 2).
-- **Cite every fact** in the project's evidence order (`references/foundations.md`, policy 3). No evidence, no fact.
-- **Map, don't import** (`references/external-ontologies.md`).
-- **SKOS first.** A naming hierarchy is a vocabulary, not a class hierarchy. Use OWL classes only where the business guarantees the logical commitment.
-- **Qualified relations.** A relationship that carries a share, a date, a level or a source becomes a node with its own IRI pointing at both ends (the `org:Membership` pattern). A link the business tracks as a thing in its own right is a domain class instead.
-- **Park, don't smuggle** future concepts; invent no owner (`references/foundations.md`).
-- **Every count reconciles.** Recompute figures from the source files; if they do not reconcile, report the gap and stop (`references/quality.md`).
-- **Released packages never change.** A change is a new release (`references/release.md`).
-- Before you hand work to the owner, run the soundness checks in `references/quality.md` on what changed, and the project's full check script.
+Each rule lives in the reference named; read it there.
+
+- **Define, don't record:** `references/foundations.md`, policy 2.
+- **Cite every fact in the evidence order:** `references/foundations.md`, policy 3.
+- **Map, don't import:** `references/external-ontologies.md`.
+- **SKOS first:** `references/identity-taxonomy.md`, Step 3, rule 1.
+- **Qualified relations:** `references/foundations.md`, conceptual modelling, rule 8.
+- **Park, don't smuggle; invent no owner:** `references/foundations.md`, source policies.
+- **Every count reconciles:** `references/quality.md`, counts.
+- **Released packages never change:** `references/release.md`, rule 10.
+- **Before any hand-off,** run the soundness checks in `references/quality.md` on what changed, and the project's full check script.
