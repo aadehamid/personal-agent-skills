@@ -3,6 +3,11 @@
 # Rules: references/design-rules.md (1 to 5). Check it with:
 #   uv run --no-project --with rdflib python3 <skill>/scripts/check_projection_rules.py \
 #     --config projection-config.json --shapes library-shapes.ttl library-module.ttl
+# To check the package pins too, lay it out as a release (references/inputs.md, rule 1):
+#   mkdir -p releases/lending/1.1.0
+#   cp library-module.ttl releases/lending/1.1.0/lending.ttl
+#   cp library-shapes.ttl releases/lending/1.1.0/shapes.ttl
+# and add --releases releases, naming releases/lending/1.1.0/lending.ttl and its shapes.ttl.
 
 @prefix lib:     <https://id.example.org/library/> .
 @prefix owl:     <http://www.w3.org/2002/07/owl#> .

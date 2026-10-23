@@ -13,5 +13,15 @@
   "nodes": null,
   "relationships": null,
   "versions": {},
-  "samples": {"violations": [], "lost": [], "added": []}
+  "samples": {
+    "violations": [],
+    "lost": [],
+    "added": []
+  },
+  "fail_cases": [],
+  "mutant": null,
+  "export_rows": null,
+  "schema_rows_skipped": null,
+  "schema_relationships": null,
+  "plugin_jars_sha256": {}
 }

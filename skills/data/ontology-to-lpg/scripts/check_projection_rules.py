@@ -14,9 +14,12 @@ Checks (references/design-rules.md and references/inputs.md):
              property has exactly one rdfs:range, an IRI other than rdfs:Literal and rdfs:Resource; a
              datatype property's range is a row of the XSD to Cypher table; an object property's
              range is not a datatype
-  rule-2     every own property is the sh:path of a property shape that an applied node shape uses
-             (one with sh:targetClass, or one that is itself a class) and that shape states
-             sh:minCount or sh:maxCount
+  rule-2     every own property the data uses as a predicate is the sh:path of a property shape that
+             an applied shape uses, and that property shape states sh:minCount or sh:maxCount. A shape
+             is applied when it has any target (sh:targetClass, sh:targetNode, sh:targetSubjectsOf,
+             sh:targetObjectsOf, a SPARQL sh:target), is itself a class, or is reached from an applied
+             shape through sh:node, sh:and, sh:or or sh:xone. A declared property the data never
+             uses loads nothing, so Rule 2 skips it; Rule 1 still checks it
   rule-3     no blank node in the data; every namespace a predicate or a class uses (in the data or
              the shapes) has a prefix; every own namespace has a prefix; no namespace has two prefixes
   rule-4a    every node of a registered qualified-relation class has exactly one value for each end,
@@ -28,7 +31,7 @@ Checks (references/design-rules.md and references/inputs.md):
              as a double (references/pipeline.md, rule 3)
   inputs     with --releases: each module's pin is its newest release folder (<folder>/<module>/<X.Y.Z>/)
   exceptions a rule-1, rule-2 or rule-5 failure whose exact message is a key of release_exceptions is
-             allowed; a listed exception that no longer occurs, has an empty fix, or names a failure
+             allowed (a key may name terms by full IRI or by CURIE); a listed exception that no longer occurs, has an empty fix, or names a failure
              of any other check, fails
 
 This checker reads RDF 1.1 with rdflib, so it checks Rule 4a only. With "rule4": "4b" it stops
@@ -70,6 +73,12 @@ SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
 # source string cannot be told apart from a tagged one on the way back.
 LANG_TAG_SUFFIX = re.compile(r"@[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*$")
 WAIVABLE = {"rule-1", "rule-2", "rule-5"}
+IRI_IN_TEXT = re.compile(r"<?(https?://[^\s<>\"]+)>?")
+# Every way SHACL selects focus nodes. A shape reached from an applied shape through sh:node,
+# sh:and, sh:or or sh:xone applies to the same nodes.
+TARGET_PREDICATES = (SH.targetClass, SH.targetNode, SH.targetSubjectsOf, SH.targetObjectsOf, SH.target)
+REUSE_PREDICATES = (SH.node,)
+LIST_PREDICATES = (SH["and"], SH["or"], SH.xone)
 
 
 class ConfigError(ValueError):
@@ -122,7 +131,8 @@ class Config:
         exceptions = raw.get("release_exceptions", {})
         if not isinstance(exceptions, dict):
             raise ConfigError('"release_exceptions" must be an object of message to fix')
-        self.exceptions = {str(k): str(v) for k, v in exceptions.items()}
+        # A key may name terms by full IRI or by CURIE; both match the checker's CURIE message.
+        self.exceptions = {self.curies(str(k)): str(v) for k, v in exceptions.items()}
         versions = raw.get("versions", {})
         if not isinstance(versions, dict):
             raise ConfigError('"versions" must be an object of tool to version')
@@ -136,6 +146,15 @@ class Config:
         if not sep or prefix not in self.prefixes:
             raise ConfigError(f"cannot expand {term!r}: no such prefix")
         return URIRef(self.prefixes[prefix] + local)
+
+    def curies(self, text):
+        """Rewrite every full IRI in text (bare or in angle brackets) the way messages name it."""
+        def one(m):
+            iri, tail = m.group(1), ""
+            while iri and iri[-1] in ",;.":
+                iri, tail = iri[:-1], iri[-1] + tail
+            return self.short(URIRef(iri)) + tail
+        return IRI_IN_TEXT.sub(one, text)
 
     def short(self, term):
         """A CURIE for a term in a registered namespace, else the full IRI. Messages use this, so an
@@ -152,12 +171,28 @@ class Config:
 
 
 def applied_node_shapes(shapes):
-    """Node shapes a validator applies: those with sh:targetClass, and those that are themselves a
-    class (SHACL's implicit class target)."""
-    targeted = set(shapes.subjects(SH.targetClass, None))
-    implicit = {s for kind in CLASS_KINDS for s in shapes.subjects(RDF.type, kind)
-                if (s, RDF.type, SH.NodeShape) in shapes}
-    return targeted | implicit
+    """Shapes a SHACL validator applies: those with any target (sh:targetClass, sh:targetNode,
+    sh:targetSubjectsOf, sh:targetObjectsOf, or a SHACL-SPARQL sh:target), those that are themselves
+    a class (the implicit class target), and every shape reached from one of these through sh:node,
+    sh:and, sh:or or sh:xone. This is what pySHACL validates, not what n10s runs in the graph."""
+    from rdflib.collection import Collection
+    applied = {s for p in TARGET_PREDICATES for s in shapes.subjects(p, None)}
+    applied |= {s for kind in CLASS_KINDS for s in shapes.subjects(RDF.type, kind)
+                if (s, RDF.type, SH.NodeShape) in shapes or (s, SH.property, None) in shapes}
+    frontier = list(applied)
+    while frontier:
+        shape = frontier.pop()
+        reached = [o for p in REUSE_PREDICATES for o in shapes.objects(shape, p)]
+        for p in LIST_PREDICATES:
+            for head in shapes.objects(shape, p):
+                reached += list(Collection(shapes, head))
+        for ps in shapes.objects(shape, SH.property):
+            reached += [o for p in REUSE_PREDICATES for o in shapes.objects(ps, p)]
+        for r in reached:
+            if r not in applied:
+                applied.add(r)
+                frontier.append(r)
+    return applied
 
 
 def targets(shapes, node_shape):
@@ -178,7 +213,13 @@ def applied_property_shapes(shapes):
     return out
 
 
+def used_own_properties(data, cfg):
+    """Own properties the data uses as predicates: the ones that load values, so Rule 2 applies."""
+    return sorted({p for p in data.predicates() if isinstance(p, URIRef) and str(p).startswith(cfg.own)})
+
+
 def own_properties(data, cfg):
+    """Own properties the data uses, declares with a kind, or gives a domain, range or parent: Rule 1."""
     used = {p for p in data.predicates() if isinstance(p, URIRef)}
     declared = {s for kind in DECLARED for s in data.subjects(RDF.type, kind) if isinstance(s, URIRef)}
     axioms = {s for p in PROPERTY_AXIOMS for s in data.subjects(p, None) if isinstance(s, URIRef)}
@@ -343,7 +384,8 @@ def check_packages(releases, cfg):
 def check(data, shapes, cfg, releases=None):
     """Return a list of (check name, message) pairs for every failure, after the release exceptions."""
     props = own_properties(data, cfg)
-    found = (check_rule_1(data, cfg, props) + check_rule_2(shapes, cfg, props) + check_rule_3(data, shapes, cfg)
+    found = (check_rule_1(data, cfg, props) + check_rule_2(shapes, cfg, used_own_properties(data, cfg))
+             + check_rule_3(data, shapes, cfg)
              + check_rule_4a(data, shapes, cfg) + check_rule_5(data, cfg) + roundtrip_refusals(data, cfg))
     if releases is not None:
         found += check_packages(releases, cfg)

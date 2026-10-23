@@ -11,6 +11,7 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import tempfile
 import unittest
 
@@ -22,6 +23,7 @@ from rdflib.namespace import OWL, RDF, RDFS, SH, XSD
 import build
 import check_projection_rules as cpr
 import in_graph_shapes as igs
+import load_verify as lv
 import validate_data as vd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -441,10 +443,10 @@ class ReviewRoundOne(OneBreak, unittest.TestCase):
         def change(g):
             g.add((lib("secretLink"), RDFS.domain, lib("Copy")))
             g.add((lib("secretLink"), RDFS.range, lib("Work")))
+        # Rule 1 checks it; Rule 2 does not, because the data never uses it (round-two decision).
         self.assertEqual(self.broken(change), [
             ("rule-1", "Rule 1: lib:secretLink has 0 kinds; it needs exactly one of owl:ObjectProperty, "
-                       "owl:DatatypeProperty and owl:AnnotationProperty"),
-            ("rule-2", "Rule 2: no cardinality stated for lib:secretLink")])
+                       "owl:DatatypeProperty and owl:AnnotationProperty")])
 
     # 2: a datatype range must be a row of the XSD to Cypher table
     def test_unknown_xsd_range(self):
@@ -773,6 +775,15 @@ class Build(unittest.TestCase):
             rep[key] = value
             self.assertTrue(build.check_report(man, rep), key)
 
+    def test_check_report_reads_fail_cases_and_the_restore(self):
+        man = {"input_fingerprint": "f", "shapes_fingerprint": "s"}
+        rep = self.good_report(man)
+        rep["fail_cases"] = [{"kind": "class", "passed": True}, {"kind": "in", "passed": False}]
+        self.assertTrue(any("in" in f for f in build.check_report(man, rep)))
+        rep = self.good_report(man)
+        rep["mutant"] = {"after_restore": 1}
+        self.assertTrue(build.check_report(man, rep))
+
     def test_report_template_cannot_pass(self):
         with open(os.path.join(TEMPLATES, "projection-report.json"), encoding="utf-8") as f:
             rep = json.load(f)
@@ -826,6 +837,275 @@ class ValidateData(unittest.TestCase):
             g.remove((COPY, lib("barcode"), None))
             g.serialize(bad, format="turtle")
             self.assertEqual(run_main(vd.main, ["--config", CONFIG, "--shapes", SHAPES, bad])[0], 1)
+
+
+class RoundTwo(OneBreak, unittest.TestCase):
+    """One test per code change asked for by the second pair of test runs; each failed on 628a2d7."""
+
+    def broken(self, mutate_data=None, mutate_shapes=None, cfg=None):
+        g, s = module(), shapes()
+        if mutate_data:
+            mutate_data(g)
+        if mutate_shapes:
+            mutate_shapes(s)
+        return cpr.check(g, s, cfg or config())
+
+    @staticmethod
+    def retarget(s, predicate, obj):
+        """Move the copy shape's target from sh:targetClass to another target kind."""
+        s.remove((lib("CopyShape"), SH.targetClass, None))
+        s.add((lib("CopyShape"), predicate, obj))
+
+    # Rule 2 counts every target kind (test b, 2)
+    def test_subjects_of_target_states_cardinality(self):
+        self.assertEqual(self.broken(mutate_shapes=lambda s: self.retarget(s, SH.targetSubjectsOf, lib("barcode"))), [])
+
+    def test_sparql_target_states_cardinality(self):
+        self.assertEqual(self.broken(mutate_shapes=lambda s: self.retarget(s, SH.target, BNode())), [])
+
+    def test_target_node_states_cardinality(self):
+        self.assertEqual(self.broken(mutate_shapes=lambda s: self.retarget(s, SH.targetNode, COPY)), [])
+
+    def test_shape_reused_through_sh_node_states_cardinality(self):
+        def change(s):
+            s.remove((lib("CopyShape"), SH.targetClass, None))
+            s.add((lib("CopyHolder"), RDF.type, SH.NodeShape))
+            s.add((lib("CopyHolder"), SH.targetClass, lib("Copy")))
+            s.add((lib("CopyHolder"), SH.node, lib("CopyShape")))
+        self.assertEqual(self.broken(mutate_shapes=change), [])
+
+    def test_untargeted_shape_still_states_nothing(self):
+        self.assertOnly(self.broken(mutate_shapes=lambda s: s.remove((lib("PersonShape"), SH.targetClass, None))),
+                        "rule-2", "Rule 2: no cardinality stated for lib:name")
+
+    def test_single_value_under_subjects_of_target_is_not_an_array(self):
+        s = shapes()
+        self.retarget(s, SH.targetSubjectsOf, lib("barcode"))
+        self.assertNotIn(LIB + "barcode", build.multivalued(module(), s))
+
+    # declared but unused properties skip Rule 2 (test b, 3)
+    def test_declared_unused_property_skips_rule_2(self):
+        def change(g):
+            g.add((lib("shelfmark"), RDF.type, OWL.DatatypeProperty))
+            g.add((lib("shelfmark"), RDFS.range, XSD.string))
+        self.assertEqual(self.broken(change), [])
+
+    def test_used_property_still_needs_a_shape(self):
+        def change(g):
+            g.add((lib("shelfmark"), RDF.type, OWL.DatatypeProperty))
+            g.add((lib("shelfmark"), RDFS.range, XSD.string))
+            g.add((COPY, lib("shelfmark"), Literal("A-12")))
+        self.assertOnly(self.broken(change), "rule-2", "Rule 2: no cardinality stated for lib:shelfmark")
+
+    # exception keys may use full IRIs (test b, 4)
+    def test_full_iri_exception_key(self):
+        key = f"Rule 1: {LIB}copyOf has no single concrete range"
+        cfg = config(lambda r: r["release_exceptions"].update({key: "the next lending release adds the range"}))
+        self.assertEqual(self.broken(lambda g: g.remove((lib("copyOf"), RDFS.range, None)), cfg=cfg), [])
+
+    def test_bracketed_iri_exception_key(self):
+        key = f"Rule 1: <{LIB}copyOf> has no single concrete range"
+        cfg = config(lambda r: r["release_exceptions"].update({key: "the next lending release adds the range"}))
+        self.assertEqual(self.broken(lambda g: g.remove((lib("copyOf"), RDFS.range, None)), cfg=cfg), [])
+
+    # the in-graph subset (test b, 7 and 8)
+    def test_comparison_constraints_n10s_ignores_are_dropped(self):
+        for predicate in (SH.lessThan, SH.lessThanOrEquals, SH.equals, SH.uniqueLang, SH.qualifiedValueShape):
+            sub, dropped = igs.subset(minimal_shape(predicate, lib("copyOf")))
+            self.assertNotIn((None, predicate, None), sub, predicate)
+            self.assertIn((lib("S-p"), predicate), {(x, p) for x, p, _ in dropped}, predicate)
+
+    def test_disjoint_stays(self):
+        sub, _ = igs.subset(minimal_shape(SH.disjoint, lib("copyOf")))
+        self.assertIn((lib("S-p"), SH.disjoint, lib("copyOf")), sub)
+
+    def test_iri_named_sparql_constraint_is_removed(self):
+        g = minimal_shape(SH.minCount, Literal(1))
+        c = lib("NoSelfCopy")
+        g.add((lib("S"), SH.sparql, c))
+        g.add((c, RDF.type, SH.SPARQLConstraint))
+        g.add((c, SH.select, Literal("SELECT $this WHERE { $this ?p $this }")))
+        g.add((c, SH.prefixes, lib("lending")))
+        sub, dropped = igs.subset(g)
+        self.assertNotIn((c, None, None), sub)
+        self.assertIn(c, {x for x, _, _ in dropped})
+
+    def test_deactivated_shape_is_removed(self):
+        g = minimal_shape(SH.minCount, Literal(1))
+        g.add((lib("S-p"), SH.deactivated, Literal(True)))
+        sub, dropped = igs.subset(g)
+        self.assertNotIn((lib("S-p"), None, None), sub)
+        self.assertNotIn((lib("S"), SH.property, lib("S-p")), sub)
+
+    # the manifest does not depend on where the tree sits (test a2, 14; test b, 11)
+    def test_manifest_survives_moving_the_tree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = os.path.join(tmp, "a")
+            os.makedirs(os.path.join(a, "data"))
+            for src in (MODULE, SHAPES, CONFIG):
+                shutil.copy(src, os.path.join(a, "data"))
+            loadable, inferred_path = os.path.join(a, "loadable.nt"), os.path.join(a, "inferred.nt")
+            open(loadable, "w").close()
+            open(inferred_path, "w").close()
+
+            def args(root):
+                return ["manifest", "--config", os.path.join(root, "data", "projection-config.json"),
+                        "--shapes", os.path.join(root, "data", "library-shapes.ttl"),
+                        "--loadable", os.path.join(root, "loadable.nt"), "--inferred", os.path.join(root, "inferred.nt"),
+                        "--output", os.path.join(root, "manifest.json"), os.path.join(root, "data", "library-module.ttl")]
+            self.assertEqual(run_main(build.main, args(a))[0], 0)
+            b = os.path.join(tmp, "b")
+            shutil.copytree(a, b)
+            code, out = run_main(build.main, args(b) + ["--verify"])
+            self.assertEqual(code, 0, out)
+            with open(os.path.join(b, "manifest.json"), encoding="utf-8") as f:
+                self.assertIn("data/library-module.ttl", json.load(f)["inputs"])
+
+    def test_merge_reports_what_it_wrote(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, out = run_main(build.main, ["merge", "--output", os.path.join(tmp, "m.ttl"), MODULE])
+        self.assertEqual(code, 0)
+        self.assertIn("triples from 1 file(s)", out)
+
+    # the release-folder fixture the docs describe (test a2, 5)
+    def test_release_folder_fixture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = os.path.join(tmp, "releases", "lending", "1.1.0")
+            os.makedirs(folder)
+            shutil.copy(MODULE, os.path.join(folder, "lending.ttl"))
+            shutil.copy(SHAPES, os.path.join(folder, "shapes.ttl"))
+            code, out = run_main(cpr.main, ["--config", CONFIG, "--shapes", os.path.join(folder, "shapes.ttl"),
+                                            "--releases", os.path.join(tmp, "releases"), os.path.join(folder, "lending.ttl")])
+        self.assertEqual(code, 0, out)
+
+
+class LoadVerifyPure(unittest.TestCase):
+    """The parts of load_verify.py that need no Neo4j."""
+
+    def row(self, obj, literal=True, dtype=str(XSD.string), lang="", subject=None, predicate=None):
+        return {"subject": subject or LIB + "work/W-0042", "predicate": predicate or LIB + "title", "object": obj,
+                "isLiteral": literal, "literalType": dtype, "literalLang": lang}
+
+    # test b, 1: a multi-line tagged string comes back as xsd:string "text@en"
+    def test_multi_line_tagged_text_is_rebuilt(self):
+        self.assertEqual(lv.row_object(self.row("line one\nline two@en")), Literal("line one\nline two", lang="en"))
+
+    def test_lang_column_is_used(self):
+        self.assertEqual(lv.row_object(self.row("Lending", dtype=str(RDF.langString), lang="en")),
+                         Literal("Lending", lang="en"))
+
+    def test_plain_text_stays_plain(self):
+        self.assertEqual(lv.row_object(self.row("00420001")), Literal("00420001"))
+
+    def test_schema_rows_are_left_out(self):
+        rows = [self.row("x"), self.row("Work", predicate="neo4j://graph.schema#name"),
+                self.row("neo4j://graph.schema#Class", literal=False, predicate=str(RDF.type))]
+        g, skipped = lv.rows_to_graph(rows)
+        self.assertEqual((len(g), skipped), (1, 2))
+
+    def test_round_trip_compares_values(self):
+        source, exported = Graph(), Graph()
+        source.add((COPY, lib("position"), Literal("2", datatype=XSD.integer)))
+        exported.add((COPY, lib("position"), Literal("2", datatype=XSD.long)))
+        self.assertEqual(lv.diff(source, exported), ([], []))
+
+    # test a2, 11: the hash specification
+    def nodes_edges(self):
+        nodes = [{"uri": "b", "labels": ["Resource", "lib__Work"], "props": {"lib__altTitle": ["x@fr", "y@de"]}},
+                 {"uri": "a", "labels": ["lib__Copy", "Resource"], "props": {"uri": "a"}}]
+        edges = [{"s": "a", "t": "lib__copyOf", "o": "b", "u": None, "props": {}},
+                 {"s": "a", "t": "lib__copyOf", "o": "b", "u": "e1", "props": {"since": 2026}}]
+        return nodes, edges
+
+    def test_hash_ignores_row_order(self):
+        nodes, edges = self.nodes_edges()
+        self.assertEqual(lv.graph_hash(nodes, edges), lv.graph_hash(list(reversed(nodes)), list(reversed(edges))))
+
+    def test_hash_counts_relationship_properties_and_array_order(self):
+        nodes, edges = self.nodes_edges()
+        base = lv.graph_hash(nodes, edges)
+        edges[1]["props"] = {"since": 2025}
+        self.assertNotEqual(base, lv.graph_hash(nodes, edges))
+        nodes, edges = self.nodes_edges()
+        nodes[0]["props"]["lib__altTitle"].reverse()
+        self.assertNotEqual(base, lv.graph_hash(nodes, edges))
+
+    def test_hash_matches_its_specification(self):
+        import hashlib
+        nodes, edges = self.nodes_edges()
+        text = json.dumps({"nodes": [["a", ["Resource", "lib__Copy"], {"uri": "a"}],
+                                     ["b", ["Resource", "lib__Work"], {"lib__altTitle": ["x@fr", "y@de"]}]],
+                           "relationships": [["a", "lib__copyOf", "b", "", {}], ["a", "lib__copyOf", "b", "e1", {"since": 2026}]]},
+                          sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        self.assertEqual(lv.graph_hash(nodes, edges), hashlib.sha256(text.encode("utf-8")).hexdigest())
+
+    def test_shuffle_is_fixed_by_its_seed(self):
+        text = "".join(f"<s{i}> <p> <o> .\n" for i in range(20))
+        self.assertEqual(lv.shuffled(text), lv.shuffled(text))
+        self.assertNotEqual(lv.shuffled(text), text)
+        self.assertEqual(sorted(lv.shuffled(text).splitlines()), sorted(text.splitlines()))
+
+    # test a2, 9: one generated fail case per kind, each with its expected components
+    def test_fail_cases_cover_the_library_kinds(self):
+        sub, _ = igs.subset(shapes())
+        kinds = [k for k, _, _ in lv.fail_cases(sub, module(), config())]
+        self.assertEqual(kinds, ["class", "datatype xsd:integer", "datatype xsd:string", "in", "inverseMinCount",
+                                 "maxCount", "minCount", "nodeKind"])
+        for kind in kinds:
+            self.assertTrue(lv.expected_components(kind))
+
+    def test_mutant_is_a_required_literal(self):
+        sub, _ = igs.subset(shapes())
+        self.assertEqual(lv.mutant_case(sub, module(), config()), ("lib__Authorship", "lib__position"))
+
+
+class FakeResult:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def data(self):
+        return self.rows
+
+    def single(self):
+        return self.rows[0] if self.rows else None
+
+
+class FakeSession:
+    """Answers the load script's statements with the rows given."""
+
+    def __init__(self, status="OK", shape_rows=3, listed=3):
+        self.status, self.shape_rows, self.listed = status, shape_rows, listed
+
+    def run(self, stmt, **_):
+        if "shacl.import" in stmt:
+            return FakeResult([{"target": "x"}] * self.shape_rows)
+        if "rdf.import" in stmt or "onto.import" in stmt:
+            return FakeResult([{"terminationStatus": self.status}])
+        if "listShapes" in stmt:
+            return FakeResult([{"n": self.listed}])
+        return FakeResult([])
+
+
+class LoadChecks(unittest.TestCase):
+    """test a2, 8: the load checks each import's result."""
+
+    def statements(self):
+        return [line for line in build.cypher(config(), module(), shapes()).splitlines() if line]
+
+    def test_good_load_returns_both_counts(self):
+        self.assertEqual(lv.load(FakeSession(), self.statements()), (3, 3))
+
+    def test_failed_import_stops(self):
+        with self.assertRaises(lv.Failed):
+            lv.load(FakeSession(status="KO"), self.statements())
+
+    def test_shapes_count_mismatch_stops(self):
+        with self.assertRaises(lv.Failed):
+            lv.load(FakeSession(shape_rows=2, listed=3), self.statements())
+
+    def test_no_shapes_stops(self):
+        with self.assertRaises(lv.Failed):
+            lv.load(FakeSession(shape_rows=0, listed=0), self.statements())
 
 
 if __name__ == "__main__":

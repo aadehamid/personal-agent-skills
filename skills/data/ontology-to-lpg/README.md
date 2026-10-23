@@ -22,7 +22,7 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 
    Each prints one line per failure and exits 1, or prints a pass line and exits 0.
 
-5. `scripts/build.py` writes the reasoner's input, the N-Triples files, the load script and the manifest; `scripts/in_graph_shapes.py` writes the shapes Neo4j can run. Reason, load and verify run on a workstation with Java and Docker; `references/running.md` gives the jar checksums, the `docker run` line and what CI runs instead.
+5. `scripts/build.py` writes the reasoner's input, the N-Triples files, the load script and the manifest; `scripts/in_graph_shapes.py` writes the shapes Neo4j can run; `scripts/load_verify.py` loads, verifies and writes the report. Reason, load and verify run on a workstation with Java and Docker; `references/running.md` gives the jar checksums, the `docker run` line and what CI runs instead.
 
 The `ontology` skill builds the ontology and hands over to this one at its Step 12. Each skill works without the other.
 
@@ -45,8 +45,9 @@ The `ontology` skill builds the ontology and hands over to this one at its Step 
 | `scripts/check_projection_rules.py` | agent and check script | Rules 1, 2, 3, 4a and 5, the round-trip refusals, the package pins and the release exceptions. Needs rdflib. |
 | `scripts/validate_data.py` | agent and check script | The check step: pySHACL with every shape and SHACL-AF, plus the refusals. Needs rdflib and pySHACL. |
 | `scripts/build.py` | agent and check script | `merge` (the reasoner's input), `loadable`, `inferred`, `cypher` (the load script), `manifest [--verify]` and `check-report`. Needs rdflib. |
+| `scripts/load_verify.py` | agent, steps 5 and 6 | Loads into a running Neo4j with status checks, runs the generated fail cases, the mutant, the round trip and the two hashed loads, and writes the report. Needs rdflib and the neo4j driver. |
 | `scripts/in_graph_shapes.py` | agent and the projection's pipeline | Writes the in-graph subset of the shapes and lists each drop with its reason. Needs rdflib. |
-| `scripts/test_projection.py` | this repository's check script | Tests: the templates pass; each deliberate break gives exactly its own failure; exceptions cannot waive data errors and fail when stale or empty; the pins are checked numerically against a release folder; each drop-list entry of the subset is exercised and the subset still catches a mutant; the serialiser's order, the inferred filter, the fingerprints, the manifest check, the report check and the generated Cypher; the command lines exit 0, 1 or 2. Needs rdflib and pySHACL. |
+| `scripts/test_projection.py` | this repository's check script | Tests: the templates pass; each deliberate break gives exactly its own failure; exceptions cannot waive data errors and fail when stale or empty; the pins are checked numerically against a release folder; each drop-list entry of the subset is exercised and the subset still catches a mutant; the serialiser's order, the inferred filter, the fingerprints, the path-independent manifest, the report check and the generated Cypher; `load_verify.py`'s export parsing (multi-line tags included), schema-row filter, hash specification, shuffle, fail-case generation and load checks; the command lines exit 0, 1 or 2. Needs rdflib and pySHACL. |
 | `SOURCES.md` | you | Every source, with version, date and how to check for updates. |
 | `README.md` | you | This file. |
 
@@ -61,6 +62,6 @@ The `ontology` skill builds the ontology and hands over to this one at its Step 
 Last updated 2026-10-23.
 
 - **No evals yet.** Write test prompts for three branches before tuning: designing a new ontology for a graph, adding a release to an existing projection, and debugging a silent in-graph SHACL check.
-- **Scripts cover every step but load and verify.** `build.py cypher` generates the load script; the export, the round-trip diff, the mutant and the hashes are described in `references/pipeline.md`, rules 15 to 17, and each project writes them. The whole pipeline ran end to end on the library templates on 2026-10-23.
+- **Scripts cover every step.** `load_verify.py` loads and verifies against a running container; its database parts are tested only by running it (it passed end to end on the library templates on 2026-10-23), and its other parts by `test_projection.py`. It generates fail cases for fourteen constraint kinds; any other kind left in the graph needs a case written by hand.
 - **Option 4b has not been run end to end.** Every tested run used 4a. Recheck rdflib issue #3524 and the RDF 1.2 status every three months.
 - **One source of experience.** The 2.3 changes come from one multi-module build. Expect changes after a second one.

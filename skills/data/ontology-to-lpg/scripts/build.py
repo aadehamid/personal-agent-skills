@@ -15,7 +15,8 @@ Run with: uv run --no-project --with rdflib python3 build.py <command> ...
             The generated load script for n10s (references/pipeline.md, rules 8 to 11).
   manifest  --config <config.json> --shapes <shapes.ttl>... --loadable loadable.nt
             --inferred inferred.nt --output manifest.json [--verify] <data.ttl>...
-            Writes the manifest, or with --verify fails when the committed one differs.
+            Writes the manifest, or with --verify fails when the committed one differs. File paths
+            are recorded relative to the manifest's own folder, so moving the tree changes nothing.
   check-report --manifest manifest.json --report report.json
             Fails unless the report names the manifest's fingerprints and every verify check passed.
 
@@ -119,11 +120,17 @@ def cypher(cfg, data, shapes):
     return "\n".join(lines) + "\n"
 
 
-def manifest(cfg, data_paths, shape_paths, loadable_path, inferred_path):
+def relative(path, root):
+    """A path as the manifest records it: relative to root, with forward slashes, so the manifest
+    does not change when the whole tree moves or the command runs from another folder."""
+    return os.path.relpath(os.path.abspath(path), os.path.abspath(root)).replace(os.sep, "/")
+
+
+def manifest(cfg, data_paths, shape_paths, loadable_path, inferred_path, root="."):
     loadable, inferred_text = read_bytes(loadable_path), read_bytes(inferred_path)
     return {
-        "inputs": {p: sha_bytes(read_bytes(p)) for p in data_paths},
-        "shapes": {p: sha_bytes(read_bytes(p)) for p in shape_paths},
+        "inputs": {relative(p, root): sha_bytes(read_bytes(p)) for p in data_paths},
+        "shapes": {relative(p, root): sha_bytes(read_bytes(p)) for p in shape_paths},
         "loadable_triples": loadable.count(b"\n"),
         "inferred_triples": inferred_text.count(b"\n"),
         "input_fingerprint": sha_bytes(loadable, inferred_text),
@@ -160,6 +167,11 @@ def check_report(man, rep):
         fails.append(f"report determinism hashes differ or are missing ({a!r}, {b!r})")
     if not rep.get("in_graph_shape_constraints") or rep.get("in_graph_shape_constraints") != rep.get("shapes_import_rows"):
         fails.append("report in_graph_shape_constraints is missing or differs from shapes_import_rows")
+    failed = [c.get("kind") for c in rep.get("fail_cases") or [] if not c.get("passed")]
+    if failed:
+        fails.append(f"report fail cases did not fail as expected: {', '.join(map(str, failed))}")
+    if isinstance(rep.get("mutant"), dict) and rep["mutant"].get("after_restore") != 0:
+        fails.append("report mutant was not restored to zero violations")
     return fails
 
 
@@ -208,7 +220,9 @@ def main(argv):
             need(opts, "--output")
             if not data:
                 raise ValueError("no data files")
-            parse(data).serialize(opts["--output"], format="turtle")
+            merged = parse(data)
+            merged.serialize(opts["--output"], format="turtle")
+            print(f"wrote {opts['--output']}: {len(merged)} triples from {len(data)} file(s)")
         elif command == "loadable":
             need(opts, "--output")
             if not data:
@@ -228,8 +242,9 @@ def main(argv):
             print(cypher(load_config(opts["--config"]), parse(data), parse(opts.get("--shapes", []))), end="")
         elif command == "manifest":
             need(opts, "--config", "--loadable", "--inferred", "--output")
+            root = os.path.dirname(os.path.abspath(opts["--output"]))
             text = dump(manifest(load_config(opts["--config"]), data, opts.get("--shapes", []),
-                                 opts["--loadable"], opts["--inferred"]))
+                                 opts["--loadable"], opts["--inferred"], root))
             if opts.get("--verify"):
                 current = open(opts["--output"], encoding="utf-8").read() if os.path.exists(opts["--output"]) else ""
                 if current != text:

@@ -16,7 +16,14 @@ What it drops, and why (references/pipeline.md, rule 13):
                                                checked before the load only
   sh:in with a literal member                  n10s compares a literal list as strings
   sh:hasValue with a literal                   n10s compares a literal value as a string
-  sh:message, sh:severity                      not constraints; left out of the in-graph file
+  sh:message, sh:severity, sh:name,
+  sh:description, sh:order, sh:group,
+  sh:defaultValue                              not constraints; left out of the in-graph file
+  a shape with sh:deactivated true             SHACL skips it, and n10s does not read the flag
+  any other SHACL term n10s's shape query does not read (sh:lessThan, sh:lessThanOrEquals, sh:equals,
+  sh:uniqueLang, sh:qualifiedValueShape, sh:select, sh:prefixes, sh:declare and the rest): n10s
+                                               ignores it, so it would report silence
+  a SHACL-SPARQL constraint or target node     left with nothing but its type once its query is gone
   a node shape that n10s does not apply        one with neither sh:targetClass nor a class type;
                                                its property shapes go too, unless a kept node shape
                                                still uses them
@@ -47,11 +54,18 @@ UNSUPPORTED = {
     SH.pattern: "n10s matches sh:pattern against the whole string; patterns are checked before the load only",
     SH.flags: "goes with sh:pattern",
 }
-NOT_CONSTRAINTS = {SH.message: "not a constraint", SH.severity: "not a constraint"}
+NOT_CONSTRAINTS = {p: "not a constraint" for p in (SH.message, SH.severity, SH.name, SH.description, SH.order,
+                                                    SH.group, SH.defaultValue)}
 # SHACLValidator.getDatatypeCastExpressionSuff at tag 2025.06.1 accepts only these; others throw.
 N10S_DATATYPES = {XSD.boolean, XSD.string, XSD.integer, XSD.float, XSD.decimal, XSD.date, XSD.dateTime,
                   XSD.anyURI, URIRef("http://www.opengis.net/ont/geosparql#wktLiteral")}
 CLASS_KINDS = (OWL.Class, RDFS.Class)
+# The SHACL terms n10s 2025.06.1 reads (SHACLValidator.java, PROP_CONSTRAINT_QUERY and the two node
+# queries, lines 59 to 180). Every other term in the SHACL namespace is dropped.
+READ = {SH.path, SH.inversePath, SH["class"], SH.nodeKind, SH.datatype, SH.maxCount, SH.minCount,
+        SH.minInclusive, SH.maxInclusive, SH.minExclusive, SH.maxExclusive, SH.minLength, SH.maxLength,
+        SH.hasValue, SH["in"], SH.disjoint, SH.targetClass, SH.property, SH.closed, SH.ignoredProperties}
+SHAPE_TYPES = {SH.NodeShape, SH.PropertyShape, SH.Shape}
 
 
 def _remove_subject(g, node):
@@ -73,6 +87,8 @@ def _reason(shapes, s, p, o):
         return "n10s compares a literal sh:in list as strings"
     if p == SH.hasValue and isinstance(o, Literal):
         return "n10s compares a literal sh:hasValue as a string"
+    if str(p).startswith(str(SH)) and p not in READ:
+        return f"n10s's shape query does not read {p.n3(shapes.namespace_manager)}"
     return None
 
 
@@ -88,6 +104,11 @@ def subset(shapes):
         g.bind(prefix, ns)
     g += shapes
     dropped = []
+    for shape in sorted(set(shapes.subjects(SH.deactivated, Literal(True))), key=str):
+        for parent, _, _ in list(g.triples((None, SH.property, shape))):
+            g.remove((parent, SH.property, shape))
+        _remove_subject(g, shape)
+        dropped.append((shape, SH.deactivated, "deactivated: SHACL skips it, and n10s does not read the flag"))
     for s, p, o in sorted(shapes, key=lambda t: tuple(str(x) for x in t)):
         if (s, p, o) not in g:
             continue
@@ -99,6 +120,14 @@ def subset(shapes):
             _remove_subject(g, o)
         if p not in NOT_CONSTRAINTS:
             dropped.append((s, p, reason))
+    # An IRI-named SHACL-SPARQL constraint or target, left with only its type once its query is gone.
+    for node in sorted({s for s in g.subjects(RDF.type, None) if isinstance(s, URIRef)}, key=str):
+        preds = set(g.predicates(node, None))
+        types = set(g.objects(node, RDF.type))
+        if preds == {RDF.type} and all(str(t).startswith(str(SH)) and t not in SHAPE_TYPES for t in types) \
+                and (None, None, node) not in g:
+            _remove_subject(g, node)
+            dropped.append((node, RDF.type, "a SHACL-SPARQL node left without its query"))
     node_shapes = sorted(set(g.subjects(RDF.type, SH.NodeShape)), key=str)
     unapplied = [n for n in node_shapes if not _applied(g, n)]
     kept_uses = {ps for n in node_shapes if n not in unapplied for ps in g.objects(n, SH.property)}

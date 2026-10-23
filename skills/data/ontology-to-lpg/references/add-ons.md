@@ -6,7 +6,7 @@ Read it when a consumer asks for something the core pipeline does not give (supe
 
 | Add-on | Use when | What to add |
 |---|---|---|
-| A. Superclass labels | `MATCH (:lib__Item)` should find copies without walking the hierarchy | After the load, add the labels of inferred superclasses, except `owl:Thing` and upper-ontology roots |
+| A. Superclass labels | `MATCH (:lib__Item)` should find copies without walking the hierarchy | The reason step with `--include-indirect true` already loads every inferred superclass as a label (`pipeline.md`, rule 4); adopt this add-on only to leave out upper-ontology roots |
 | B. Language policy | Labels in several languages | `lpg:langPolicy "splitKeys"`, giving `label_en`, `label_fr` |
 | C. Exact decimals | Fines, fees, anything computed with exact arithmetic | `lpg:cypherType "STRING"` on `xsd:decimal` properties |
 | D. Known exclusions | OWL axioms you will not project | List them in `exclusions.nt`; the round-trip diff ignores them |
