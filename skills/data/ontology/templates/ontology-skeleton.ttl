@@ -93,9 +93,9 @@ lib:Copy a owl:Class ;
 
 # --- Properties: one kind each; object and datatype properties one domain and one range; annotation
 #     properties label and definition only (domain-model.md, rules 5 to 8).
-lib:editorialStatus a owl:AnnotationProperty ;
-    rdfs:label "editorial status"@en ;
-    skos:definition "Records where a term stands in the owner's review: drafted, approved or retired. Read by the people who maintain the ontology, not by consumers."@en .
+lib:maintenanceNote a owl:AnnotationProperty ;
+    rdfs:label "maintenance note"@en ;
+    skos:definition "Relates a term to a free-text note for the people who maintain the ontology, such as what to recheck at the next policy edition; consumers do not read it."@en .
 
 lib:borrower a owl:ObjectProperty ;
     rdfs:label "borrower"@en ;

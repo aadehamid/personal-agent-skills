@@ -254,18 +254,25 @@ class TaxonomyChecks(OneBreak, unittest.TestCase):
                                          ("label", "lib:lpgName has no rdfs:label")])
 
     def test_annotation_property_with_a_domain(self):
-        self.broken(lambda g: g.add((lib("editorialStatus"), RDFS.domain, lib("Loan"))),
-                    "domain-range", "lib:editorialStatus is an annotation property and has an rdfs:domain")
+        self.broken(lambda g: g.add((lib("maintenanceNote"), RDFS.domain, lib("Loan"))),
+                    "domain-range", "lib:maintenanceNote is an annotation property and has an rdfs:domain")
 
     def test_annotation_property_with_a_range(self):
-        self.broken(lambda g: g.add((lib("editorialStatus"), RDFS.range, XSD.string)),
-                    "domain-range", "lib:editorialStatus is an annotation property and has an rdfs:range")
+        self.broken(lambda g: g.add((lib("maintenanceNote"), RDFS.range, RDF.langString)),
+                    "domain-range", "lib:maintenanceNote is an annotation property and has an rdfs:range")
 
     def test_code_property_values_need_no_tag(self):
+        # A property defined here, not in the skeleton: a copy's shelf mark is a code, not language text.
         g = skeleton()
-        g.add((lib("renewal"), lib("editorialStatus"), Literal("drafted")))
-        self.assertOnly(check_taxonomy.check(g), "untagged", 'lib:renewal lib:editorialStatus "drafted" has no language tag')
-        self.assertEqual(check_taxonomy.check(g, code_properties=[LIB + "editorialStatus"]), [])
+        g.add((lib("shelfMark"), RDF.type, OWL.DatatypeProperty))
+        g.add((lib("shelfMark"), RDFS.label, Literal("shelf mark", lang="en")))
+        g.add((lib("shelfMark"), SKOS.definition, Literal("Relates a copy to the code that places it on the shelves.", lang="en")))
+        g.add((lib("shelfMark"), RDFS.domain, lib("Copy")))
+        g.add((lib("shelfMark"), RDFS.range, XSD.string))
+        g.add((lib("copy1"), RDF.type, lib("Copy")))
+        g.add((lib("copy1"), lib("shelfMark"), Literal("QA76.9 .D3")))
+        self.assertOnly(check_taxonomy.check(g), "untagged", 'lib:copy1 lib:shelfMark "QA76.9 .D3" has no language tag')
+        self.assertEqual(check_taxonomy.check(g, code_properties=[LIB + "shelfMark"]), [])
 
     def test_complete_annotation_property_needs_no_domain_or_range(self):
         g = skeleton()
@@ -472,7 +479,7 @@ class ShapesSkeleton(unittest.TestCase):
     """The shapes skeleton meets shacl.md rules 5 and 8 under pySHACL; check_taxonomy is not meant for it."""
 
     PREFIXES = ("@prefix lib: <%s> . @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n"
-                "lib:m1 a lib:Member . lib:c1 a lib:Copy . lib:c2 a lib:Copy .\n") % LIB
+                "lib:m1 a lib:Member . lib:m2 a lib:Member . lib:c1 a lib:Copy . lib:c2 a lib:Copy .\n") % LIB
     VALID_LOAN = ('lib:loan1 a lib:Loan ; lib:borrower lib:m1 ; lib:loanOf lib:c1 ;'
                   ' lib:dueDate "2026-11-01"^^xsd:date ; lib:loanState lib:on-loan .')
 
@@ -501,7 +508,7 @@ class ShapesSkeleton(unittest.TestCase):
     TWO_DATES = '"2026-11-01"^^xsd:date, "2026-11-15"^^xsd:date'
 
     def test_valid_loan_conforms(self):
-        conforms, found = self.results(self.VALID_LOAN + ' lib:renewal lib:editorialStatus "drafted" .')
+        conforms, found = self.results(self.VALID_LOAN + ' lib:renewal lib:maintenanceNote "Recheck at the 2027 policy edition."@en .')
         self.assertTrue(conforms, found)
 
     def test_every_declared_property_has_a_type_and_cardinality_shape(self):
@@ -536,13 +543,23 @@ class ShapesSkeleton(unittest.TestCase):
         self.assertViolations(self.VALID_LOAN.replace("lib:on-loan", "lib:m1"),
                               "loan1", "LoanShape-loanState", ["ClassConstraintComponent", "InConstraintComponent"])
 
-    def test_concept_with_two_editorial_statuses(self):
-        self.assertViolations('lib:renewal lib:editorialStatus "drafted", "approved" .',
-                              "renewal", "ConceptShape-editorialStatus", ["MaxCountConstraintComponent"])
+    def test_loan_with_two_borrowers(self):
+        self.assertViolations(self.VALID_LOAN.replace("lib:borrower lib:m1", "lib:borrower lib:m1, lib:m2"),
+                              "loan1", "LoanShape-borrower", ["MaxCountConstraintComponent"])
 
-    def test_editorial_status_that_is_not_a_string(self):
-        self.assertViolations("lib:renewal lib:editorialStatus 42 .",
-                              "renewal", "ConceptShape-editorialStatus", ["DatatypeConstraintComponent"])
+    def test_loan_with_two_states(self):
+        self.assertViolations(self.VALID_LOAN.replace("lib:loanState lib:on-loan", "lib:loanState lib:on-loan, lib:overdue"),
+                              "loan1", "LoanShape-loanState", ["MaxCountConstraintComponent"])
+
+    def test_concept_with_two_maintenance_notes(self):
+        self.assertViolations('lib:renewal lib:maintenanceNote "Recheck clause 3.3."@en, "Ask about express items."@en .',
+                              "renewal", "ConceptShape-maintenanceNote", ["MaxCountConstraintComponent"])
+
+    def test_maintenance_note_that_is_not_language_text(self):
+        for value in ("42", '"Recheck clause 3.3."'):
+            with self.subTest(value=value):
+                self.assertViolations(f"lib:renewal lib:maintenanceNote {value} .",
+                                      "renewal", "ConceptShape-maintenanceNote", ["DatatypeConstraintComponent"])
 
     # Mutations named by earlier reviews: each must turn a test red.
     def test_dropping_due_date_max_count_is_caught(self):
@@ -559,12 +576,23 @@ class ShapesSkeleton(unittest.TestCase):
             self.assertViolations(self.VALID_LOAN.replace("lib:on-loan", "lib:circulation"),
                                   "loan1", "LoanShape-loanState", ["InConstraintComponent"], shapes)
 
-    def test_dropping_editorial_status_datatype_is_caught(self):
+    def test_dropping_maintenance_note_datatype_is_caught(self):
         shapes = Graph().parse(SHAPES, format="turtle")
-        shapes.remove((lib("ConceptShape-editorialStatus"), SH.datatype, None))
+        shapes.remove((lib("ConceptShape-maintenanceNote"), SH.datatype, None))
         with self.assertRaises(AssertionError):
-            self.assertViolations("lib:renewal lib:editorialStatus 42 .",
-                                  "renewal", "ConceptShape-editorialStatus", ["DatatypeConstraintComponent"], shapes)
+            self.assertViolations("lib:renewal lib:maintenanceNote 42 .",
+                                  "renewal", "ConceptShape-maintenanceNote", ["DatatypeConstraintComponent"], shapes)
+
+    def test_dropping_borrower_or_loan_state_max_count_is_caught(self):
+        cases = (("LoanShape-borrower", ("lib:borrower lib:m1", "lib:borrower lib:m1, lib:m2")),
+                 ("LoanShape-loanState", ("lib:loanState lib:on-loan", "lib:loanState lib:on-loan, lib:overdue")))
+        for shape, (old, new) in cases:
+            with self.subTest(shape=shape):
+                shapes = Graph().parse(SHAPES, format="turtle")
+                shapes.remove((lib(shape), SH.maxCount, None))
+                with self.assertRaises(AssertionError):
+                    self.assertViolations(self.VALID_LOAN.replace(old, new), "loan1", shape,
+                                          ["MaxCountConstraintComponent"], shapes)
 
     def test_shapes_hold_blank_nodes_so_check_taxonomy_skips_them(self):
         fails = check_taxonomy.check(Graph().parse(SHAPES, format="turtle"))

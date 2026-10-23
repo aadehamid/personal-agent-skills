@@ -6,6 +6,7 @@
 # assert which shape fired (shacl.md, rule 8).
 
 @prefix lib:  <https://id.example.org/library/> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix sh:   <http://www.w3.org/ns/shacl#> .
 @prefix skos: <http://www.w3.org/2004/02/skos/core#> .
 @prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
@@ -36,12 +37,12 @@ lib:LoanShape-loanState a sh:PropertyShape ;
     sh:message "A loan has exactly one state from the loan-state list."@en .
 
 # The annotation property gets a type and a cardinality too (domain-model.md, rule 7; shacl.md, rule 5):
-# a concept has at most one editorial status, a plain string.
+# a concept has at most one maintenance note, language-tagged text.
 lib:ConceptShape a sh:NodeShape ;
     sh:targetClass skos:Concept ;
-    sh:property lib:ConceptShape-editorialStatus .
+    sh:property lib:ConceptShape-maintenanceNote .
 
-lib:ConceptShape-editorialStatus a sh:PropertyShape ;
-    sh:path lib:editorialStatus ; sh:datatype xsd:string ;
+lib:ConceptShape-maintenanceNote a sh:PropertyShape ;
+    sh:path lib:maintenanceNote ; sh:datatype rdf:langString ;
     sh:maxCount 1 ;
-    sh:message "A concept has at most one editorial status."@en .
+    sh:message "A concept has at most one maintenance note, in language-tagged text."@en .
