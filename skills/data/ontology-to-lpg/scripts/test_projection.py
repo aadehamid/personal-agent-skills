@@ -1271,6 +1271,39 @@ class RoundFour(OneBreak, unittest.TestCase):
         self.assertIn("minCount", [k for k, _, _ in lv.fail_cases(sub, module(), config())])
         self.assertEqual(lv.mutant_case(sub, module(), config()), ("lib__Copy", "lib__barcode"))
 
+    def test_rdfs_class_shape_with_only_a_node_hop_is_inventoried(self):
+        # quick check 1: an implicit-class shape whose constraint sits behind sh:node
+        g = Graph()
+        g.add((lib("Copy"), RDF.type, RDFS.Class))
+        g.add((lib("Copy"), RDF.type, SH.NodeShape))
+        g.add((lib("Copy"), SH.node, lib("Inner")))
+        g.add((lib("Inner"), RDF.type, SH.NodeShape))
+        g.add((lib("Inner"), SH.property, lib("Inner-p")))
+        g.add((lib("Inner-p"), SH.path, lib("barcode")))
+        g.add((lib("Inner-p"), SH.minCount, Literal(1)))
+        sub, _ = igs.subset(g)
+        self.assertIn((lib("Inner-p"), SH.minCount, Literal(1)), sub)
+        self.assertIn("minCount", lv.kept_kinds(sub, module()))
+        self.assertIn("minCount", [k for k, _, _ in lv.fail_cases(sub, module(), config())])
+        self.assertEqual(lv.mutant_case(sub, module(), config()), ("lib__Copy", "lib__barcode"))
+
+    def test_rdfs_class_shape_that_is_only_closed_is_inventoried(self):
+        g = Graph()
+        g.add((lib("Copy"), RDF.type, RDFS.Class))
+        g.add((lib("Copy"), RDF.type, SH.NodeShape))
+        g.add((lib("Copy"), SH.closed, Literal(True)))
+        sub, _ = igs.subset(g)
+        self.assertIn((lib("Copy"), SH.closed, Literal(True)), sub)
+        self.assertIn("closed", lv.kept_kinds(sub, module()))
+        self.assertIn("closed", [k for k, _, _ in lv.fail_cases(sub, module(), config())])
+
+    def test_load_verify_passes_with_kinds_left_for_manual_cases(self):
+        # quick check 2: the gate for a listed kind is check-report with a manual case, not load_verify
+        report = {"shacl_violations_in_graph": 0, "in_graph_mutant_violations": 1, "mutant": {"after_restore": 0},
+                  "roundtrip_lost": 0, "roundtrip_added": 0, "determinism_hash_sorted": "h",
+                  "determinism_hash_shuffled": "h", "fail_cases": [], "kinds_without_case": ["closed"]}
+        self.assertTrue(lv.passed(report))
+
     def test_target_query_kinds_need_a_case(self):
         g = minimal_shape(SH.minCount, Literal(1))
         g.remove((lib("S"), SH.targetClass, None))
@@ -1328,6 +1361,30 @@ class RoundFour(OneBreak, unittest.TestCase):
             s.add((lib("CopyShape-path"), SH.path, alt))
             s.add((lib("CopyShape"), SH.property, lib("CopyShape-path")))
         self.assertOnly(self.broken(mutate_shapes=change), "rule-3",
+                        "Rule 3: no fixed prefix for the namespace https://vocab.example.net/terms#")
+
+    def wrapped_path(self, wrapper):
+        def change(s):
+            path = BNode()
+            s.add((path, wrapper, URIRef("https://vocab.example.net/terms#holder")))
+            s.add((lib("CopyShape-path"), SH.path, path))
+            s.add((lib("CopyShape"), SH.property, lib("CopyShape-path")))
+        return self.broken(mutate_shapes=change)
+
+    def test_inverse_path_namespace_needs_a_prefix(self):
+        self.assertOnly(self.wrapped_path(SH.inversePath), "rule-3",
+                        "Rule 3: no fixed prefix for the namespace https://vocab.example.net/terms#")
+
+    def test_zero_or_more_path_namespace_needs_a_prefix(self):
+        self.assertOnly(self.wrapped_path(SH.zeroOrMorePath), "rule-3",
+                        "Rule 3: no fixed prefix for the namespace https://vocab.example.net/terms#")
+
+    def test_one_or_more_path_namespace_needs_a_prefix(self):
+        self.assertOnly(self.wrapped_path(SH.oneOrMorePath), "rule-3",
+                        "Rule 3: no fixed prefix for the namespace https://vocab.example.net/terms#")
+
+    def test_zero_or_one_path_namespace_needs_a_prefix(self):
+        self.assertOnly(self.wrapped_path(SH.zeroOrOnePath), "rule-3",
                         "Rule 3: no fixed prefix for the namespace https://vocab.example.net/terms#")
 
     def test_superproperty_namespace_needs_a_prefix(self):

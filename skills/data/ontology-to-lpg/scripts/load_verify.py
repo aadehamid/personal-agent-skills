@@ -177,8 +177,7 @@ def applied_shapes(subset):
     """(node shape, its target classes) for every node shape n10s applies in the graph: one with
     sh:targetClass, one that is itself an rdfs:Class (its own class), and one with sh:targetQuery,
     whose nodes come from a query and so has no class to pick nodes by (an empty list)."""
-    shapes = set(subset.subjects(SH.targetClass, None)) | set(subset.subjects(igs.TARGET_QUERY, None))
-    shapes |= {s for s in subset.subjects(RDF.type, RDFS.Class) if (s, SH.property, None) in subset}
+    shapes = igs.applied_node_shapes(subset)
     out = []
     for ns in sorted(shapes, key=str):
         classes = set(subset.objects(ns, SH.targetClass))
@@ -490,7 +489,7 @@ def passed(report):
             and report["mutant"]["after_restore"] == 0
             and report["roundtrip_lost"] == 0 and report["roundtrip_added"] == 0
             and report["determinism_hash_sorted"] == report["determinism_hash_shuffled"]
-            and all(c["passed"] for c in report["fail_cases"]) and not report["kinds_without_case"])
+            and all(c["passed"] for c in report["fail_cases"]))
 
 
 def main(argv):
@@ -531,6 +530,10 @@ def main(argv):
     if not passed(report):
         print("FAIL the verify step did not pass; see the report's samples")
         return 1
+    if report["kinds_without_case"]:
+        print("NOTE kinds left in the graph with no generated fail case: " + ", ".join(report["kinds_without_case"])
+              + ". Write a case for each while the container is up and add it to the report's manual_cases; "
+              "build.py check-report fails until each has one (pipeline.md, rule 14).")
     print(f"wrote {opts['--report']}: every check passed")
     return 0
 

@@ -109,6 +109,15 @@ def _applied(g, shape):
             or any((shape, RDF.type, k) in g for k in CLASS_KINDS))
 
 
+def applied_node_shapes(g):
+    """Every shape n10s applies in g: one with sh:targetClass or sh:targetQuery, or one typed
+    rdfs:Class, whatever its constraints (own sh:property, an sh:node hop, sh:closed). load_verify.py
+    builds its inventories from this, so they cover exactly what the subset keeps as applied."""
+    candidates = set(g.subjects(RDF.type, None)) | set(g.subjects(SH.targetClass, None)) \
+        | set(g.subjects(TARGET_QUERY, None))
+    return {s for s in candidates if _applied(g, s)}
+
+
 def subset(shapes):
     """Return (in-graph shapes, dropped) where dropped is a sorted list of (shape, constraint, reason).
     sh:message and sh:severity are removed but not listed: they are not constraints."""
