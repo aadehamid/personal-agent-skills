@@ -1,0 +1,48 @@
+# Copy at Step 3 beside the module's Turtle as <module>-shapes.ttl; Step 9 extends it. Shapes may hold
+# blank nodes (the sh:in list below), so check_taxonomy.py does not run on this file
+# (identity-taxonomy.md, Step 2, rule 5). Rules: references/domain-model.md,
+# rule 7, and references/shacl.md (rules 4 and 5). One node shape per class that has
+# properties, one property shape per property, a cardinality on every one. Each property shape has its own IRI, so a negative test can
+# assert which shape fired (shacl.md, rule 8).
+
+@prefix lib:  <https://id.example.org/library/> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+lib:LoanShape a sh:NodeShape ;
+    sh:targetClass lib:Loan ;
+    sh:property lib:LoanShape-borrower, lib:LoanShape-loanOf, lib:LoanShape-dueDate, lib:LoanShape-loanState .
+
+lib:LoanShape-borrower a sh:PropertyShape ;
+    sh:path lib:borrower ; sh:class lib:Member ;
+    sh:minCount 1 ; sh:maxCount 1 ;
+    sh:message "A loan names exactly one borrower."@en .
+
+lib:LoanShape-loanOf a sh:PropertyShape ;
+    sh:path lib:loanOf ; sh:class lib:Copy ;
+    sh:minCount 1 ; sh:maxCount 1 ;
+    sh:message "A loan is of exactly one copy."@en .
+
+lib:LoanShape-dueDate a sh:PropertyShape ;
+    sh:path lib:dueDate ; sh:datatype xsd:date ;
+    sh:minCount 1 ; sh:maxCount 1 ;
+    sh:message "A loan has exactly one due date."@en .
+
+lib:LoanShape-loanState a sh:PropertyShape ;
+    sh:path lib:loanState ; sh:class skos:Concept ;
+    sh:in ( lib:on-loan lib:overdue lib:returned ) ;
+    sh:minCount 1 ; sh:maxCount 1 ;
+    sh:message "A loan has exactly one state from the loan-state list."@en .
+
+# The annotation property gets a type and a cardinality too (domain-model.md, rule 7; shacl.md, rule 5):
+# a concept has at most one maintenance note, language-tagged text.
+lib:ConceptShape a sh:NodeShape ;
+    sh:targetClass skos:Concept ;
+    sh:property lib:ConceptShape-maintenanceNote .
+
+lib:ConceptShape-maintenanceNote a sh:PropertyShape ;
+    sh:path lib:maintenanceNote ; sh:datatype rdf:langString ;
+    sh:maxCount 1 ;
+    sh:message "A concept has at most one maintenance note, in language-tagged text."@en .

@@ -1,0 +1,73 @@
+# Copy before Step 0 as the build's intake and requirements file (references/governance.md,
+# "Before modelling"). Fill every field; replace the library example. Check it with:
+#   uv run --with pyyaml python3 <skill>/scripts/check_requirements.py requirements.yaml
+#
+# Schema. The check enforces the structure: every field present, each value of the stated type
+# (text is a non-empty string), every value from its list, ids unique, and the record rules.
+# A person reviews the meaning: one sentence, roles not personal names, what a question asks.
+#   purpose               one non-empty sentence: what the ontology is for
+#   users                 non-empty list of who uses it (roles, systems), never personal names
+#   use_cases             non-empty list of {id, text}; ids unique
+#   inputs                the six kinds of input; each {status: have | thin | missing, note}.
+#                         note is a string, empty allowed only for have; thin and missing
+#                         need a note saying how the gap limits the design
+#   scope.in, scope.out   both present; lists of area names (scope.in not empty); no area in both
+#   competency_questions  non-empty list of {id, question, priority: must | should | could,
+#                         rationale, needs: [areas], status: drafted | locked}; id, question
+#                         and rationale are text; ids unique.
+#                         Conflicts: a need that scope.in does not list; a need, or a whole word
+#                         of the rationale, that names an area in scope.out
+#   assumptions           list (empty if none) of {id, text, status: ASSUMED | confirmed, record};
+#                         record is a string: "" while ASSUMED, the decision record once confirmed
+#   constraints           list of strings, empty if none (licence, privacy, hosting, deadlines)
+
+purpose: Shared meaning for loan, renewal and loan state between circulation staff and the lending system.
+users: [circulation staff, systems librarian, lending system]
+use_cases:
+  - id: UC1
+    text: Map the lending system's status values to agreed loan states.
+  - id: UC2
+    text: Answer a member's question about why a loan is overdue the same way at every branch.
+inputs:
+  purpose:
+    status: have
+    note: "The ontology owner's statement of purpose."
+  competency_questions:
+    status: thin
+    note: "Drafted by the agent and not yet locked by the owner, so Step 1 cannot close."
+  representative_data:
+    status: thin
+    note: "One loans export and no holds export, so holds stay out of the first release."
+  reusable_vocabularies:
+    status: missing
+    note: "Not surveyed yet; Step 0 does it."
+  semantic_evidence:
+    status: have
+    note: "The published lending policy, edition 2026-01."
+  constraints:
+    status: thin
+    note: "Licence and hosting not decided; member data must stay out."
+scope:
+  in: [lending, renewal, loan state]
+  out: [holds, fines, cataloguing, interlibrary loan]
+competency_questions:
+  - id: CQ1
+    question: What is a loan, and which events start and end one?
+    priority: must
+    rationale: Staff and the lending system disagree on whether a renewal starts a new loan.
+    needs: [lending, renewal]
+    status: drafted
+  - id: CQ2
+    question: Which lending-system status values map to which loan state?
+    priority: must
+    rationale: UC1; the export mixes state values with other remarks.
+    needs: [loan state]
+    status: drafted
+assumptions:
+  - id: A1
+    text: The base IRI is https://id.example.org/library/ until the owner decides hosting.
+    status: ASSUMED
+    record: ""
+constraints:
+  - No member's personal data in any published file.
+  - Licence not decided; publish nothing until policy 7 is recorded.
