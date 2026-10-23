@@ -24,7 +24,9 @@ What it does, in order (references/pipeline.md, rules 8 to 17):
   8. Hashes the graph, empties it, overwrites the import copy of loadable.nt with its lines shuffled
      (random.Random(12)), loads again, hashes again, and puts the sorted file back.
   9. Writes the report, with an empty manual_cases list, or with the cases already in the report when
-     its fingerprints are the same. Exits 0 when the generated checks passed (kinds still needing a
+     its fingerprints, tool versions and plugin jars are the same. A previous report that is not valid
+     JSON stops the run before step 2 (exit 2). When the run fails, the previous report is moved to
+     <report>.previous, so check-report cannot accept it. Exits 0 when the generated checks passed (kinds still needing a
      case are left to build.py check-report and printed as the next step), 1 otherwise, 2 on bad input.
 
 The graph hash (graph_hash): every :Resource node as [uri, sorted labels, properties] and every
@@ -68,6 +70,7 @@ EXPECTED = {
     "inverseMinCount": {"CountConstraintComponent", "MinCountConstraintComponent"},
     "inverseMaxCount": {"CountConstraintComponent", "MaxCountConstraintComponent"},
     "closed": {"ClosedConstraintComponent"},
+    "nodeClass": {"ClassConstraintComponent"},
     "disjoint": {"DisjointConstraintComponent"},
     "datatype": {"DatatypeConstraintComponent"},
     "class": {"ClassConstraintComponent"},
@@ -183,11 +186,6 @@ def target_pairs(subset):
                   key=lambda pair: (str(pair[0]), str(pair[1])))
 
 
-def shape_properties(subset, ns):
-    """The property shapes n10s runs for a node shape: those its rows of the property query reach."""
-    return sorted({ps for n, ps, _, _ in igs.property_rows(subset) if n == ns}, key=str)
-
-
 def fail_cases(subset, data, cfg):
     """One fail case per constraint kind: (kind, shape, Cypher that mutates one node and returns its
     uri as focus). Generated from the in-graph shapes and the data; each runs in a rolled-back
@@ -288,11 +286,14 @@ def fail_cases(subset, data, cfg):
 
 def kept_kinds(subset, data):
     """The constraint kinds left in the graph that can check something now: those on a property the
-    data uses, plus closed node shapes. Each needs a fail case (pipeline.md, rule 14)."""
+    data uses, closed node shapes and node-level sh:class. Each needs a fail case (pipeline.md, rule 14)."""
     used = set(data.predicates())
     kinds = set()
     if igs.closed_rows(subset):
         kinds.add("closed")
+    if igs.node_class_rows(subset):
+        # A node-level sh:class (NODE_ADDITIONAL_CONSTRAINT_QUERY): no generator, so it needs a manual case.
+        kinds.add("nodeClass")
     for ps in sorted({row[1] for row in igs.property_rows(subset)}, key=str):
         path = subset.value(ps, SH.path)
         inverse = subset.value(path, SH.inversePath) if path is not None and not isinstance(path, URIRef) else None
@@ -477,15 +478,42 @@ def check_report_command(report_path):
     return f"build.py check-report --manifest <projection-manifest.json> --report {report_path}"
 
 
-def carried_manual_cases(report_path, report):
-    """Manual cases already in the report, kept when it describes the same inputs and shapes."""
+REMOVE = "docker rm -f -v lpg-projection"
+# A hand case ran against one engine, one set of jars and one configuration; when any of these
+# changes, the case must run again.
+CARRY_KEYS = ("input_fingerprint", "shapes_fingerprint", "versions", "plugin_jars_sha256")
+
+
+def read_previous_report(report_path):
+    """The report already at report_path, or None when there is none. A file that is not a JSON
+    object stops the run before anything touches the database, so hand-edited cases are never lost."""
     try:
         with open(report_path, encoding="utf-8") as f:
             old = json.load(f)
-    except (OSError, ValueError):
+    except FileNotFoundError:
+        return None
+    except ValueError as exc:
+        raise ValueError(f"{report_path} exists but is not valid JSON ({exc}); fix or move it") from None
+    if not isinstance(old, dict):
+        raise ValueError(f"{report_path} exists but is not a JSON object; fix or move it")
+    return old
+
+
+def carried_manual_cases(old, report):
+    """Manual cases from the previous report, kept only when it describes the same inputs, shapes,
+    tool versions and plugin jars as this run."""
+    if not old:
         return []
-    same = all(old.get(k) == report.get(k) for k in ("input_fingerprint", "shapes_fingerprint"))
-    return old.get("manual_cases") or [] if same else []
+    same = all(old.get(k) == report.get(k) for k in CARRY_KEYS)
+    return (old.get("manual_cases") or []) if same else []
+
+
+def set_aside(report_path):
+    """Move a previous report out of the way after a failed run, so check-report cannot accept it."""
+    if os.path.exists(report_path):
+        os.replace(report_path, report_path + ".previous")
+        return report_path + ".previous"
+    return None
 
 
 def passed(report):
@@ -506,6 +534,7 @@ def main(argv):
         if not password:
             raise ValueError("set NEO4J_PASSWORD")
         cfg = build.load_config(opts["--config"])
+        previous = read_previous_report(opts["--report"])
     except (OSError, ValueError) as exc:
         print(f"ERROR {exc}", file=sys.stderr)
         return 2
@@ -517,12 +546,15 @@ def main(argv):
     try:
         report = run(driver, cfg, data, opts["--shapes"], opts["--import-dir"], opts["--merged"],
                      opts["--loadable"], opts["--inferred"], opts.get("--plugins-dir"))
-    except Failed as exc:
+    except Exception as exc:  # Failed, a driver error or a file error: the run produced no report
+        moved = set_aside(opts["--report"])
         print(f"FAIL {exc}")
+        print("Stop: do not run check-report. " + (f"The previous report is now {moved}. " if moved else "")
+              + f"Remove the container ({REMOVE}), fix the cause, and rerun.")
         return 1
     finally:
         driver.close()
-    report["manual_cases"] = carried_manual_cases(opts["--report"], report)
+    report["manual_cases"] = carried_manual_cases(previous, report)
     with open(opts["--report"], "w", encoding="utf-8") as f:
         f.write(json.dumps(report, indent=2, sort_keys=True, default=str) + "\n")
     summary = {k: report[k] for k in ("shapes_import_rows", "in_graph_shape_constraints", "shacl_violations_in_graph",
@@ -533,16 +565,17 @@ def main(argv):
     summary["kinds_without_case"] = report["kinds_without_case"]
     print(json.dumps(summary, indent=1))
     if not passed(report):
-        print("FAIL the verify step did not pass; see the report's samples")
+        print(f"FAIL the verify step did not pass; see the report's samples in {opts['--report']}. "
+              f"Stop: do not run check-report; remove the container ({REMOVE}), fix the cause, and rerun.")
         return 1
     if report["kinds_without_case"]:
         print(f"wrote {opts['--report']}: the generated checks passed, and these kinds still need a case: "
               + ", ".join(report["kinds_without_case"]) + ". Next: keep the container up, run a case for each by hand, "
               "add it to the report's manual_cases, run " + check_report_command(opts["--report"])
-              + ", then remove the container (pipeline.md, rule 14; running.md, rule 5).")
+              + f", then remove the container ({REMOVE}) (pipeline.md, rule 14; running.md, rule 5).")
         return 0
     print(f"wrote {opts['--report']}: the generated checks passed. Next: run {check_report_command(opts['--report'])}, "
-          "then remove the container (running.md, rule 5).")
+          f"then remove the container ({REMOVE}) (running.md, rule 5).")
     return 0
 
 

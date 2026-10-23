@@ -1229,7 +1229,7 @@ class RoundFour(OneBreak, unittest.TestCase):
         sub, _ = igs.subset(self.node_hop())
         self.assertIn((lib("S"), SH.node, lib("Inner")), sub)
         self.assertIn((lib("Inner-p"), SH.minCount, Literal(1)), sub)
-        self.assertIn(lib("Inner-p"), lv.shape_properties(sub, lib("S")))
+        self.assertIn(lib("Inner-p"), [r[1] for r in igs.property_rows(sub) if r[0] == lib("S")])
 
     def test_second_node_hop_is_dropped(self):
         g = self.node_hop()
@@ -1307,11 +1307,11 @@ class RoundFour(OneBreak, unittest.TestCase):
         sub, _ = igs.subset(g)
         self.assertIn((lib("Own-p"), SH.minCount, Literal(1)), sub)
         self.assertNotIn((lib("Inner-p"), SH.minCount, Literal(1)), sub)
-        self.assertEqual(lv.shape_properties(sub, lib("Copy")), [lib("Own-p")])
+        self.assertEqual(sorted({r[1] for r in igs.property_rows(sub) if r[0] == lib("Copy")}), [lib("Own-p")])
 
     def test_inventories_do_not_follow_a_hop_from_a_class_shape(self):
         # even if a hop from an rdfs:Class reached the inventories, they would not follow it
-        self.assertEqual(lv.shape_properties(self.class_with_hop(), lib("Copy")), [])
+        self.assertEqual([r for r in igs.property_rows(self.class_with_hop()) if r[0] == lib("Copy")], [])
 
     def test_rdfs_class_not_typed_as_a_shape_is_not_applied(self):
         # both n10s queries need ?ns typed sh:NodeShape (lines 72 to 74, 129 and 130)
@@ -1320,7 +1320,7 @@ class RoundFour(OneBreak, unittest.TestCase):
         g.add((lib("Copy"), SH.property, lib("C-p")))
         g.add((lib("C-p"), SH.path, lib("barcode")))
         g.add((lib("C-p"), SH.minCount, Literal(1)))
-        self.assertNotIn(lib("Copy"), igs.applied_node_shapes(g))
+        self.assertEqual(igs.property_rows(g), [])
         sub, dropped = igs.subset(g)
         self.assertNotIn((lib("C-p"), SH.minCount, Literal(1)), sub)
         reasons = {(x, p): r for x, p, r in dropped}
@@ -1390,14 +1390,6 @@ class RoundFour(OneBreak, unittest.TestCase):
         self.assertIn((lib("PersonShape"), SH.closed, Literal(True)), sub)
         self.assertIn("closed", lv.kept_kinds(sub, module()))
 
-    def test_the_subset_is_the_rows_of_n10s_queries(self):
-        # every property shape in the subset is reached by a row of the property query, run on the subset
-        sub, _ = igs.subset(shapes())
-        reached = {ps for _, ps, _, _ in igs.property_rows(sub)}
-        self.assertEqual(reached, set(sub.subjects(SH.path, None)))
-        self.assertIn("SELECT DISTINCT ?ns ?ps ?targetClass ?targetIsQuery", igs.PROPERTY_ROWS)
-        self.assertIn("sh:node?/sh:property ?ps", igs.PROPERTY_ROWS)
-
     def main_output(self, kinds):
         """load_verify.main with the database part replaced by a fixed report."""
         import sys as _sys
@@ -1429,14 +1421,13 @@ class RoundFour(OneBreak, unittest.TestCase):
         self.assertNotIn("every check passed", out)
 
     def test_manual_cases_survive_a_rerun_on_the_same_inputs(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, "r.json")
-            case = {"kind": "closed", "cypher": "MATCH", "focus": "x", "components": ["C"], "passed": True}
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump({"input_fingerprint": "f", "shapes_fingerprint": "s", "manual_cases": [case]}, f)
-            self.assertEqual(lv.carried_manual_cases(path, {"input_fingerprint": "f", "shapes_fingerprint": "s"}), [case])
-            self.assertEqual(lv.carried_manual_cases(path, {"input_fingerprint": "g", "shapes_fingerprint": "s"}), [])
-            self.assertEqual(lv.carried_manual_cases(os.path.join(tmp, "none.json"), {}), [])
+        case = {"kind": "closed", "cypher": "MATCH", "focus": "x", "components": ["C"], "passed": True}
+        same = {"input_fingerprint": "f", "shapes_fingerprint": "s", "versions": {"n10s": "1"},
+                "plugin_jars_sha256": {"n10s.jar": "a"}}
+        old = dict(same, manual_cases=[case])
+        self.assertEqual(lv.carried_manual_cases(old, dict(same)), [case])
+        self.assertEqual(lv.carried_manual_cases(old, dict(same, input_fingerprint="g")), [])
+        self.assertEqual(lv.carried_manual_cases(None, dict(same)), [])
 
     def test_rdfs_class_shape_that_is_only_closed_is_dropped(self):
         # quick check 3: NODE_CONSTRAINT_QUERY's class branch filters on ?ns inside its own group, so it
@@ -1560,6 +1551,184 @@ class RoundFour(OneBreak, unittest.TestCase):
             os.makedirs(os.path.join(tmp, "lending", "1.2.0-rc.1"))
             fails = cpr.check(module(), shapes(), config(lambda r: r["packages"].update({"lending": "1.2.0-rc.1"})), tmp)
         self.assertEqual(fails, [("inputs", "Inputs: lending is pinned at 1.2.0-rc.1, which is not a release (X.Y.Z)")])
+
+
+# The selection lines of n10s 2025.06.1's three shape queries, copied by hand from
+# SHACLValidator.java at tag 2025.06.1 (lines 72 to 74, 84 to 94, 129 to 151, 158 to 180).
+JAVA_PROP_LINES = [
+    "{ ?ns a ?shapeOrNodeShape ;", "sh:node?/sh:property ?ps .",
+    "filter ( ?shapeOrNodeShape = sh:Shape || ?shapeOrNodeShape = sh:NodeShape )",
+    "{ ?ns sh:targetClass  ?targetClass .", "bind( false as ?targetIsQuery )}", "union",
+    "{ ?targetClass sh:property ?ps;", "a rdfs:Class .", "{ ?ns sh:targetQuery ?targetClass .",
+    "bind( true as ?targetIsQuery )}"]
+JAVA_CLOSED_LINES = [
+    "{ ?ns a sh:NodeShape ;", "sh:closed true .", "?ns sh:targetClass  ?targetClass .",
+    "?targetClass a rdfs:Class . filter(?targetClass = ?ns) .", "?ns sh:targetQuery  ?targetClass ."]
+JAVA_NODE_CLASS_LINES = [
+    "{ ?ns a sh:NodeShape .", "?ns sh:targetClass  ?targetClass .",
+    "?targetClass a rdfs:Class . filter(?targetClass = ?ns) .", "?ns sh:targetQuery  ?targetClass ."]
+
+
+def squeeze(text):
+    return "".join(text.split())
+
+
+def triples(*items):
+    return set(items)
+
+
+class RoundFive(unittest.TestCase):
+    """Quick check 4: one test per code finding; each failed on 83c1031."""
+
+    # 8: the query constants carry the Java selection lines
+    def test_queries_carry_the_java_selection_lines(self):
+        for query, lines in ((igs.PROPERTY_ROWS, JAVA_PROP_LINES), (igs.CLOSED_ROWS, JAVA_CLOSED_LINES),
+                             (igs.NODE_CLASS_ROWS, JAVA_NODE_CLASS_LINES)):
+            for line in lines:
+                self.assertIn(squeeze(line), squeeze(query), line)
+
+    # 8: the kept and dropped triples of the five graphs the engine was run on, written out by hand
+    def test_engine_graphs_keep_what_n10s_ran(self):
+        A, B, C, D, E = (Graph() for _ in range(5))
+        A.add((lib("Copy"), RDF.type, RDFS.Class)); A.add((lib("Copy"), RDF.type, SH.Shape))
+        A.add((lib("Copy"), SH.property, lib("A-p"))); A.add((lib("A-p"), SH.path, lib("name")))
+        A.add((lib("A-p"), SH.minCount, Literal(1)))
+        self.assertEqual(set(igs.subset(A)[0]), set(A))                       # engine: 1 row, 1 violation
+        B.add((lib("Work"), RDF.type, RDFS.Class)); B.add((lib("Work"), RDF.type, SH.NodeShape))
+        B.add((lib("Work"), SH.node, lib("Copy"))); B.add((lib("Copy"), RDF.type, RDFS.Class))
+        B.add((lib("Copy"), SH.property, lib("B-p"))); B.add((lib("B-p"), SH.path, lib("name")))
+        B.add((lib("B-p"), SH.minCount, Literal(1)))
+        self.assertEqual(set(igs.subset(B)[0]), set(B) - {(lib("Work"), RDF.type, RDFS.Class)})  # 1 row, 1 violation
+        C.add((lib("C1"), SH.targetClass, lib("Copy"))); C.add((lib("C1"), SH.node, lib("C2")))
+        C.add((lib("C2"), RDF.type, SH.NodeShape)); C.add((lib("C2"), SH.property, lib("C-p")))
+        C.add((lib("C-p"), SH.path, lib("name"))); C.add((lib("C-p"), SH.minCount, Literal(1)))
+        self.assertEqual(set(igs.subset(C)[0]), set())                         # 0 rows
+        D.add((lib("Person"), RDF.type, RDFS.Class)); D.add((lib("Person"), RDF.type, SH.NodeShape))
+        D.add((lib("Person"), SH.closed, Literal(True))); D.add((lib("Person"), SH.property, lib("D-p")))
+        D.add((lib("D-p"), SH.path, lib("name"))); D.add((lib("D-p"), SH.minCount, Literal(0)))
+        self.assertEqual(set(igs.subset(D)[0]), set(D) - {(lib("Person"), SH.closed, Literal(True))})  # no closed
+        E.add((lib("E"), RDF.type, SH.Shape)); E.add((lib("E"), SH.targetClass, lib("Person")))
+        E.add((lib("E"), SH.closed, Literal(True))); E.add((lib("E"), SH.property, lib("E-p")))
+        E.add((lib("E-p"), SH.path, lib("name"))); E.add((lib("E-p"), SH.minCount, Literal(0)))
+        self.assertEqual(set(igs.subset(E)[0]), set(E) - {(lib("E"), SH.closed, Literal(True))})  # no closed
+
+    # 2: a property shape whose path n10s cannot read leaves the subset with its edges
+    def bad_path_graph(self, path_value):
+        g = minimal_shape(SH.minCount, Literal(1))
+        g.add((lib("S"), SH.property, lib("Bad-p")))
+        if path_value is not None:
+            g.add((lib("Bad-p"), SH.path, path_value))
+        g.add((lib("Bad-p"), SH.minCount, Literal(1)))
+        return g
+
+    def test_sequence_path_shape_leaves_with_its_edge(self):
+        g = self.bad_path_graph(BNode())
+        head = g.value(lib("Bad-p"), SH.path)
+        Collection(g, head, [lib("copyOf"), lib("barcode")])
+        sub, dropped = igs.subset(g)
+        self.assertNotIn((lib("S"), SH.property, lib("Bad-p")), sub)
+        self.assertNotIn((lib("Bad-p"), None, None), sub)
+        self.assertEqual([r for r in igs.property_rows(sub) if r[1] == lib("Bad-p")], [])
+        self.assertIn((lib("S-p"), SH.minCount, Literal(1)), sub)
+        reasons = {(x, p): r for x, p, r in dropped}
+        self.assertIn("skips this path (line 989)", reasons[(lib("Bad-p"), SH.minCount)])
+
+    def test_missing_path_shape_leaves_with_its_edge(self):
+        sub, dropped = igs.subset(self.bad_path_graph(None))
+        self.assertNotIn((lib("S"), SH.property, lib("Bad-p")), sub)
+        reasons = {(x, p): r for x, p, r in dropped}
+        self.assertIn("it has no sh:path", reasons[(lib("Bad-p"), SH.minCount)])
+
+    # 1: reasons name the condition that failed, and nothing false
+    def test_closed_class_reason_names_the_filter_scope(self):
+        g = Graph()
+        g.add((lib("Copy"), RDF.type, RDFS.Class)); g.add((lib("Copy"), RDF.type, SH.NodeShape))
+        g.add((lib("Copy"), SH.closed, Literal(True)))
+        reasons = {(x, p): r for x, p, r in igs.subset(g)[1]}
+        self.assertEqual(reasons[(lib("Copy"), SH.closed)],
+                         "NODE_CONSTRAINT_QUERY (lines 129 to 151) returns no row: it has no sh:targetClass or "
+                         "sh:targetQuery, and its class branch cannot stand in: filter(?targetClass = ?ns) sits inside "
+                         "the union group (line 138), where ?ns is unbound, so that branch returns no row")
+
+    def test_class_hop_reason_names_the_reached_node(self):
+        g = Graph()
+        g.add((lib("Copy"), RDF.type, RDFS.Class)); g.add((lib("Copy"), RDF.type, SH.NodeShape))
+        g.add((lib("Copy"), SH.node, lib("Inner"))); g.add((lib("Inner"), RDF.type, SH.NodeShape))
+        g.add((lib("Inner"), SH.property, lib("Inner-p"))); g.add((lib("Inner-p"), SH.path, lib("barcode")))
+        g.add((lib("Inner-p"), SH.minCount, Literal(1)))
+        reason = {(x, p): r for x, p, r in igs.subset(g)[1]}[(lib("Copy"), SH.node)]
+        self.assertIn("is not an rdfs:Class with its own sh:property", reason)
+        self.assertNotIn("target only for its own", reason)
+
+    def test_property_class_reason_is_the_property_reason(self):
+        g = Graph()
+        g.add((lib("Loose-p"), SH.path, lib("copyOf")))
+        g.add((lib("Loose-p"), SH["class"], lib("Work")))
+        reason = {(x, p): r for x, p, r in igs.subset(g)[1]}[(lib("Loose-p"), SH["class"])]
+        self.assertIn("PROP_CONSTRAINT_QUERY", reason)
+        self.assertNotIn("NODE_ADDITIONAL", reason)
+
+    # 3: a node-level sh:class enters the inventory and needs a manual case
+    def test_node_level_class_is_a_kind(self):
+        g = Graph()
+        g.add((lib("PersonShape"), RDF.type, SH.NodeShape))
+        g.add((lib("PersonShape"), SH.targetClass, lib("Person")))
+        g.add((lib("PersonShape"), SH["class"], lib("Agent")))
+        sub, _ = igs.subset(g)
+        self.assertIn((lib("PersonShape"), SH["class"], lib("Agent")), sub)
+        self.assertIn("nodeClass", lv.kept_kinds(sub, module()))
+        self.assertNotIn("nodeClass", [k for k, _, _ in lv.fail_cases(sub, module(), config())])
+
+    # 5, 6, 7: report handling
+    def run_main_with(self, existing, run_result=None, run_error=None):
+        import sys as _sys
+        from unittest import mock
+        fake = mock.MagicMock()
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp)
+        path = os.path.join(tmp, "r.json")
+        if existing is not None:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(existing)
+        patch = mock.patch.object(lv, "run", side_effect=run_error) if run_error else \
+            mock.patch.object(lv, "run", return_value=run_result)
+        with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "x"}), mock.patch.dict(_sys.modules, {"neo4j": fake}), \
+                patch as run:
+            args = ["--config", CONFIG, "--shapes", SHAPES, "--bolt", "bolt://127.0.0.1:1", "--import-dir", tmp,
+                    "--merged", MODULE, "--loadable", MODULE, "--inferred", MODULE, "--report", path, MODULE]
+            code, out = run_main(lv.main, args)
+        return code, out, path, run
+
+    def test_invalid_report_json_stops_before_the_database(self):
+        for text in ('{"manual_cases": [1,],}', "[1, 2]"):
+            code, out, path, run = self.run_main_with(text, run_result={})
+            self.assertEqual(code, 2, out)
+            self.assertFalse(run.called)
+            with open(path, encoding="utf-8") as f:
+                self.assertEqual(f.read(), text)
+
+    def test_cases_do_not_carry_across_versions_or_jars(self):
+        case = {"kind": "closed", "cypher": "MATCH", "focus": "x", "components": ["C"], "passed": True}
+        same = {"input_fingerprint": "f", "shapes_fingerprint": "s", "versions": {"n10s": "1"},
+                "plugin_jars_sha256": {"n10s.jar": "a"}}
+        old = dict(same, manual_cases=[case])
+        self.assertEqual(lv.carried_manual_cases(old, dict(same, versions={"n10s": "2"})), [])
+        self.assertEqual(lv.carried_manual_cases(old, dict(same, plugin_jars_sha256={"n10s.jar": "b"})), [])
+
+    def test_failed_run_sets_the_previous_report_aside(self):
+        passing = json.dumps({"input_fingerprint": "f", "shacl_violations_in_graph": 0})
+        code, out, path, _ = self.run_main_with(passing, run_error=lv.Failed("the shapes import returned 0 rows"))
+        self.assertEqual(code, 1, out)
+        self.assertFalse(os.path.exists(path))
+        with open(path + ".previous", encoding="utf-8") as f:
+            self.assertEqual(f.read(), passing)
+        self.assertIn("do not run check-report", out)
+        self.assertIn("docker rm -f -v lpg-projection", out)
+
+    def test_driver_error_is_handled_like_a_failure(self):
+        code, out, path, _ = self.run_main_with("{}", run_error=OSError("connection refused"))
+        self.assertEqual(code, 1, out)
+        self.assertFalse(os.path.exists(path))
 
 
 if __name__ == "__main__":

@@ -55,13 +55,13 @@ The `ontology` skill builds the ontology and hands over to this one at its Step 
 
 **Change a rule.** Edit the reference file that holds it; `SKILL.md` only points. Keep each rule in one place, with its reason and a source in `SOURCES.md`.
 
-**A new n10s release.** Re-run the pass and fail tests of `references/pipeline.md`, rule 14, in the new version, then update the drop list in `scripts/in_graph_shapes.py`, the same list in `references/pipeline.md`, rule 13, the table in rule 14, the jar checksums in `references/running.md`, rule 2, and the versions in `SOURCES.md`.
+**A new n10s release.** Re-run the pass and fail tests of `references/pipeline.md`, rule 14, in the new version, then compare the new `SHACLValidator.java` with the copies in `scripts/in_graph_shapes.py`: the three query constants (`PROPERTY_ROWS`, `CLOSED_ROWS`, `NODE_CLASS_ROWS`), `PROPERTY_TERMS`, `N10S_DATATYPES` and every cited line number, and the Java lines pinned in `scripts/test_projection.py` (`JAVA_PROP_LINES` and the two beside it). Update them, `references/pipeline.md`, rules 13 and 14, the jar checksums in `references/running.md`, rule 2, and the versions in `SOURCES.md`.
 
 ## Status
 
 Last updated 2026-10-23.
 
 - **No evals yet.** Write test prompts for three branches before tuning: designing a new ontology for a graph, adding a release to an existing projection, and debugging a silent in-graph SHACL check.
-- **Scripts cover every step.** `load_verify.py` loads and verifies against a running container; its database parts are tested only by running it (it passed end to end on the library templates on 2026-10-23), and its other parts by `test_projection.py`. It generates fail cases for fourteen constraint kinds; any other kind left in the graph needs a case written by hand.
+- **Scripts cover every step.** `load_verify.py` loads and verifies against a running container; its database parts are tested only by running it (it passed end to end on the library templates on 2026-10-23), and its other parts by `test_projection.py`. It generates a fail case for every kind in `EXPECTED` in `load_verify.py` except a node-level `sh:class` (`nodeClass`); any other kind left in the graph needs a case written by hand.
 - **Option 4b has not been run end to end.** Every tested run used 4a. Recheck rdflib issue #3524 and the RDF 1.2 status every three months.
 - **One source of experience.** The 2.3 changes come from one multi-module build. Expect changes after a second one.
