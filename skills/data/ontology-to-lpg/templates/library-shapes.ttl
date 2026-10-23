@@ -59,8 +59,14 @@ lib:CopyShape-shelfNote a sh:PropertyShape ;
 
 lib:AuthorshipShape a sh:NodeShape ;
     sh:targetClass lib:Authorship ;
-    sh:property lib:AuthorshipShape-agent, lib:AuthorshipShape-role, lib:AuthorshipShape-position,
-                lib:AuthorshipShape-source .
+    sh:property lib:AuthorshipShape-agent, lib:AuthorshipShape-work, lib:AuthorshipShape-role,
+                lib:AuthorshipShape-position, lib:AuthorshipShape-source .
+
+# The inverse end (Rule 4a): exactly one work points at each authorship through lib:hasAuthorship.
+lib:AuthorshipShape-work a sh:PropertyShape ;
+    sh:path [ sh:inversePath lib:hasAuthorship ] ;
+    sh:minCount 1 ; sh:maxCount 1 ;
+    sh:message "Exactly one work points at an authorship (Rule 4a: one value per end)."@en .
 
 lib:AuthorshipShape-agent a sh:PropertyShape ;
     sh:path lib:authorshipAgent ; sh:class lib:Person ;

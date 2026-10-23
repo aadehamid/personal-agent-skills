@@ -53,7 +53,9 @@ PROPERTY_KINDS = (OWL.ObjectProperty, OWL.DatatypeProperty, OWL.AnnotationProper
 VALUE_KINDS = (OWL.ObjectProperty, OWL.DatatypeProperty)
 KNOWN_NAMESPACES = (str(XSD), str(RDF), str(RDFS), str(OWL), str(SKOS),
                     "http://www.w3.org/ns/org#", str(PROV), str(DCAT), str(DCTERMS))
-RDF_DATATYPES = {RDF.langString, RDF.HTML, RDF.XMLLiteral}
+# The ontology-to-lpg skill's check_projection_rules.py checks kinds and ranges too, more strictly: a
+# projected datatype range must be one its loader maps. Keep the two lists of RDF datatypes in step.
+RDF_DATATYPES = {RDF.langString, RDF.HTML, RDF.XMLLiteral, URIRef(str(RDF) + "dirLangString")}
 CHARACTERISTICS = (OWL.TransitiveProperty, OWL.SymmetricProperty, OWL.AsymmetricProperty, OWL.ReflexiveProperty,
                    OWL.IrreflexiveProperty, OWL.FunctionalProperty, OWL.InverseFunctionalProperty)
 

@@ -15,4 +15,4 @@ Recorded <YYYY-MM-DD>. Requirements file: `<path to requirements.yaml>`.
 | 7 | Licence | <closed / open, naming the licence> | <why, e.g. "a public body publishes openly"> | <record> |
 | 8 | Modules | <module list and their one-way dependencies> | A cycle blocks releasing a module alone. | <record> |
 | 9 | Consumers | <the owner's statement: who consumes, whether any is active> | Release rules depend on it; only the owner can state it. | <record> |
-| 10 | Target formats | <RDF only / RDF plus a property-graph projection> | Projection rules adopted late force a remodel. | <record> |
+| 10 | Target formats | <RDF only / RDF plus a property-graph projection; if projected, the Rule 4 option: 4a qualified-relation nodes or 4b RDF 1.2 reifiers> | Projection rules adopted late force a remodel; <why this Rule 4 option, for example: the validator is pySHACL, which does not read RDF 1.2>. | <record> |

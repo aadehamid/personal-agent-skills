@@ -24,7 +24,7 @@ Keep the order, except Step 8, which runs right after Step 0. Before you work on
 0. **Reference framework and existing ontologies.** Read `references/foundations.md` and `references/external-ontologies.md`; record in `templates/survey-register.md`.
    Done when: every cited framework ID is verified against the publisher's copy (or the framework's absence is a recorded finding), every divergence has a boundary note, and the survey meets the "Done when" in `references/external-ontologies.md`.
 1. **Foundations: the ten policies.** Read `references/foundations.md`; for target formats, `references/lpg-projection.md`. Record in `templates/policies.md`.
-   Done when: all ten policies are recorded with their reasons and none is marked ASSUMED, and the owner has approved and locked the competency questions.
+   Done when: all ten policies are recorded with their reasons and none is marked ASSUMED, and the owner has approved and locked the competency questions. If policy 10 says the ontology will be projected, it also records the Rule 4 option and its reason, and `ontology-to-lpg`'s design rules have been read.
 2. **Identity.** Read `references/identity-taxonomy.md`; record in `templates/identity-table.md`.
    Done when: every node has an HTTP IRI under the base the URI policy records, every node has a kind, and nothing in the build identifies a node by its label.
 3. **Taxonomy, classes and properties.** Read `references/domain-model.md`, `references/identity-taxonomy.md` and `references/quality.md`; start from `templates/ontology-skeleton.ttl` and `templates/shapes-skeleton.ttl`.

@@ -2,7 +2,7 @@
 
 This file lists every source the ontology skill draws on: what the skill took from each, the version or date used, and how to check for a newer one. Agents do not read it. All text in the skill is our own wording, except short quotations marked as such.
 
-Last full review: 2026-10-22. Check the sources below every three months, and whenever a W3C specification, n10s or the property-graph playbook publishes a new version.
+Last full review: 2026-10-22. Check the sources below every three months, and whenever a W3C specification publishes a new version. The property-graph sources (n10s, Neo4j, the guideline) follow the `ontology-to-lpg` skill's review schedule.
 
 ## 1. The method as practised
 
@@ -53,7 +53,7 @@ Last full review: 2026-10-22. Check the sources below every three months, and wh
 The two `sh:pattern` and `sh:in` facts in `references/shacl.md` (rules 17 and 18) rest on the n10s source at tag 2025.06.1 (commit `6a5846b`), `src/main/java/n10s/validation/SHACLValidator.java`, https://github.com/neo4j-labs/neosemantics/blob/2025.06.1/src/main/java/n10s/validation/SHACLValidator.java:
 
 - Lines 1408 to 1417: `sh:pattern` compiles to Cypher `toString(x) =~ params.theRegex`; Cypher's `=~` matches the whole string.
-- Lines 1044 to 1048, 465 to 471 and 1359: a literal `sh:in` list is read as strings and compared with `val in params.theInLiterals`.
+- Lines 1044 to 1048: a literal `sh:in` list is read as a list of strings; line 471 stores it as `params.put("theInLiterals", valueLiteralList)`; line 1359 tests `val in params.theInLiterals`.
 
 The other n10s facts (the constraints it cannot run, SHORTEN against MAP mode) moved with the projection method to the `ontology-to-lpg` skill; its `SOURCES.md`, section 3, cites them.
 

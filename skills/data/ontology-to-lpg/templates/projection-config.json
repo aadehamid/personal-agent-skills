@@ -1,5 +1,6 @@
 {
   "rule4": "4a",
+  "rule4_reason": "The pipeline validates with pySHACL, which is built on rdflib and does not read RDF 1.2 triple terms.",
   "own_namespaces": ["https://id.example.org/library/"],
   "prefixes": {
     "lib": "https://id.example.org/library/",
@@ -14,5 +15,13 @@
     {"class": "lib:Authorship", "ends": ["lib:authorshipAgent"], "inverse_ends": ["lib:hasAuthorship"]}
   ],
   "packages": {"lending": "1.1.0"},
-  "release_exceptions": {}
+  "release_exceptions": {},
+  "versions": {
+    "neo4j": "2025.06.2",
+    "n10s": "2025.06.1",
+    "apoc": "bundled with neo4j:2025.06.2",
+    "robot": "1.9.10",
+    "reasoner": "ELK (through ROBOT)",
+    "method": "ontology-to-lpg 2.3"
+  }
 }

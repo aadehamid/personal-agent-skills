@@ -72,7 +72,7 @@ The skill works on its own. If the `way-of-working` skill is installed too, the 
 
 Last updated 2026-10-23.
 
-- **No evals yet.** One walk-through on a library's lending process (Steps 0, 8, 1, 2 and 3) shaped this version. Write test prompts for three branches before tuning: starting a new ontology, promoting a workbook into triples, and planning a Neo4j projection.
+- **No evals yet.** One walk-through on a library's lending process (Steps 0, 8, 1, 2 and 3) shaped this version. Write test prompts for three branches before tuning: starting a new ontology, promoting a workbook into triples, and choosing the target formats (the Neo4j projection itself is `ontology-to-lpg`'s branch).
 - **Scripts cover Steps 0 to 3 only.** Later steps describe their checks; the project writes them.
 - **Outside proposals not adopted yet:** a check that cited sources still hold, a queryable decision trace, a quality scorecard, views for the projection's consumers, and extraction artifacts. Reasons are in `SOURCES.md`, section 6.
 - **The projection method moved to `ontology-to-lpg`** (2026-10-23). Its README tracks the open items on RDF 1.2 and option 4b.

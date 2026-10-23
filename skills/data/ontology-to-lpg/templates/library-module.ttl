@@ -1,7 +1,7 @@
 # A small released module, projected by the ontology-to-lpg skill's checks and tests. Copy it as a
 # starting fixture for a projection's own tests; replace the library terms with your own.
 # Rules: references/design-rules.md (1 to 5). Check it with:
-#   uv run --with rdflib python3 <skill>/scripts/check_projection_rules.py \
+#   uv run --no-project --with rdflib python3 <skill>/scripts/check_projection_rules.py \
 #     --config projection-config.json --shapes library-shapes.ttl library-module.ttl
 
 @prefix lib:     <https://id.example.org/library/> .
@@ -22,6 +22,9 @@ lib:Work a owl:Class ; rdfs:label "Work"@en .
 lib:Person a owl:Class ; rdfs:label "Person"@en .
 lib:Copy a owl:Class ; rdfs:label "Copy"@en .
 lib:Authorship a owl:Class ; rdfs:label "Authorship"@en .
+# A subclass axiom, so the reason step has an inference to keep: W-0043 is asserted only as a book,
+# and ELK infers that it is a work (references/pipeline.md, rules 4 and 6).
+lib:Book a owl:Class ; rdfs:label "Book"@en ; rdfs:subClassOf lib:Work .
 
 # --- Properties: one kind each; object and datatype properties one concrete range (Rule 1).
 lib:title a owl:DatatypeProperty ; rdfs:label "title"@en ; rdfs:domain lib:Work ; rdfs:range rdf:langString .
@@ -48,6 +51,10 @@ lib:illustrator a skos:Concept ; skos:inScheme lib:creator-role ; skos:topConcep
     lib:hasAuthorship <https://id.example.org/library/authorship/W-0042-P-17>,
                       <https://id.example.org/library/authorship/W-0042-P-18> .
 
+<https://id.example.org/library/work/W-0043> a lib:Book ;
+    lib:title "Night Trains"@en ;
+    lib:hasAuthorship <https://id.example.org/library/authorship/W-0043-P-17> .
+
 <https://id.example.org/library/person/P-17> a lib:Person ; lib:name "Ada Morgan" .
 <https://id.example.org/library/person/P-18> a lib:Person ; lib:name "Ben Okafor" .
 
@@ -62,6 +69,12 @@ lib:illustrator a skos:Concept ; skos:inScheme lib:creator-role ; skos:topConcep
     lib:creatorRole lib:illustrator ;
     lib:position 2 ;
     lib:source "Catalogue record 0042, field 700" .
+
+<https://id.example.org/library/authorship/W-0043-P-17> a lib:Authorship ;
+    lib:authorshipAgent <https://id.example.org/library/person/P-17> ;
+    lib:creatorRole lib:author ;
+    lib:position 1 ;
+    lib:source "Catalogue record 0043, field 100" .
 
 <https://id.example.org/library/copy/C-00420001> a lib:Copy ;
     lib:barcode "00420001" ;

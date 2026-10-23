@@ -29,7 +29,7 @@ everything else           -> stays in the Turtle files
 
 Each rule can be checked by a script; `scripts/check_projection_rules.py` checks Rules 1, 2, 3, 4a and the Rule 5 names.
 
-1. **Give every property you own exactly one kind, and every object or datatype property one concrete range.** The kinds are `owl:ObjectProperty` (loads as a relationship), `owl:DatatypeProperty` and `owl:AnnotationProperty` (both load as node properties). A concrete range is one IRI: an XSD datatype or `rdf:langString` for a datatype property, a class for an object property; never `rdfs:Literal` or `rdfs:Resource`, never a bare `rdf:Property`. An annotation property needs no range. Prefer zoned `xsd:dateTimeStamp` for timestamps. *Why:* the loader decides property or relationship from the kind, and the Cypher type from the range (table below); a vague range makes the result depend on the data.
+1. **Give every property you own exactly one kind, and every object or datatype property one concrete range.** The kinds are `owl:ObjectProperty` (loads as a relationship), `owl:DatatypeProperty` and `owl:AnnotationProperty` (both load as node properties). A concrete range is one IRI: for a datatype property, a datatype in the XSD to Cypher table below (an unlisted XSD type, `rdf:HTML` or a custom `rdfs:Datatype` fails); for an object property, a class; never `rdfs:Literal` or `rdfs:Resource`, never a bare `rdf:Property`. An annotation property needs no range. A property counts as yours when its IRI is in one of your namespaces and it is used as a predicate, declared with a property kind, or given a domain, a range or a parent property. Prefer zoned `xsd:dateTimeStamp` for timestamps. *Why:* the loader decides property or relationship from the kind, and the Cypher type from the range (table below); a vague range makes the result depend on the data.
 
    ```turtle
    lib:barcode   a owl:DatatypeProperty ; rdfs:range xsd:string .   # node property
@@ -37,7 +37,7 @@ Each rule can be checked by a script; `scripts/check_projection_rules.py` checks
    lib:shelfNote a owl:AnnotationProperty .                         # node property
    ```
 
-2. **State a cardinality for every property you own in SHACL:** `sh:maxCount 1` for a single value; `sh:minCount` with no `sh:maxCount` for a list (write `sh:minCount 0` for an optional list, so the choice is stated). Annotation properties too. *Why:* `sh:maxCount 1` loads one value and anything else loads a sorted array; the loader's list of multi-valued properties is generated from the shapes, so an unstated cardinality is a guess.
+2. **State a cardinality for every property you own in SHACL:** `sh:maxCount 1` for a single value; `sh:minCount` with no `sh:maxCount` for a list (write `sh:minCount 0` for an optional list, so the choice is stated). Annotation properties too. The cardinality counts only on a property shape that a node shape with `sh:targetClass` (or a node shape that is itself a class) uses; a loose shape with the same `sh:path` states nothing. *Why:* `sh:maxCount 1` loads one value and anything else loads a sorted array; the loader's list of multi-valued properties is generated from the shapes, so an unstated cardinality is a guess.
 
    ```turtle
    lib:CopyShape a sh:NodeShape ; sh:targetClass lib:Copy ;
@@ -47,7 +47,7 @@ Each rule can be checked by a script; `scripts/check_projection_rules.py` checks
      sh:property [ sh:path lib:altTitle ; sh:datatype rdf:langString ; sh:minCount 0 ] .   # a sorted array
    ```
 
-3. **Give every individual a permanent IRI, put no blank node in the data, and register one fixed prefix per namespace.** Never generate IRIs per run. Qualified-relation nodes and reifiers need IRIs most, because the IRI becomes the node's or relationship's `uri` in the graph. Register a prefix for every namespace a predicate or a class uses, your own and the standard ones, and never two prefixes for one namespace. *Why:* in SHORTEN mode n10s names a term by its namespace's prefix, two underscores and the local name (`lib__barcode`), and invents a numbered `ns` prefix for a namespace it does not know; fixed prefixes make the names the same on every load.
+3. **Give every individual a permanent IRI, put no blank node in the data, and register one fixed prefix per namespace.** Never generate IRIs per run. Qualified-relation nodes and reifiers need IRIs most, because the IRI becomes the node's or relationship's `uri` in the graph. Register a prefix for every namespace a predicate or a class uses, your own and the standard ones, wherever the class appears: as a type, a declared class, a superclass, a domain or range, or a shape's target or `sh:class`; and never two prefixes for one namespace. *Why:* in SHORTEN mode n10s names a term by its namespace's prefix, two underscores and the local name (`lib__barcode`), and invents a numbered `ns` prefix for a namespace it does not know; fixed prefixes make the names the same on every load.
 
 4. **Choose one pattern for links that carry properties, record it, and use it everywhere.** Rule 4 covers a link whose only job is to carry facts about one relationship. A link the business tracks as a thing in its own right is a domain class instead, outside Rule 4: it has its own identity or lifecycle, and other records refer to it. A `lib:Loan` is one: it has a loan number, and fines and renewals point at it. *Why:* mixing patterns makes the conversion code guess which one a link uses.
 
@@ -64,8 +64,8 @@ Each rule can be checked by a script; `scripts/check_projection_rules.py` checks
 
    In the graph this is a `:lib__Authorship` node with its properties, a relationship to the person, and one from the work.
 
-   - **Give each qualified-relation node exactly one value for each end**, with `sh:minCount 1 ; sh:maxCount 1` on each end's property (Rule 2).
-   - **An end may point at the node instead, by an inverse link** (`lib:hasAuthorship` above, like `prov:qualifiedAssociation` or `org:hasMembership`). Count that link as the end, and check that exactly one such link points at each node. *Why:* the arcs that define the node are not domain links, and the inverse form is the one PROV-O and ORG use.
+   - **Give each qualified-relation node exactly one value for each end**, with `sh:minCount 1 ; sh:maxCount 1` on each end's property in a shape that targets the qualified-relation class. The checker fails when that shape is missing, even while the data happens to hold one value.
+   - **An end may point at the node instead, by an inverse link** (`lib:hasAuthorship` above, like `prov:qualifiedAssociation` or `org:hasMembership`). Count that link as the end, check that exactly one such link points at each node, and shape it from the node's side with `sh:path [ sh:inversePath lib:hasAuthorship ] ; sh:minCount 1 ; sh:maxCount 1`. n10s runs that inverse-path shape in the graph. *Why:* the arcs that define the node are not domain links, and the inverse form is the one PROV-O and ORG use.
    - **Register every qualified-relation class with its ends** in the projection's configuration (`inputs.md`, rule 3), and add each new one when a module defines it. *Why:* the rule check finds the nodes by their class.
    - If a consumer also wants a direct edge (`work lib:createdBy person`), assert that triple too, or derive it with a SPARQL CONSTRUCT before the load. Never hand-write it in Cypher.
    - Choose 4a while any tool in the pipeline lacks RDF 1.2 support.
@@ -80,6 +80,10 @@ Each rule can be checked by a script; `scripts/check_projection_rules.py` checks
    Rules for reifiers: one reifier gives one relationship, which carries the reifier's `uri`; two reifiers of one triple give two parallel relationships, never merged; an asserted triple with no reifier gives one plain relationship; a triple term that is not asserted gives a relationship with `asserted: false`, or is left out by a recorded exclusion (`add-ons.md`, D); a reifier's properties are literal-valued, and a link to another resource is stored as a string property such as `approvedBy_uri`, which the round trip restores.
 
 5. **Name the graph explicitly only where the SHORTEN name is not good enough, through one annotation property (`lpg:name`), and check that no two terms share a name.** n10s applies such mappings only in MAP mode, and the pipeline uses SHORTEN (`pipeline.md`, rule 9). So add the names as a generated, idempotent rename after the load, before verify, and reverse it before the round-trip export. *Why:* MAP mode breaks in-graph SHACL in n10s (neosemantics issue #237, open since 2021-11-09; its fix, PR #361, is open), and without the rename every name is already unique by construction.
+
+## Where the Rule 4 choice is recorded
+
+**Record the Rule 4 option and its reason in the projection policy, and copy both into the configuration's `rule4` and `rule4_reason`.** The projection policy is the project's written decision to project the ontology into a property graph. For an ontology built with the `ontology` skill it is policy 10 (target formats) in that skill's `templates/policies.md`, which holds the option and its reason; otherwise it is a decision record the owner approved. *Why:* the policy is the decision, and the configuration is the copy the scripts read; `check_projection_rules.py` stops with exit 2 under `4b`, because it reads RDF 1.1 only.
 
 ## OWL profile
 

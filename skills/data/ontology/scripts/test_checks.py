@@ -224,6 +224,12 @@ class TaxonomyChecks(OneBreak, unittest.TestCase):
         self.broken(lambda g: g.set((lib("dueDate"), RDFS.range, lib("Copy"))),
                     "kind-range", "lib:dueDate is an owl:DatatypeProperty but its range lib:Copy is not a datatype")
 
+    def test_dir_lang_string_is_a_datatype(self):
+        # RDF 1.2's directional language string, as the ontology-to-lpg checker also accepts.
+        g = skeleton()
+        g.set((lib("dueDate"), RDFS.range, URIRef(str(RDF) + "dirLangString")))
+        self.assertEqual(check_taxonomy.check(g), [])
+
     # untyped
     def test_untyped_concept(self):
         def mutate(g):

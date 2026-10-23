@@ -1,27 +1,41 @@
 #!/usr/bin/env python3
 """The design-rule checks a property-graph projection runs before it loads anything.
 
-Run: uv run --with rdflib python3 check_projection_rules.py --config <config.json> [--shapes <shapes.ttl>]...
-         [--releases <folder>] <data.ttl>...
+Run: uv run --no-project --with rdflib python3 check_projection_rules.py --config <config.json>
+         [--shapes <shapes.ttl>]... [--releases <folder>] <data.ttl>...
 
 Give it the released data files (each package's module Turtle) and every shape file. The
 configuration is described in references/inputs.md; templates/projection-config.json is an example.
 
 Checks (references/design-rules.md and references/inputs.md):
-  rule-1     every property in an own namespace (used as a predicate, or declared) has exactly one
-             kind: owl:ObjectProperty, owl:DatatypeProperty or owl:AnnotationProperty; an object or
-             datatype property has exactly one rdfs:range, an IRI other than rdfs:Literal and
-             rdfs:Resource; a datatype property's range is a datatype and an object property's is not
-  rule-2     every own property has a property shape whose sh:path is that property and that states
+  rule-1     every property in an own namespace (used as a predicate, declared with a property kind,
+             or the subject of rdfs:domain, rdfs:range or rdfs:subPropertyOf) has exactly one kind:
+             owl:ObjectProperty, owl:DatatypeProperty or owl:AnnotationProperty; an object or datatype
+             property has exactly one rdfs:range, an IRI other than rdfs:Literal and rdfs:Resource; a
+             datatype property's range is a row of the XSD to Cypher table; an object property's
+             range is not a datatype
+  rule-2     every own property is the sh:path of a property shape that an applied node shape uses
+             (one with sh:targetClass, or one that is itself a class) and that shape states
              sh:minCount or sh:maxCount
-  rule-3     no blank node in the data; the namespace of every predicate and every rdf:type object
-             has a prefix; every own namespace has a prefix; no namespace has two prefixes
+  rule-3     no blank node in the data; every namespace a predicate or a class uses (in the data or
+             the shapes) has a prefix; every own namespace has a prefix; no namespace has two prefixes
   rule-4a    every node of a registered qualified-relation class has exactly one value for each end,
-             and is the object of exactly one link for each inverse end
+             and is the object of exactly one link for each inverse end; an applied shape on the class
+             gives each end (sh:path end) and each inverse end (sh:path [sh:inversePath end])
+             sh:minCount 1 and sh:maxCount 1
   rule-5     no two terms share a value of the configured lpg_name_property (when one is configured)
+  refusal    no plain or xsd:string literal ends like a language tag, and every xsd:decimal survives
+             as a double (references/pipeline.md, rule 3)
   inputs     with --releases: each module's pin is its newest release folder (<folder>/<module>/<X.Y.Z>/)
-  exceptions a failure whose exact message is a key of release_exceptions is allowed; a listed
-             exception that no longer occurs, or one with an empty fix, fails
+  exceptions a rule-1, rule-2 or rule-5 failure whose exact message is a key of release_exceptions is
+             allowed; a listed exception that no longer occurs, has an empty fix, or names a failure
+             of any other check, fails
+
+This checker reads RDF 1.1 with rdflib, so it checks Rule 4a only. With "rule4": "4b" it stops
+with exit 2: run the Rule 4b checks in Jena 6.1.0+ or RDF4J 6.0.0+.
+
+The ontology skill's check_taxonomy.py checks the same property kinds and ranges for modelling; this
+checker is stricter on purpose: a datatype range must be one the projection's loader maps.
 
 The namespace of an IRI is split as RDF4J (and so n10s) splits it: up to the first '#', else up to
 the last '/', else up to the last ':'.
@@ -34,6 +48,7 @@ import os
 import re
 import sys
 from collections import defaultdict
+from decimal import Decimal, InvalidOperation
 
 from rdflib import BNode, Graph, Literal, URIRef
 from rdflib.namespace import OWL, RDF, RDFS, SH, XSD
@@ -41,8 +56,20 @@ from rdflib.namespace import OWL, RDF, RDFS, SH, XSD
 KINDS = (OWL.ObjectProperty, OWL.DatatypeProperty, OWL.AnnotationProperty)
 DECLARED = KINDS + (RDF.Property,)
 VAGUE_RANGES = (RDFS.Literal, RDFS.Resource)
-RDF_DATATYPES = {RDF.langString, RDF.HTML, RDF.XMLLiteral, URIRef(str(RDF) + "dirLangString")}
+DIR_LANG_STRING = URIRef(str(RDF) + "dirLangString")
+# The rows of the XSD to Cypher table in references/design-rules.md: the only ranges the loader maps.
+LOADER_DATATYPES = {XSD[n] for n in ("string", "token", "normalizedString", "boolean", "integer", "long", "int",
+                                     "nonNegativeInteger", "double", "float", "decimal", "date", "dateTime",
+                                     "dateTimeStamp", "duration", "anyURI")} | {RDF.langString, DIR_LANG_STRING}
+RDF_DATATYPES = {RDF.langString, RDF.HTML, RDF.XMLLiteral, DIR_LANG_STRING}
+PROPERTY_AXIOMS = (RDFS.domain, RDFS.range, RDFS.subPropertyOf)
+CLASS_OBJECTS = (RDFS.subClassOf, RDFS.domain, RDFS.range, OWL.equivalentClass, OWL.disjointWith)
+CLASS_KINDS = (OWL.Class, RDFS.Class)
 SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
+# A string that ends like a BCP 47 language tag: n10s's keepLangTag stores "text@en", so such a
+# source string cannot be told apart from a tagged one on the way back.
+LANG_TAG_SUFFIX = re.compile(r"@[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*$")
+WAIVABLE = {"rule-1", "rule-2", "rule-5"}
 
 
 class ConfigError(ValueError):
@@ -64,6 +91,11 @@ class Config:
             raise ConfigError("the configuration must be a JSON object")
         if raw.get("rule4") not in ("4a", "4b"):
             raise ConfigError('"rule4" must be "4a" or "4b"')
+        self.rule4 = raw["rule4"]
+        reason = raw.get("rule4_reason")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ConfigError('"rule4_reason" must say why the Rule 4 option was chosen')
+        self.rule4_reason = reason
         prefixes = raw.get("prefixes")
         if not isinstance(prefixes, dict) or not prefixes:
             raise ConfigError('"prefixes" must be a non-empty object of prefix to namespace')
@@ -91,6 +123,10 @@ class Config:
         if not isinstance(exceptions, dict):
             raise ConfigError('"release_exceptions" must be an object of message to fix')
         self.exceptions = {str(k): str(v) for k, v in exceptions.items()}
+        versions = raw.get("versions", {})
+        if not isinstance(versions, dict):
+            raise ConfigError('"versions" must be an object of tool to version')
+        self.versions = {str(k): str(v) for k, v in versions.items()}
 
     def expand(self, term):
         term = str(term)
@@ -115,10 +151,38 @@ class Config:
         return term.n3()
 
 
+def applied_node_shapes(shapes):
+    """Node shapes a validator applies: those with sh:targetClass, and those that are themselves a
+    class (SHACL's implicit class target)."""
+    targeted = set(shapes.subjects(SH.targetClass, None))
+    implicit = {s for kind in CLASS_KINDS for s in shapes.subjects(RDF.type, kind)
+                if (s, RDF.type, SH.NodeShape) in shapes}
+    return targeted | implicit
+
+
+def targets(shapes, node_shape):
+    found = set(shapes.objects(node_shape, SH.targetClass))
+    if any((node_shape, RDF.type, kind) in shapes for kind in CLASS_KINDS):
+        found.add(node_shape)
+    return found
+
+
+def applied_property_shapes(shapes):
+    """(path, property shape) for every property shape an applied node shape uses."""
+    out = []
+    for ns in applied_node_shapes(shapes):
+        for ps in shapes.objects(ns, SH.property):
+            path = shapes.value(ps, SH.path)
+            if path is not None:
+                out.append((path, ps))
+    return out
+
+
 def own_properties(data, cfg):
     used = {p for p in data.predicates() if isinstance(p, URIRef)}
     declared = {s for kind in DECLARED for s in data.subjects(RDF.type, kind) if isinstance(s, URIRef)}
-    return sorted(p for p in used | declared if str(p).startswith(cfg.own))
+    axioms = {s for p in PROPERTY_AXIOMS for s in data.subjects(p, None) if isinstance(s, URIRef)}
+    return sorted(p for p in used | declared | axioms if str(p).startswith(cfg.own))
 
 
 def is_datatype(term, data):
@@ -141,9 +205,9 @@ def check_rule_1(data, cfg, props):
             fails.append(("rule-1", f"Rule 1: {name} has no single concrete range"))
             continue
         rng = ranges[0]
-        if kinds[0] == OWL.DatatypeProperty and not is_datatype(rng, data):
+        if kinds[0] == OWL.DatatypeProperty and rng not in LOADER_DATATYPES:
             fails.append(("rule-1", f"Rule 1: {name} is a datatype property but its range {cfg.short(rng)} "
-                                    "is not a datatype"))
+                                    "is not a datatype the XSD to Cypher table maps"))
         if kinds[0] == OWL.ObjectProperty and is_datatype(rng, data):
             fails.append(("rule-1", f"Rule 1: {name} is an object property but its range {cfg.short(rng)} "
                                     "is a datatype"))
@@ -151,19 +215,24 @@ def check_rule_1(data, cfg, props):
 
 
 def check_rule_2(shapes, cfg, props):
-    stated = {shapes.value(s, SH.path) for s in shapes.subjects(SH.path, None)
-              if (s, SH.minCount, None) in shapes or (s, SH.maxCount, None) in shapes}
+    stated = {path for path, ps in applied_property_shapes(shapes)
+              if (ps, SH.minCount, None) in shapes or (ps, SH.maxCount, None) in shapes}
     return [("rule-2", f"Rule 2: no cardinality stated for {cfg.short(p)}") for p in props if p not in stated]
 
 
-def check_rule_3(data, cfg):
+def check_rule_3(data, shapes, cfg):
     fails = []
     for s, p, o in sorted(data, key=lambda t: tuple(str(x) for x in t)):
         if isinstance(s, BNode) or isinstance(o, BNode):
             fails.append(("rule-3", f"Rule 3: blank node in {cfg.short(s)} {cfg.short(p)} {cfg.short(o)}"))
     registered = set(cfg.prefixes.values())
-    terms = {p for p in data.predicates() if isinstance(p, URIRef)}
-    terms |= {o for o in data.objects(None, RDF.type) if isinstance(o, URIRef)}
+    terms = {p for p in data.predicates()}
+    terms |= set(data.objects(None, RDF.type))
+    terms |= {o for p in CLASS_OBJECTS for o in data.objects(None, p)}
+    terms |= {s for kind in CLASS_KINDS for s in data.subjects(RDF.type, kind)}
+    terms |= set(shapes.objects(None, SH.targetClass)) | set(shapes.objects(None, SH["class"]))
+    terms |= set(shapes.objects(None, SH.path)) | set(shapes.objects(None, SH.inversePath))
+    terms = {t for t in terms if isinstance(t, URIRef)}
     missing = sorted({namespace(t) for t in terms} - registered)
     fails += [("rule-3", f"Rule 3: no fixed prefix for the namespace {ns}") for ns in missing]
     fails += [("rule-3", f"Rule 3: no fixed prefix for the own namespace {ns}")
@@ -176,9 +245,29 @@ def check_rule_3(data, cfg):
     return fails
 
 
-def check_rule_4a(data, cfg):
+def _end_shape_is_exact(shapes, cls, matches_path):
+    for ns in applied_node_shapes(shapes):
+        if cls not in targets(shapes, ns):
+            continue
+        for ps in shapes.objects(ns, SH.property):
+            path = shapes.value(ps, SH.path)
+            if path is not None and matches_path(path) \
+                    and (ps, SH.minCount, Literal(1)) in shapes and (ps, SH.maxCount, Literal(1)) in shapes:
+                return True
+    return False
+
+
+def check_rule_4a(data, shapes, cfg):
     fails = []
     for cls, ends, inverse in cfg.qualified:
+        for end in ends:
+            if not _end_shape_is_exact(shapes, cls, lambda path, end=end: path == end):
+                fails.append(("rule-4a", f"Rule 4a: no shape on {cfg.short(cls)} gives {cfg.short(end)} "
+                                         "sh:minCount 1 and sh:maxCount 1"))
+        for end in inverse:
+            if not _end_shape_is_exact(shapes, cls, lambda path, end=end: shapes.value(path, SH.inversePath) == end):
+                fails.append(("rule-4a", f"Rule 4a: no shape on {cfg.short(cls)} gives the inverse of "
+                                         f"{cfg.short(end)} sh:minCount 1 and sh:maxCount 1"))
         for node in sorted(data.subjects(RDF.type, cls), key=str):
             for end in ends:
                 n = len(list(data.objects(node, end)))
@@ -201,6 +290,31 @@ def check_rule_5(data, cfg):
         named[str(name)].add(cfg.short(term))
     return [("rule-5", f"Rule 5: the name {name!r} is given to {', '.join(sorted(terms))}")
             for name, terms in sorted(named.items()) if len(terms) > 1]
+
+
+def decimal_survives(lexical):
+    """True when an xsd:decimal comes back from a Neo4j FLOAT with the same value: the shortest
+    rendering of the nearest double, read as a decimal, equals the lexical value. So "1" (back as
+    1.0) and "0.64" survive, and "0.1000000000000000055" (back as 0.1) does not."""
+    try:
+        return Decimal(repr(float(lexical))) == Decimal(lexical)
+    except (InvalidOperation, ValueError):
+        return False
+
+
+def roundtrip_refusals(data, cfg):
+    """The values the round trip cannot carry (references/pipeline.md, rule 3)."""
+    fails = []
+    for s, p, o in sorted(data, key=lambda t: tuple(str(x) for x in t)):
+        if not isinstance(o, Literal) or o.language:
+            continue
+        where = f"{cfg.short(s)} {cfg.short(p)}"
+        if o.datatype in (None, XSD.string) and LANG_TAG_SUFFIX.search(str(o)):
+            fails.append(("refusal", f"Refused: {where} {o.n3()} ends like a language tag"))
+        elif o.datatype == XSD.decimal and not decimal_survives(str(o)):
+            fails.append(("refusal", f"Refused: {where} {o.n3()} does not survive as a double; "
+                                     "adopt add-on C or change the value"))
+    return fails
 
 
 def check_packages(releases, cfg):
@@ -229,15 +343,18 @@ def check_packages(releases, cfg):
 def check(data, shapes, cfg, releases=None):
     """Return a list of (check name, message) pairs for every failure, after the release exceptions."""
     props = own_properties(data, cfg)
-    found = (check_rule_1(data, cfg, props) + check_rule_2(shapes, cfg, props) + check_rule_3(data, cfg)
-             + check_rule_4a(data, cfg) + check_rule_5(data, cfg))
+    found = (check_rule_1(data, cfg, props) + check_rule_2(shapes, cfg, props) + check_rule_3(data, shapes, cfg)
+             + check_rule_4a(data, shapes, cfg) + check_rule_5(data, cfg) + roundtrip_refusals(data, cfg))
     if releases is not None:
         found += check_packages(releases, cfg)
-    messages = {m for _, m in found}
-    fails = [(n, m) for n, m in found if m not in cfg.exceptions]
+    names = {m: n for n, m in found}
+    fails = [(n, m) for n, m in found if not (n in WAIVABLE and m in cfg.exceptions)]
     for message, fix in sorted(cfg.exceptions.items()):
-        if message not in messages:
+        if message not in names:
             fails.append(("exceptions", f"listed release exception no longer occurs: {message}"))
+        elif names[message] not in WAIVABLE:
+            fails.append(("exceptions", "a release exception cannot waive a blank node, a missing prefix, a broken "
+                                        f"qualified relation, a refused value or a package pin: {message}"))
         elif not fix.strip():
             fails.append(("exceptions", f"listed release exception has no fix: {message}"))
     return fails
@@ -246,7 +363,7 @@ def check(data, shapes, cfg, releases=None):
 def parse(paths):
     g = Graph()
     for path in paths:
-        g.parse(path, format="turtle")
+        g.parse(path, format="nt" if path.endswith(".nt") else "turtle")
     return g
 
 
@@ -284,13 +401,18 @@ def main(argv):
     except (OSError, ValueError) as exc:
         print(f"ERROR cannot use {config}: {exc}", file=sys.stderr)
         return 2
+    if cfg.rule4 == "4b":
+        print("ERROR the configuration records Rule 4b; this checker reads RDF 1.1 with rdflib and checks Rule 4a "
+              "only. Run the Rule 4b checks in Jena 6.1.0+ or RDF4J 6.0.0+ (references/pipeline.md, rule 1).",
+              file=sys.stderr)
+        return 2
     if releases is not None and not os.path.isdir(releases):
         print(f"ERROR {releases} is not a folder", file=sys.stderr)
         return 2
     try:
         data_graph, shapes_graph = parse(data), parse(shapes)
     except Exception as exc:  # rdflib raises several parser types; any of them stops the check
-        print(f"ERROR cannot read the Turtle files: {exc}", file=sys.stderr)
+        print(f"ERROR cannot read the RDF files: {exc}", file=sys.stderr)
         return 2
     fails = check(data_graph, shapes_graph, cfg, releases)
     for name, message in fails:

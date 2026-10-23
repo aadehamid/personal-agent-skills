@@ -1,6 +1,6 @@
 # The pipeline: check, reason, serialise, load, verify
 
-Serves the pipeline steps. Read it before writing or changing the projection's code. The five steps work from ten triples to hundreds of millions; only the loader changes with scale (`running.md`, rule 6). The tool versions named here are the ones tested: Neo4j 2025.06.2, n10s (neosemantics) 2025.06.1 with APOC, ROBOT 1.9.10.
+Serves the pipeline steps. Read it before writing or changing the projection's code. The five steps work from ten triples to hundreds of millions; only the loader changes with scale (`running.md`, rule 6). The tool versions named here are the ones tested: Neo4j 2025.06.2 (Community edition), n10s (neosemantics) 2025.06.1 with APOC, ROBOT 1.9.10. Every script named here is in this skill's `scripts/`; run each with `uv run --no-project --with rdflib` (add `--with pyshacl` for `validate_data.py`).
 
 ```
  module.ttl ──┐
@@ -19,33 +19,33 @@ Serves the pipeline steps. Read it before writing or changing the projection's c
 
 ## 1. Check
 
-1. **Check the design rules over the ontology, then validate the data with every shape, and stop the build on any failure.** Run `scripts/check_projection_rules.py` (Rules 1, 2, 3, 4a, the Rule 5 names, the release exceptions and the package pins). Then run pySHACL over the data with every shape file, with SHACL-AF on (`advanced=True`) when any shape uses a SPARQL target or constraint. *Why:* this is the full check; the graph later runs only a subset of the shapes (rule 13), so a constraint skipped here is never checked.
+1. **Check the design rules over the ontology, then validate the data with every shape, and stop the build on any failure.** Run `check_projection_rules.py --config <config> --shapes <every shape file> --releases <folder> <every released data file>`, then `validate_data.py --config <config> --shapes <every shape file> <every released data file>`, which runs pySHACL with SHACL-AF on (`advanced=True`, so SPARQL targets and constraints run) and the refusals of rule 3. Under Rule 4b both scripts stop (rdflib cannot read triple terms): run the same checks in Jena SHACL or RDF4J, or stop and ask the owner which tool to use. *Why:* this is the full check; the graph later runs only a subset of the shapes (rule 13), so a constraint skipped here is never checked.
 
-2. **After serialising, validate again over both output files together** (`loadable.nt` and `inferred.nt`). *Why:* an inference can break a shape, and the graph holds both files.
+2. **After serialising, validate again over both output files together:** `validate_data.py --config <config> --shapes <every shape file> loadable.nt inferred.nt`. *Why:* an inference can break a shape, and the graph holds both files.
 
-3. **Refuse any value that cannot survive the round trip:** a string that ends like a language tag (`"...@en"`), and an `xsd:decimal` whose value, printed as a double, is not its own lexical form (0.64 passes; 0.1000000000000000055 does not; or adopt add-on C). *Why:* the round-trip rules (rule 16) would otherwise hide a real change in these values.
+3. **Refuse any value that cannot survive the round trip.** Both scripts of rule 1 refuse, and no release exception waives either:
+   - a plain or `xsd:string` literal that matches `@[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*$` (it ends like a language tag, such as `"Spine@en"`). n10s stores a tagged literal as `"text@en"`, so it would read such a string back as tagged text;
+   - an `xsd:decimal` whose nearest double, printed in its shortest form and read back as a decimal, does not equal its value. `"1"` (back as 1.0), `"0.64"` and `"12.5"` survive; `"0.1000000000000000055"` (back as 0.1) does not. Change the value, or adopt add-on C.
+
+   *Why:* the round-trip comparison (rule 16) treats these as equal or as tagged, so it would hide a real change.
 
 ## 2. Reason
 
-4. **Reason once, upstream, with ELK through ROBOT:**
+4. **Reason once, upstream, with ELK through ROBOT, over the merged released data:**
 
    ```bash
-   robot reason --reasoner ELK --input merged.ttl --axiom-generators "SubClass ClassAssertion" --output reasoned.ttl
+   python3 build.py merge --output merged.ttl <every released data file>
+   java -jar robot.jar reason --reasoner ELK --input merged.ttl \
+     --axiom-generators "SubClass ClassAssertion" --include-indirect true --output reasoned.ttl
    ```
 
-   ELK is ROBOT's default reasoner; by default `reason` asserts only inferred subclass axioms, so name `ClassAssertion` to get inferred types too. ROBOT fails the step on an incoherent ontology (an inconsistency or an unsatisfiable class). *Why:* a property graph does no OWL reasoning, so inferences must arrive as data.
+   `merged.ttl` holds every released data file (each package's module Turtle) and nothing else: no shapes, no inferred triples, no configuration. ELK is ROBOT's default reasoner. By default `reason` asserts only inferred subclass axioms, so name `ClassAssertion` to get inferred types too, and it asserts only direct ones, so add `--include-indirect true`: without it, an individual asserted as a `lib:Book` gets only its direct type, which is already asserted, and nothing is inferred. ROBOT fails the step on an incoherent ontology (an inconsistency or an unsatisfiable class). *Why:* a property graph does no OWL reasoning, so inferences must arrive as data.
 
 ## 3. Serialise
 
-5. **Write two sorted, de-duplicated N-Triples files**, one triple per line: `loadable.nt`, the checked asserted data with no triple terms, and `inferred.nt`, the inferences. Record the SHA-256 of the two together as the input fingerprint. *Why:* sorted N-Triples make a diffable, hashable input, and keeping inferences apart keeps them distinguishable from assertions.
+5. **Write `loadable.nt` and `inferred.nt` as sorted, de-duplicated N-Triples, and record the input fingerprint.** `python3 build.py loadable --output loadable.nt <every released data file>`. Sorted means one triple per line, lines ordered by their UTF-8 bytes, duplicates removed: the order `LC_ALL=C sort -u` gives. The input fingerprint is the SHA-256 of the bytes of `loadable.nt` followed directly by the bytes of `inferred.nt` (one hash over the concatenation, not a hash of the two hashes); `build.py manifest` computes it. *Why:* a fixed byte order makes the files diffable and their hash repeatable, and keeping inferences apart keeps them distinguishable from assertions.
 
-6. **Build `inferred.nt` as a set difference, and drop the reasoner's declarations:**
-   1. Convert the reasoner's input and output to sorted N-Triples.
-   2. Keep the output lines that are not in the input.
-   3. Of those, keep only `rdf:type` and `rdfs:subClassOf` triples whose subject and object are both IRIs. Drop anything with a blank node: OWL axioms are written with blank nodes whose labels change from run to run.
-   4. Drop triples whose object is in the OWL or RDFS namespace.
-
-   *Why:* ROBOT writes through the OWL API, which declares every individual `owl:NamedIndividual` and adds `owl:Class`, `owl:Thing`, `owl:AnnotationProperty` and `rdfs:Datatype` declarations. They are new in the output but are not inferences about the domain. On a SKOS-first ontology with few class axioms the file can rightly be empty.
+6. **Build `inferred.nt` from the reasoner's input and output, compared as triples:** `python3 build.py inferred --input merged.ttl --reasoned reasoned.ttl --output inferred.nt`. It keeps the triples of `reasoned.ttl` that are not in `merged.ttl`, then only `rdf:type` and `rdfs:subClassOf` triples whose subject and object are both IRIs, then drops those whose object is in the OWL or RDFS namespace. If you build it with other tools, put both files through the same serialiser before comparing lines, or compare triples: two serialisers write the same triple differently. *Why:* ROBOT writes through the OWL API, which declares every individual `owl:NamedIndividual` and adds `owl:Class`, `owl:Thing`, `owl:AnnotationProperty` and `rdfs:Datatype` declarations; they are new in the output but are not inferences about the domain. OWL axioms use blank nodes whose labels change from run to run, so a triple with a blank node never counts. On a SKOS-first ontology with few class axioms the file can rightly be empty; on the library template it holds one triple (`W-0043 rdf:type lib:Work`).
 
 7. **Rule 4b only: flatten each reifier into a plain `EdgeRecord` node with SPARQL 1.2** (Jena 6.1.0+ or RDF4J 6.0.0+), then union, sort and de-duplicate. n10s cannot load triple terms, and RDF 1.1 N-Triples cannot write them. Check first that triple terms appear only as objects of `rdf:reifies`, so `keep.rq` drops nothing else.
 
@@ -70,25 +70,37 @@ Serves the pipeline steps. Read it before writing or changing the projection's c
 
 ## 4. Load
 
-8. **Generate every Cypher statement from the ontology and the configuration; use MERGE and SET with explicit ordering.** *Why:* hand-written Cypher drifts from the ontology, and n10s defaults are not deterministic (multivalued properties default to overwrite, and unknown namespaces get invented prefixes).
+Start the container first, as `running.md`, rule 5 says.
 
-9. **Configure n10s with SHORTEN, not MAP:**
+8. **Generate every Cypher statement from the ontology and the configuration:** `python3 build.py cypher --config <config> --shapes <every shape file> <every released data file> > load.cypher`, then run it (for example `cypher-shell -f load.cypher`). Use MERGE and SET with explicit ordering in anything you add. *Why:* hand-written Cypher drifts from the ontology, and n10s defaults are not deterministic (multivalued properties default to overwrite, and unknown namespaces get invented prefixes).
+
+9. **Configure n10s with SHORTEN, not MAP**, and add the configuration's prefixes in its order:
 
    ```cypher
    CREATE CONSTRAINT n10s_unique_uri IF NOT EXISTS FOR (r:Resource) REQUIRE r.uri IS UNIQUE;
    CALL n10s.graphconfig.init({
      handleVocabUris: 'SHORTEN', handleRDFTypes: 'LABELS_AND_NODES',
-     handleMultival: 'ARRAY', multivalPropList: [/* generated from the shapes, rule 10 */],
+     handleMultival: 'ARRAY', multivalPropList: [/* generated, rule 10 */],
      keepLangTag: true, keepCustomDataTypes: true });
-   // then, in the configuration's order:
-   CALL n10s.nsprefixes.add('lib', 'https://id.example.org/library/');
+   CALL n10s.nsprefixes.add('lib', 'https://id.example.org/library/');   // one per prefix, in order
    ```
 
    *Why:* in MAP mode n10s 2025.06.1 would not import shapes ("The graph is not namespace aware"), and MAP gives every term without a mapping the IGNORE treatment, which drops its namespace and breaks the round trip. SHORTEN keeps both; in it n10s ignores `n10s.mapping.add`, so the Rule 5 names come from a rename (`design-rules.md`, rule 5).
 
-10. **Generate the multivalued list from the shapes:** every literal-valued predicate without `sh:maxCount 1`, plus any that holds more than one value on one subject. After the load, sort every array property (`apoc.coll.sort`). *Why:* an array's order otherwise follows the load order.
+10. **Generate the multivalued list by one rule, and sort arrays only on `:Resource` nodes.** A predicate is literal-valued when any of its objects in the data is a literal. It goes in `multivalPropList` unless a property shape that a targeted node shape uses gives its path `sh:maxCount 1`; it goes in anyway when one subject holds more than one literal value for it. So a standard predicate with no shape of its own (`rdfs:label`, `skos:prefLabel`, `dcterms:title`, `owl:versionInfo`) loads as an array, even with one value; give it a shape with `sh:maxCount 1` if consumers need a single value. After the load, sort each listed key, by its SHORTEN name, on resource nodes only:
 
-11. **Load in a fixed order** (ontology with `n10s.onto.import.fetch`, the in-graph shapes with `n10s.validation.shacl.import.fetch`, `loadable.nt`, `inferred.nt` with `n10s.rdf.import.fetch`), and check that each import ends with `terminationStatus` `OK`. n10s keeps no graph names, so asserted and inferred triples merge in the graph; the two files keep them apart (add-on F if the graph itself must tell them apart). *Why:* a fixed order and a checked status make the load repeatable and stop a partial import from passing.
+    ```cypher
+    MATCH (n:Resource) WHERE n.`lib__altTitle` IS NOT NULL SET n.`lib__altTitle` = apoc.coll.sort(n.`lib__altTitle`);
+    ```
+
+    Never sort every list property on every node: n10s keeps its own configuration in nodes without the `Resource` label (`_GraphConfig`, `_NsPrefDef`, `_n10sValidatorConfig`), and sorting the byte arrays of `_n10sValidatorConfig` corrupts it, after which `n10s.validation.shacl.listShapes()` fails with `StreamCorruptedException`. *Why:* an array's order otherwise follows the load order, and the rule decides every predicate the same way on every load.
+
+11. **Load in a fixed order and check each import:**
+    1. `n10s.onto.import.fetch('file:///import/merged.ttl', 'Turtle')`: the merged released data of rule 4, from which n10s builds its schema nodes (`n4sch__Class` and the rest);
+    2. `n10s.validation.shacl.import.fetch('file:///import/shapes-in-graph.ttl', 'Turtle')`: the subset of rule 13;
+    3. `n10s.rdf.import.fetch` of `loadable.nt`, then of `inferred.nt` (`'N-Triples'`).
+
+    The two `rdf.import` calls and `onto.import` succeed when they return `terminationStatus` `OK`. The shapes import returns no `terminationStatus`: it returns one row per constraint it compiled, and it succeeds when that row count is above zero and equals the count of `CALL n10s.validation.shacl.listShapes()`. Record both counts in the report (`shapes_import_rows`, `in_graph_shape_constraints`). The paths assume the import folder is mounted at `/import` (`running.md`, rule 5). n10s keeps no graph names, so asserted and inferred triples merge in the graph; the two files keep them apart (add-on F if the graph itself must tell them apart). *Why:* a fixed order and a checked result make the load repeatable and stop a partial import from passing.
 
 12. **Rule 4b only: after the load, turn each `EdgeRecord` into a relationship with properties**, generated once per reified predicate with the predicate's SHORTEN name, then delete plain edges that duplicate a reified one:
 
@@ -105,28 +117,55 @@ Serves the pipeline steps. Read it before writing or changing the projection's c
 
 ## Shapes in the graph
 
-13. **Load into the graph only the constraints the engine can run, generate that subset from the full shapes, and record what was dropped and why** (`scripts/in_graph_shapes.py`). For n10s 2025.06.1, drop:
-    - `sh:datatype rdf:langString`, which n10s rejects;
-    - `sh:not`, `sh:languageIn`, `sh:node`, `sh:targetSubjectsOf` and `sh:targetObjectsOf`, which it does not support; SHACL-SPARQL targets, which it never runs; and SHACL-SPARQL constraints, which the check step runs;
-    - `sh:pattern` (with `sh:flags`): n10s tests each value with Cypher `toString(x) =~ params.theRegex`, and `=~` matches the whole string, where SHACL searches it (SHACL §4.4.3, through SPARQL `REGEX` and XPath `fn:matches`). An unanchored `"\S"` fails every value longer than one character in the graph and passes in pySHACL;
-    - `sh:in` lists that hold a literal: n10s reads a literal list as strings and tests `val in params.theInLiterals`, so a stored boolean or number is compared with a string; a loaded `true` did not match `sh:in (true)`. Keep `sh:in` lists of IRIs; they run correctly;
+13. **Load into the graph only the constraints the engine can run, generate that subset from the full shapes, and record what was dropped and why:** `python3 in_graph_shapes.py --output shapes-in-graph.ttl <every shape file>`. For n10s 2025.06.1 it drops:
+    - `sh:datatype` outside n10s's list (`xsd:boolean`, `xsd:string`, `xsd:integer`, `xsd:float`, `xsd:decimal`, `xsd:date`, `xsd:dateTime`, `xsd:anyURI`, `geo:wktLiteral`): n10s throws for any other, `rdf:langString` and `xsd:dateTimeStamp` among them;
+    - `sh:not`, `sh:languageIn`, `sh:node`, `sh:targetSubjectsOf` and `sh:targetObjectsOf`, which it does not support; `sh:and`, `sh:or` and `sh:xone`, which its shape query does not read; SHACL-SPARQL targets, which it never runs; and SHACL-SPARQL constraints, which the check step runs;
+    - `sh:pattern` (with `sh:flags`): n10s tests each value with Cypher `toString(x) =~ params.theRegex`, `=~` matches the whole string with Java's regular expressions, and SHACL searches the string with XPath's (SHACL §4.4.3, through SPARQL `REGEX` and `fn:matches`). An unanchored `"\S"` fails every value longer than one character in the graph and passes in pySHACL. Patterns are checked before the load only;
+    - `sh:in` lists that hold a literal, and a literal `sh:hasValue`: n10s reads literal values as strings, so a stored boolean or number is compared with a string; a loaded `true` did not match `sh:in (true)`. `sh:in` lists and `sh:hasValue` values that are IRIs stay;
     - `sh:message` and `sh:severity`;
-    - then every node shape left without a `sh:targetClass`, with its property shapes.
+    - then every node shape n10s does not apply (no `sh:targetClass`, and not itself a class), with its property shapes, unless a kept node shape still uses them.
 
-    *Why:* a constraint the engine cannot run, or runs differently, reports silence or a false failure, and silence looks like a pass. The guarantee still holds: the check step ran every shape on exactly the triples that were loaded (rules 1 and 2), and an empty round-trip diff (rule 16) shows the graph holds exactly those triples. Treat the count of constraints n10s loads (`n10s.validation.shacl.listShapes()`) as a reported figure.
+    *Why:* a constraint the engine cannot run, or runs differently, reports silence or a false failure, and silence looks like a pass. The guarantee still holds: the check step ran every shape on exactly the triples that were loaded (rules 1 and 2), and an empty round-trip diff (rule 16) shows the graph holds exactly those triples.
 
-14. **Test each constraint kind you rely on in the target engine with one value that must pass and one that must fail, before you trust its silence,** and re-run those tests on every new engine release. *Why:* the drop list above came from such tests, not from documentation.
+14. **Test each constraint kind left in the graph with one change that must fail, before you trust its silence,** and re-run the tests on every new engine release. On the library template in n10s 2025.06.1, each change below made `n10s.validation.shacl.validate()` report the component named, and restoring the value cleared it:
+
+    | Constraint kind | Change to the loaded graph | n10s reports |
+    |---|---|---|
+    | `sh:minCount 1` | `REMOVE` a copy's `lib__barcode` | `CountConstraintComponent` |
+    | `sh:maxCount 1` | set a person's `lib__name` to a list of two names | `CountConstraintComponent` |
+    | `sh:datatype xsd:integer` | set an authorship's `lib__position` to the string `'1'` | `DatatypeConstraintComponent` |
+    | `sh:class` | point a copy's `lib__copyOf` at a person | `ClassConstraintComponent` |
+    | `sh:in` of IRIs | point an authorship's `lib__creatorRole` at a class node | `InConstraintComponent` |
+    | `sh:nodeKind sh:IRI` | set `lib__hasAuthorship` on a work as a string property | `NodeKindConstraintComponent` |
+    | `sh:inversePath` with `sh:minCount 1` | delete the `lib__hasAuthorship` relationship into an authorship | `CountConstraintComponent` on the authorship |
+
+    For a constraint kind not in the table (`sh:minInclusive`, `sh:minLength`, `sh:hasValue` of an IRI, `sh:disjoint`, `sh:closed`), write its pass and fail case the same way before you rely on it. *Why:* the drop list and this table came from such tests, not from documentation.
 
 ## 5. Verify
 
-15. **Run SHACL in the graph and require zero violations; then prove the check can fail.** In the loaded graph, remove one value a loaded shape requires (a deliberate mutant), validate again, require at least one violation, and restore the value. *Why:* zero violations from a check that cannot fire looks the same as a pass.
+15. **Run SHACL in the graph and require zero violations; then prove the check can fail.** In the loaded graph, remove one value a loaded shape requires (a deliberate mutant, such as the first row of rule 14's table), validate again, require at least one violation, and restore the value. Record both counts in the report. *Why:* zero violations from a check that cannot fire looks the same as a pass.
 
-16. **Export with `n10s.rdf.export.cypher` and diff against `loadable.nt` plus `inferred.nt`: zero triples lost, zero added.** Compare values, not spellings, by normalising both sides the same way:
-    - a plain literal and an `xsd:string` literal with the same text are equal (RDF 1.1);
-    - integers load as INTEGER and export as `xsd:long`; compare them as integers;
-    - decimals load as FLOAT and export as `xsd:double`; compare them as doubles (rule 3 refused the decimals for which that hides a change);
-    - with `keepLangTag`, n10s stores the tag inside the string (`"Lending@en"`) and exports the literal untagged; read the tag back out of the string before comparing (rule 3 refused source strings that end like a tag).
+16. **Export the resources and diff against `loadable.nt` plus `inferred.nt`: zero triples lost, zero added.** Export with:
+
+    ```cypher
+    CALL n10s.rdf.export.cypher('MATCH (n:Resource) OPTIONAL MATCH (n)-[r]->(m) RETURN n, r, m')
+    YIELD subject, predicate, object, isLiteral, literalType, literalLang
+    RETURN subject, predicate, object, isLiteral, literalType, literalLang
+    ```
+
+    Then:
+    - drop every row whose subject, predicate or (IRI) object is in `neo4j://graph.schema#`: those are the `n4sch__` schema nodes and properties `onto.import` added, not data;
+    - build a tagged literal from `object` and `literalLang` when `literalLang` is set: with `keepLangTag`, n10s stores `"Lending@en"` but the export returns the text without the tag and sets `literalLang` to `en`;
+    - normalise both sides the same way, so the diff compares values, not spellings: a plain literal and an `xsd:string` literal with the same text are equal (RDF 1.1); integers load as INTEGER and export as `xsd:long`, so compare them as integers; decimals load as FLOAT and export as `xsd:double`, so compare them as doubles (rule 3 refused the decimals for which that hides a change);
+    - compare with rdflib's `to_isomorphic` and `graph_diff`.
 
     With Rule 4b, first rebuild the `EdgeRecord`s from relationships that have a `uri`. *Why:* the diff is what proves the graph holds exactly what passed the check.
 
-17. **Load twice into clean databases, the second time with the triples shuffled (a fixed seed), and compare graph hashes.** Hash nodes sorted by `uri` with their sorted labels and properties, and edges sorted by `(source uri, type, target uri, edge uri)`. *Why:* equal hashes show the result does not depend on load order.
+17. **Load twice into an empty database, the second time with the lines of `loadable.nt` shuffled (a fixed seed), and compare graph hashes.** On Community edition, which has one user database, empty it between loads:
+
+    ```cypher
+    MATCH (n) DETACH DELETE n;      // the data, the schema nodes and n10s's _GraphConfig, _NsPrefDef and _n10sValidatorConfig nodes
+    SHOW CONSTRAINTS YIELD name;    // then DROP CONSTRAINT `<name>` for each one listed
+    ```
+
+    Check that `MATCH (n) RETURN count(n)` and `SHOW CONSTRAINTS` both return nothing, then rerun the whole load script (rule 8), which recreates the constraint, the configuration and the prefixes. For a large graph, delete in batches (`CALL { ... } IN TRANSACTIONS`). The hash covers every `:Resource` node, sorted by `uri`, with its sorted labels and its properties (values written in their string form, so a temporal value hashes as its ISO 8601 text), and every relationship between two resources, sorted by source `uri`, type, target `uri` and the relationship's own `uri`. It leaves out n10s's configuration nodes, which have no `uri`. The raw row count of the export in rule 16 can differ between the two loads while the hashes and the exported triple sets are equal; compare the hashes and the triples, not the row counts. *Why:* equal hashes show the result does not depend on load order.

@@ -9,19 +9,20 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 ## How to use it
 
 1. Install the skill where your agent finds skills, and ask the agent to project your ontology into Neo4j, or to check whether it is ready for a projection.
-2. The agent starts at the design rules. If the ontology is not released yet, it applies them before the first release. If it is, it lists each gap as a release exception with the release that will close it.
-3. It fills a copy of `templates/projection-config.json` with you: your namespaces and prefixes, your released packages, your qualified-relation classes.
+2. The agent starts at the design rules and asks you to record the Rule 4 option and its reason in your projection policy. If the ontology is not released yet, it stops there and applies the rules before the first release.
+3. After a release, it fills a copy of `templates/projection-config.json` with you: the Rule 4 option and reason, your namespaces and prefixes, your released packages, your qualified-relation classes. It lists each rule gap in a released module as a release exception, with the release that will close it.
 4. Run the checks the agent runs:
 
    ```sh
-   uv run --with rdflib python3 scripts/check_projection_rules.py --config projection-config.json \
+   uv run --no-project --with rdflib python3 scripts/check_projection_rules.py --config projection-config.json \
      --shapes <shapes.ttl> --releases <release folder> <module.ttl>
-   uv run --with rdflib python3 scripts/in_graph_shapes.py --output shapes-in-graph.ttl <shapes.ttl>
+   uv run --no-project --with rdflib --with pyshacl python3 scripts/validate_data.py --config projection-config.json \
+     --shapes <shapes.ttl> <module.ttl>
    ```
 
-   The checker prints one line per failure and exits 1, or prints a pass line and exits 0. The second script writes the shapes Neo4j can run and lists what it dropped.
+   Each prints one line per failure and exits 1, or prints a pass line and exits 0.
 
-5. Reason, load and verify run on a workstation with Java and Docker; `references/running.md` says what CI runs instead.
+5. `scripts/build.py` writes the reasoner's input, the N-Triples files, the load script and the manifest; `scripts/in_graph_shapes.py` writes the shapes Neo4j can run. Reason, load and verify run on a workstation with Java and Docker; `references/running.md` gives the jar checksums, the `docker run` line and what CI runs instead.
 
 The `ontology` skill builds the ontology and hands over to this one at its Step 12. Each skill works without the other.
 
@@ -37,12 +38,15 @@ The `ontology` skill builds the ontology and hands over to this one at its Step 
 | `references/add-ons.md` | agent, when a consumer asks for more, or in review | Add-ons A to G and the anti-patterns. |
 | `references/learning-path.md` | agent, when you ask what to learn | Twelve W3C and Neo4j skills in priority order, with an exercise each. |
 | `references/versions.md` | agent, when a project pins an older version | What versions 2, 2.1, 2.2 and 2.3 changed. |
-| `templates/projection-config.json` | agent, step 2 | The configuration both scripts read: Rule 4 choice, own namespaces, prefixes, qualified relations, package pins, release exceptions. |
-| `templates/library-module.ttl` | agent and tests | A small released module (works, people, copies, authorships) that passes every check. |
+| `templates/projection-config.json` | agent, step 2 | The configuration `check_projection_rules.py`, `validate_data.py` and `build.py` read: the Rule 4 option and its reason, own namespaces, prefixes, qualified relations, package pins, release exceptions, tool versions. |
+| `templates/projection-report.json` | agent, step 6 | The fields the verify step's report holds. Empty, so `build.py check-report` fails on it until a run fills it. |
+| `templates/library-module.ttl` | agent and tests | A small released module (works, books, people, copies, authorships) that passes every check, with one subclass axiom so the reasoner infers one type. |
 | `templates/library-shapes.ttl` | agent and tests | Its shapes, including constraints n10s cannot run, so the subset script has something to drop. |
-| `scripts/check_projection_rules.py` | agent and check script | Rules 1, 2, 3, 4a and 5, the package pins and the release exceptions. Needs rdflib. |
+| `scripts/check_projection_rules.py` | agent and check script | Rules 1, 2, 3, 4a and 5, the round-trip refusals, the package pins and the release exceptions. Needs rdflib. |
+| `scripts/validate_data.py` | agent and check script | The check step: pySHACL with every shape and SHACL-AF, plus the refusals. Needs rdflib and pySHACL. |
+| `scripts/build.py` | agent and check script | `merge` (the reasoner's input), `loadable`, `inferred`, `cypher` (the load script), `manifest [--verify]` and `check-report`. Needs rdflib. |
 | `scripts/in_graph_shapes.py` | agent and the projection's pipeline | Writes the in-graph subset of the shapes and lists each drop with its reason. Needs rdflib. |
-| `scripts/test_projection.py` | this repository's check script | Tests: the templates pass; each deliberate break fails with only its own check and message; stale and empty exceptions fail; the pins are checked against a release folder; the subset drops and keeps the right constraints and still catches a mutant; the command lines exit 0, 1 or 2. Needs rdflib and pySHACL. |
+| `scripts/test_projection.py` | this repository's check script | Tests: the templates pass; each deliberate break gives exactly its own failure; exceptions cannot waive data errors and fail when stale or empty; the pins are checked numerically against a release folder; each drop-list entry of the subset is exercised and the subset still catches a mutant; the serialiser's order, the inferred filter, the fingerprints, the manifest check, the report check and the generated Cypher; the command lines exit 0, 1 or 2. Needs rdflib and pySHACL. |
 | `SOURCES.md` | you | Every source, with version, date and how to check for updates. |
 | `README.md` | you | This file. |
 
@@ -50,13 +54,13 @@ The `ontology` skill builds the ontology and hands over to this one at its Step 
 
 **Change a rule.** Edit the reference file that holds it; `SKILL.md` only points. Keep each rule in one place, with its reason and a source in `SOURCES.md`.
 
-**A new n10s release.** Re-run the pass and fail tests of `references/pipeline.md`, rule 14, in the new version, then update the drop list in `scripts/in_graph_shapes.py` and the versions in `SOURCES.md`.
+**A new n10s release.** Re-run the pass and fail tests of `references/pipeline.md`, rule 14, in the new version, then update the drop list in `scripts/in_graph_shapes.py`, the same list in `references/pipeline.md`, rule 13, the table in rule 14, the jar checksums in `references/running.md`, rule 2, and the versions in `SOURCES.md`.
 
 ## Status
 
 Last updated 2026-10-23.
 
 - **No evals yet.** Write test prompts for three branches before tuning: designing a new ontology for a graph, adding a release to an existing projection, and debugging a silent in-graph SHACL check.
-- **Scripts cover the design and inputs checks and the in-graph subset.** The reason, serialise, load and verify steps are described; each project writes its own pipeline, as the build behind version 2.3 did.
+- **Scripts cover every step but load and verify.** `build.py cypher` generates the load script; the export, the round-trip diff, the mutant and the hashes are described in `references/pipeline.md`, rules 15 to 17, and each project writes them. The whole pipeline ran end to end on the library templates on 2026-10-23.
 - **Option 4b has not been run end to end.** Every tested run used 4a. Recheck rdflib issue #3524 and the RDF 1.2 status every three months.
 - **One source of experience.** The 2.3 changes come from one multi-module build. Expect changes after a second one.
