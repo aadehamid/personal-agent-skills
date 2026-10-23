@@ -7,6 +7,7 @@
 
 @prefix lib:  <https://id.example.org/library/> .
 @prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
 @prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
 
 lib:LoanShape a sh:NodeShape ;
@@ -33,3 +34,14 @@ lib:LoanShape-loanState a sh:PropertyShape ;
     sh:in ( lib:on-loan lib:overdue lib:returned ) ;
     sh:minCount 1 ; sh:maxCount 1 ;
     sh:message "A loan has exactly one state from the loan-state list."@en .
+
+# The annotation property gets a cardinality too (shacl.md, rule 5): a concept has at most one
+# editorial status.
+lib:ConceptShape a sh:NodeShape ;
+    sh:targetClass skos:Concept ;
+    sh:property lib:ConceptShape-editorialStatus .
+
+lib:ConceptShape-editorialStatus a sh:PropertyShape ;
+    sh:path lib:editorialStatus ;
+    sh:maxCount 1 ;
+    sh:message "A concept has at most one editorial status."@en .

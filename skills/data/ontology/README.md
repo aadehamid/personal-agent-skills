@@ -49,7 +49,7 @@ The skill works on its own. If the `way-of-working` skill is installed too, the 
 | `templates/competency-questions.md` | agent, Step 1 and Step 11 | The regression table: tested parts, status, what each waits for, the elements it needs, and what was left out. |
 | `templates/identity-table.md` | agent, Step 2 | Each node's IRI, kind, notation, slug source and renames, and the source-string register. |
 | `templates/ontology-skeleton.ttl` | agent, Step 3 | A module header, a concept scheme, a code-list scheme, three classes, four object and datatype properties and one annotation property, for a library. Passes `check_taxonomy.py`. |
-| `templates/shapes-skeleton.ttl` | agent, Step 3 | The SHACL node and property shapes for the skeleton's class, with cardinalities. |
+| `templates/shapes-skeleton.ttl` | agent, Step 3 | The SHACL node and property shapes for the skeleton's loan class and its concepts, with cardinalities. |
 | `templates/definition-review.md` | agent, Step 3 | The quality-bar review sheet, one row per term. |
 | `templates/decision-record.md` | agent, when recording a decision | A numbered record: the question and recommendation quoted, context with the agent's plan, the owner's decision (their words only), alternatives, the owner's recorded words, evidence. |
 | `templates/decision-package.md` | agent, when asking the owner a question | A question with context, options (recommendation first), what each changes, and an answer box. |

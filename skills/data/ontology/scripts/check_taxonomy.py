@@ -27,7 +27,7 @@ Checks (references/identity-taxonomy.md and references/domain-model.md):
                  declared only by a characteristic such as owl:TransitiveProperty, or a predicate
                  outside the known namespaces that is used but never declared, fails
   domain-range   each object and datatype property has exactly one rdfs:domain and one
-                 rdfs:range (annotation properties need neither); no rdfs:Literal range;
+                 rdfs:range; an annotation property has neither and fails if it has one; no rdfs:Literal range;
                  every domain, range and rdfs:subClassOf target is an IRI (a literal, even
                  one typed xsd:anyURI, fails) declared in the files (owl:Class, rdfs:Class, rdfs:Datatype) or sits in a
                  known namespace: XSD, RDF, RDFS, OWL, SKOS, W3C ORG, PROV-O, DCAT, DCMI
@@ -178,7 +178,12 @@ def check(g, allowed_namespaces=()):
             fails.append(("property-kind", f"{name} is typed {len(kinds)} of owl:ObjectProperty, "
                                            f"owl:DatatypeProperty and owl:AnnotationProperty; it needs exactly one"))
         if not any((prop, RDF.type, k) in g for k in VALUE_KINDS):
-            continue  # an annotation property needs a label and a definition, not a domain or range
+            # An annotation property takes neither a domain nor a range (domain-model.md, rule 6).
+            for axis, pred in (("domain", RDFS.domain), ("range", RDFS.range)):
+                if (prop, RDF.type, OWL.AnnotationProperty) in g and (prop, pred, None) in g:
+                    fails.append(("domain-range", f"{name} is an annotation property and has an rdfs:{axis}; "
+                                                  f"annotation properties take neither a domain nor a range"))
+            continue
         for axis, pred in (("domain", RDFS.domain), ("range", RDFS.range)):
             values = list(g.objects(prop, pred))
             if len(values) != 1:

@@ -18,7 +18,7 @@ import unittest
 
 import yaml
 from rdflib import BNode, Graph, Literal, URIRef
-from rdflib.namespace import OWL, RDF, RDFS, SKOS, XSD
+from rdflib.namespace import OWL, RDF, RDFS, SH, SKOS, XSD
 
 import check_requirements
 import check_taxonomy
@@ -253,6 +253,14 @@ class TaxonomyChecks(OneBreak, unittest.TestCase):
         self.assertEqual(sorted(fails), [("definition", "lib:lpgName has no skos:definition"),
                                          ("label", "lib:lpgName has no rdfs:label")])
 
+    def test_annotation_property_with_a_domain(self):
+        self.broken(lambda g: g.add((lib("editorialStatus"), RDFS.domain, lib("Loan"))),
+                    "domain-range", "lib:editorialStatus is an annotation property and has an rdfs:domain")
+
+    def test_annotation_property_with_a_range(self):
+        self.broken(lambda g: g.add((lib("editorialStatus"), RDFS.range, XSD.string)),
+                    "domain-range", "lib:editorialStatus is an annotation property and has an rdfs:range")
+
     def test_complete_annotation_property_needs_no_domain_or_range(self):
         g = skeleton()
         g.add((lib("lpgName"), RDF.type, OWL.AnnotationProperty))
@@ -454,31 +462,75 @@ class RequirementsChecks(OneBreak, unittest.TestCase):
 
 
 class ShapesSkeleton(unittest.TestCase):
-    """The shapes skeleton works with pySHACL, and check_taxonomy is not meant for it."""
+    """The shapes skeleton meets shacl.md rules 5 and 8 under pySHACL; check_taxonomy is not meant for it."""
 
-    def validate(self, data_ttl):
+    PREFIXES = ("@prefix lib: <%s> . @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n"
+                "lib:m1 a lib:Member . lib:c1 a lib:Copy . lib:c2 a lib:Copy .\n") % LIB
+    VALID_LOAN = ('lib:loan1 a lib:Loan ; lib:borrower lib:m1 ; lib:loanOf lib:c1 ;'
+                  ' lib:dueDate "2026-11-01"^^xsd:date ; lib:loanState lib:on-loan .')
+
+    def results(self, data_ttl, shapes=None):
+        """Validate the skeleton plus data_ttl; return (conforms, {(focus, source shape, severity)})."""
         from pyshacl import validate
         data = Graph().parse(SKELETON, format="turtle")
-        data.parse(data=data_ttl, format="turtle")
-        conforms, _, text = validate(data, shacl_graph=Graph().parse(SHAPES, format="turtle"))
-        return conforms, text
+        data.parse(data=self.PREFIXES + data_ttl, format="turtle")
+        shapes = shapes if shapes is not None else Graph().parse(SHAPES, format="turtle")
+        conforms, report, _ = validate(data, shacl_graph=shapes)
+        found = {(report.value(r, SH.focusNode), report.value(r, SH.sourceShape), report.value(r, SH.resultSeverity))
+                 for r in report.subjects(RDF.type, SH.ValidationResult)}
+        return conforms, found
 
-    PREFIXES = "@prefix lib: <%s> . @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .\n" % LIB
+    def assertOneViolation(self, data_ttl, focus, shape, shapes=None):
+        conforms, found = self.results(data_ttl, shapes)
+        self.assertFalse(conforms)
+        self.assertEqual(found, {(lib(focus), lib(shape), SH.Violation)})
 
     def test_valid_loan_conforms(self):
-        conforms, text = self.validate(self.PREFIXES + (
-            "lib:m1 a lib:Member . lib:c1 a lib:Copy .\n"
-            "lib:loan1 a lib:Loan ; lib:borrower lib:m1 ; lib:loanOf lib:c1 ;"
-            ' lib:dueDate "2026-11-01"^^xsd:date ; lib:loanState lib:on-loan .'))
-        self.assertTrue(conforms, text)
+        conforms, found = self.results(self.VALID_LOAN)
+        self.assertTrue(conforms, found)
+
+    def test_every_declared_property_has_a_cardinality_shape(self):
+        shapes = Graph().parse(SHAPES, format="turtle")
+        declared = {p for kind in (OWL.ObjectProperty, OWL.DatatypeProperty, OWL.AnnotationProperty)
+                    for p in skeleton().subjects(RDF.type, kind)}
+        self.assertTrue(declared)
+        for prop in sorted(declared):
+            with self.subTest(prop=prop):
+                stated = [s for s in shapes.subjects(SH.path, prop)
+                          if (s, SH.minCount, None) in shapes or (s, SH.maxCount, None) in shapes]
+                self.assertTrue(stated, f"{prop} has no property shape stating its cardinality")
+
+    def test_loan_without_borrower(self):
+        self.assertOneViolation(self.VALID_LOAN.replace(" lib:borrower lib:m1 ;", ""), "loan1", "LoanShape-borrower")
+
+    def test_loan_of_two_copies(self):
+        self.assertOneViolation(self.VALID_LOAN.replace("lib:loanOf lib:c1", "lib:loanOf lib:c1, lib:c2"),
+                                "loan1", "LoanShape-loanOf")
+
+    def test_loan_with_two_due_dates(self):
+        self.assertOneViolation(self.VALID_LOAN.replace('"2026-11-01"^^xsd:date', '"2026-11-01"^^xsd:date, "2026-11-15"^^xsd:date'),
+                                "loan1", "LoanShape-dueDate")
 
     def test_value_from_wrong_list_fails(self):
-        conforms, text = self.validate(self.PREFIXES + (
-            "lib:m1 a lib:Member . lib:c1 a lib:Copy .\n"
-            "lib:loan1 a lib:Loan ; lib:borrower lib:m1 ; lib:loanOf lib:c1 ;"
-            ' lib:dueDate "2026-11-01"^^xsd:date ; lib:loanState lib:circulation .'))
-        self.assertFalse(conforms)
-        self.assertIn("LoanShape-loanState", text)
+        self.assertOneViolation(self.VALID_LOAN.replace("lib:on-loan", "lib:circulation"), "loan1", "LoanShape-loanState")
+
+    def test_concept_with_two_editorial_statuses(self):
+        self.assertOneViolation('lib:renewal lib:editorialStatus "drafted"@en, "approved"@en .',
+                                "renewal", "ConceptShape-editorialStatus")
+
+    # The two mutations the review of 0700aea describes: each must turn a test red.
+    def test_dropping_due_date_max_count_is_caught(self):
+        shapes = Graph().parse(SHAPES, format="turtle")
+        shapes.remove((lib("LoanShape-dueDate"), SH.maxCount, None))
+        with self.assertRaises(AssertionError):
+            self.assertOneViolation(self.VALID_LOAN.replace('"2026-11-01"^^xsd:date', '"2026-11-01"^^xsd:date, "2026-11-15"^^xsd:date'),
+                                    "loan1", "LoanShape-dueDate", shapes)
+
+    def test_lowering_loan_state_severity_is_caught(self):
+        shapes = Graph().parse(SHAPES, format="turtle")
+        shapes.add((lib("LoanShape-loanState"), SH.severity, SH.Warning))
+        with self.assertRaises(AssertionError):
+            self.assertOneViolation(self.VALID_LOAN.replace("lib:on-loan", "lib:circulation"), "loan1", "LoanShape-loanState", shapes)
 
     def test_shapes_hold_blank_nodes_so_check_taxonomy_skips_them(self):
         fails = check_taxonomy.check(Graph().parse(SHAPES, format="turtle"))
