@@ -1,6 +1,8 @@
-# Copy at Step 3 beside the module's Turtle; Step 9 extends it. Rules: references/domain-model.md,
-# rule 7, and references/shacl.md (rules 4 and 5). One node shape per class, one property shape per
-# property, a cardinality on every one. Each property shape has its own IRI, so a negative test can
+# Copy at Step 3 beside the module's Turtle as <module>-shapes.ttl; Step 9 extends it. Shapes may hold
+# blank nodes (the sh:in list below), so check_taxonomy.py does not run on this file
+# (identity-taxonomy.md, Step 2, rule 5). Rules: references/domain-model.md,
+# rule 7, and references/shacl.md (rules 4 and 5). One node shape per class that has
+# properties, one property shape per property, a cardinality on every one. Each property shape has its own IRI, so a negative test can
 # assert which shape fired (shacl.md, rule 8).
 
 @prefix lib:  <https://id.example.org/library/> .

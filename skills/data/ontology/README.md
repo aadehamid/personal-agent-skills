@@ -51,14 +51,14 @@ The skill works on its own. If the `way-of-working` skill is installed too, the 
 | `templates/ontology-skeleton.ttl` | agent, Step 3 | A module header, a concept scheme, a code-list scheme, three classes and four properties, for a library. Passes `check_taxonomy.py`. |
 | `templates/shapes-skeleton.ttl` | agent, Step 3 | The SHACL node and property shapes for the skeleton's class, with cardinalities. |
 | `templates/definition-review.md` | agent, Step 3 | The quality-bar review sheet, one row per term. |
-| `templates/decision-record.md` | agent, when recording a decision | A numbered record: question and recommendation quoted, the owner's decision, what follows, the owner's words, evidence, consequences. |
+| `templates/decision-record.md` | agent, when recording a decision | A numbered record: the question and recommendation quoted, context with the agent's plan, the owner's decision (their words only), alternatives, the owner's recorded words, evidence. |
 | `templates/decision-package.md` | agent, when asking the owner a question | A question with context, options (recommendation first), what each changes, and an answer box. |
 | `templates/answers-file.md` | agent, when saving the owner's answers | The owner's words verbatim, with the agent's questions inside comments. |
 | `templates/release-checklist.md` | agent, before each release | The release gate as a checklist, each item pointing to its rule. |
 | `templates/check.sh` | agent, when setting up a repository | A check-script skeleton with the four-snapshot no-writes guard; it fails until every TODO is replaced. |
 | `scripts/check_requirements.py` | agent and check script | Checks the requirements file's schema and its scope conflicts. Needs PyYAML. |
-| `scripts/check_taxonomy.py` | agent and check script | The Step 2 and 3 mechanical checks on Turtle files. Needs rdflib. |
-| `scripts/test_checks.py` | this repository's check script | Tests for both scripts: the templates pass, and each deliberate break fails with its own message. |
+| `scripts/check_taxonomy.py` | agent and check script | The Step 2 and 3 mechanical checks on data Turtle files (not shapes files). Needs rdflib. |
+| `scripts/test_checks.py` | this repository's check script | Tests: the templates pass; each deliberate break fails with only its own check and message; both command lines exit 0, 1 or 2 as documented; the shapes skeleton works under pySHACL; and `templates/check.sh`, copied into a fresh repository, fails while TODOs remain, catches a write, and checks data files but not shapes files. Needs rdflib, PyYAML and pySHACL. |
 | `SOURCES.md` | you | Every source the skill draws on, what it took, versions, how to check for updates, and which outside proposals it adopted. |
 | `README.md` | you | This file. |
 

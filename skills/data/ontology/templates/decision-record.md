@@ -1,4 +1,4 @@
-<!-- Copy this file when you record one decision. Rules: references/governance.md, "Decisions" and "Delegation"; where the way-of-working skill is installed, its references/deciding.md is the home of the record rules this template carries. Delete every comment before you commit. -->
+<!-- Copy this file when you record one decision. Rules: references/governance.md, "Decisions" and "Delegation"; where the way-of-working skill is installed, its references/deciding.md is the home of the record rules this template carries. The Decision section holds only the owner's words or the text they chose; everything the agent adds (background, an interpretation, a plan for later work) goes in Context or Evidence, written as the agent's. Delete every comment before you commit. -->
 
 # <PREFIX>-<NNNN>: <the decision, as one sentence>
 
@@ -10,7 +10,7 @@
 | Date | <YYYY-MM-DD; add the decided date if it differs from the proposed date> |
 | Source | <the session or comment where the owner answered; the answers file's path> |
 
-<!-- While the owner has not answered, or answered "not yet": Status is "Proposed. ASSUMED, not yet answered (Q<n>)", the Decision section says "Not decided", and Consequences lists the work done on the assumption and how to undo it (governance.md, rule 3). -->
+<!-- While the owner has not answered, or answered "not yet": Status is "Proposed. ASSUMED, not yet answered (Q<n>)", the Decision section says "Not decided", and Context lists the work done on the assumption and how to undo it (governance.md, rule 3). -->
 
 ## Question
 
@@ -18,19 +18,21 @@
 
 ## Context
 
-<What was open and why it mattered now, with the evidence each statement rests on. The agent's words.>
+<What was open and why it mattered now. The agent's words.>
+
+### The agent's plan (not the owner's words)
+
+<!-- Under a delegation, start with "Under <PREFIX>-<NNNN>." -->
+
+1. <Each consequence the agent will carry out: names, rules, files to change, and which record each rests on.>
+2. <Each open item, and whom it waits on (governance.md, rule 14).>
+3. <Each earlier record this one amends; that record gets a dated note pointing here.>
 
 ## Decision
 
-**The owner's decision:** <When the owner accepted the recommendation: that recommendation, quoted, plus the text of the option it chose. When the owner answered in their own words: only those words. Nothing else.>
+<When the owner accepted the recommendation: that recommendation, quoted, plus the text of the option it chose. When the owner answered in their own words: only those words. Nothing else. A detail the owner did not address is "not decided".>
 
-<!-- Under a delegation, write "None for this choice; delegated under <record>." in place of the line above. -->
-
-**What follows (the agent, <carrying out that decision / under <PREFIX>-<NNNN>>):**
-
-1. <Each consequence the agent adds: names, rules, files to change. Say which record any item rests on.>
-
-<!-- A detail the owner did not address is "not decided"; do not carry it over from the question. -->
+<!-- Under a delegation, write "None for this choice; delegated under <record>." -->
 
 ## Alternatives considered
 
@@ -45,7 +47,3 @@ Saved in `<path to the answers file>`: "<verbatim quote>".
 ## Evidence
 
 - <Source, with its tier (foundations.md, policy 3), item or line, and date. Figures quote the command and commit that computed them.>
-
-## Consequences
-
-- <What changes for later work, which records or documents now point here, and what each open item waits on and whom (governance.md, rule 14). An earlier record this one amends gets a dated note pointing here.>

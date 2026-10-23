@@ -52,11 +52,13 @@ PY
 }
 before="$(snapshot)"
 
-# 1. Requirements: schema and conflicts (governance rule 2). Copy the skill's scripts/ folder to scripts/ontology/.
+# 1. Requirements: schema and conflicts (governance rule 2). Copy the skill's check_requirements.py and
+#    check_taxonomy.py to scripts/ontology/.
 # TODO: uv run --no-project --with pyyaml python3 scripts/ontology/check_requirements.py requirements.yaml
 
-# 2. Taxonomy, classes and properties: the mechanical checks (identity-taxonomy.md, Step 3, rule 13).
-# TODO: uv run --no-project --with rdflib python3 scripts/ontology/check_taxonomy.py modules/*/*.ttl
+# 2. Taxonomy, classes and properties: the mechanical checks (identity-taxonomy.md, Step 3, rule 13), on
+#    data files only: shapes files (*-shapes.ttl) may hold blank nodes (identity-taxonomy.md, Step 2, rule 5).
+# TODO: find modules -name '*.ttl' ! -name '*-shapes.ttl' -print0 | xargs -0 uv run --no-project --with rdflib python3 scripts/ontology/check_taxonomy.py
 
 # 3. Generated files: every builder rebuilds into a temporary directory and --verify compares
 #    (release.md, rules 9 and 19). One line per module package, then the catalog.

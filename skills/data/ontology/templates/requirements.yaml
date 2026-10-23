@@ -3,18 +3,19 @@
 #   uv run --with pyyaml python3 <skill>/scripts/check_requirements.py requirements.yaml
 #
 # Schema (the check enforces every line):
-#   purpose               one sentence: what the ontology is for
-#   users                 list of who uses it (roles, systems), never personal names
-#   use_cases             list of {id, text}
+#   purpose               one non-empty sentence: what the ontology is for
+#   users                 non-empty list of who uses it (roles, systems), never personal names
+#   use_cases             non-empty list of {id, text}; ids unique
 #   inputs                the six kinds of input; each {status: have | thin | missing, note}.
 #                         thin and missing need a note: how the gap limits the design
-#   scope.in, scope.out   lists of area names; no area in both
-#   competency_questions  list of {id, question, priority: must | should | could, rationale,
-#                         needs: [areas from scope.in], status: drafted | locked}
-#                         a need or a rationale word that names an area in scope.out is a conflict
-#   assumptions           list of {id, text, status: ASSUMED | confirmed, record}
-#                         confirmed needs the decision record that confirmed it
-#   constraints           list of strings (licence, privacy, hosting, deadlines)
+#   scope.in, scope.out   lists of area names (scope.in not empty); no area in both
+#   competency_questions  non-empty list of {id, question, priority: must | should | could,
+#                         rationale, needs: [areas], status: drafted | locked}; ids unique.
+#                         Conflicts: a need that scope.in does not list; a need, or a whole word
+#                         of the rationale, that names an area in scope.out
+#   assumptions           list (empty if none) of {id, text, status: ASSUMED | confirmed, record};
+#                         record is "" while ASSUMED and names the decision record once confirmed
+#   constraints           list of strings, empty if none (licence, privacy, hosting, deadlines)
 
 purpose: Shared meaning for loan, renewal and loan state between circulation staff and the lending system.
 users: [circulation staff, systems librarian, lending system]

@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Mechanical checks for Steps 2 and 3 of the ontology skill.
 
-Run: uv run --with rdflib python3 check_taxonomy.py <file.ttl> [<file.ttl> ...]
+Run: uv run --with rdflib python3 check_taxonomy.py [--allow-namespace=<IRI>]... <file.ttl>...
+
+Run it on data files only (each module's and code list's Turtle), never on shapes files:
+SHACL builds shapes from blank nodes (identity-taxonomy.md, Step 2, rule 5).
 
 Checks (references/identity-taxonomy.md and references/domain-model.md):
   blank-node     no blank node anywhere (Step 2, rule 5)
@@ -17,25 +20,54 @@ Checks (references/identity-taxonomy.md and references/domain-model.md):
   collision      no two concepts in one scheme share a preferred label (ignoring case)
   property-kind  each property is exactly one of owl:ObjectProperty, owl:DatatypeProperty
   domain-range   each property has exactly one rdfs:domain and one rdfs:range;
-                 no rdfs:Literal range
+                 no rdfs:Literal range; every domain, range and rdfs:subClassOf target is
+                 declared in the files (owl:Class, rdfs:Class, rdfs:Datatype) or sits in a
+                 known namespace: XSD, RDF, RDFS, OWL, SKOS, W3C ORG, PROV-O, DCAT, DCMI
+                 terms, plus each --allow-namespace given. A misspelling inside a known
+                 namespace is not caught.
+  kind-range     an owl:DatatypeProperty's range is a datatype (an XSD datatype,
+                 rdf:langString, rdf:HTML, rdf:XMLLiteral or a declared rdfs:Datatype); an
+                 owl:ObjectProperty's range is not
+  untyped        every IRI that carries a SKOS or RDFS term property (a label, definition,
+                 notation, scheme, parent, domain, range or superclass) has an rdf:type
 
 Exit 0 when every check passes, 1 when any fails (one line per failure), 2 when a file
-cannot be read or parsed.
+cannot be read or parsed, or when the arguments are wrong.
 """
 import sys
 from collections import defaultdict
 
 from rdflib import BNode, Graph, Literal, URIRef
-from rdflib.namespace import OWL, RDF, RDFS, SKOS, XSD
+from rdflib.namespace import DCAT, DCTERMS, OWL, PROV, RDF, RDFS, SKOS, XSD
 
 CODES = {SKOS.notation, OWL.versionInfo}
 PROPERTY_KINDS = (OWL.ObjectProperty, OWL.DatatypeProperty)
+KNOWN_NAMESPACES = (str(XSD), str(RDF), str(RDFS), str(OWL), str(SKOS),
+                    "http://www.w3.org/ns/org#", str(PROV), str(DCAT), str(DCTERMS))
+RDF_DATATYPES = {RDF.langString, RDF.HTML, RDF.XMLLiteral}
+TERM_PREDICATES = (SKOS.prefLabel, SKOS.definition, SKOS.notation, SKOS.inScheme, SKOS.broader,
+                   SKOS.topConceptOf, RDFS.label, RDFS.domain, RDFS.range, RDFS.subClassOf)
 
 
-def check(g):
+def check(g, allowed_namespaces=()):
     """Return a list of (check name, message) pairs for every failure in graph g."""
     fails = []
     short = lambda t: t.n3(g.namespace_manager)
+    known = tuple(KNOWN_NAMESPACES) + tuple(allowed_namespaces)
+    declared_types = {s for kind in (OWL.Class, RDFS.Class, RDFS.Datatype)
+                      for s in g.subjects(RDF.type, kind)}
+    datatypes = set(g.subjects(RDF.type, RDFS.Datatype)) | RDF_DATATYPES
+
+    def is_datatype(term):
+        return term in datatypes or str(term).startswith(str(XSD))
+
+    def resolves(term):
+        return term in declared_types or any(str(term).startswith(ns) for ns in known)
+
+    untyped = sorted({s for p in TERM_PREDICATES for s in g.subjects(p, None)
+                      if isinstance(s, URIRef) and (s, RDF.type, None) not in g})
+    for s in untyped:
+        fails.append(("untyped", f"{short(s)} has SKOS or RDFS term properties but no rdf:type"))
 
     for s, p, o in g:
         if isinstance(s, BNode) or isinstance(o, BNode):
@@ -125,12 +157,26 @@ def check(g):
                 fails.append(("domain-range", f"{name} has {len(values)} rdfs:{axis} values; it needs exactly one"))
         if (prop, RDFS.range, RDFS.Literal) in g:
             fails.append(("domain-range", f"{name} has range rdfs:Literal; name a concrete datatype"))
+        for rng in g.objects(prop, RDFS.range):
+            if rng == RDFS.Literal:
+                continue
+            if (prop, RDF.type, OWL.DatatypeProperty) in g and not is_datatype(rng):
+                fails.append(("kind-range", f"{name} is an owl:DatatypeProperty but its range {short(rng)} is not a datatype"))
+            if (prop, RDF.type, OWL.ObjectProperty) in g and is_datatype(rng):
+                fails.append(("kind-range", f"{name} is an owl:ObjectProperty but its range {short(rng)} is a datatype"))
+    for pred, axis in ((RDFS.domain, "rdfs:domain"), (RDFS.range, "rdfs:range"), (RDFS.subClassOf, "rdfs:subClassOf")):
+        for s, o in sorted(g.subject_objects(pred), key=str):
+            if isinstance(o, URIRef) and not resolves(o):
+                fails.append(("domain-range", f"{short(s)} has {axis} {short(o)}, which is neither declared "
+                                              f"in the files nor in a known namespace"))
     return fails
 
 
-def main(paths):
-    if not paths:
-        print("usage: check_taxonomy.py <file.ttl> [<file.ttl> ...]", file=sys.stderr)
+def main(argv):
+    allowed = [a.split("=", 1)[1] for a in argv if a.startswith("--allow-namespace=")]
+    paths = [a for a in argv if not a.startswith("--allow-namespace=")]
+    if not paths or any(p.startswith("-") for p in paths) or any(not ns for ns in allowed):
+        print("usage: check_taxonomy.py [--allow-namespace=<IRI>]... <file.ttl>...", file=sys.stderr)
         return 2
     g = Graph()
     for path in paths:
@@ -139,7 +185,7 @@ def main(paths):
         except Exception as exc:  # rdflib raises several parser types; any of them stops the check
             print(f"ERROR cannot read {path}: {exc}", file=sys.stderr)
             return 2
-    fails = check(g)
+    fails = check(g, allowed)
     for name, message in fails:
         print(f"FAIL {name}: {message}")
     if fails:

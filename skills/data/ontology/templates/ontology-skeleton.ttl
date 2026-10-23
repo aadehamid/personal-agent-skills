@@ -27,7 +27,7 @@ lib:circulation a skos:Concept ;
     skos:notation "C" ;
     skos:prefLabel "Circulation"@en ;
     skos:definition "The library's recurring work of putting copies into members' hands for a limited time and getting them back, so that members can use the collection away from the library."@en ;
-    skos:scopeNote "Includes lending, renewal and holds. Excludes cataloguing and acquisitions."@en ;
+    skos:scopeNote "Includes lending and renewal. Excludes holds (parked until a holds export exists), cataloguing and acquisitions."@en ;
     dcterms:source "Example lending policy, edition 2026-01, section 3"@en .
 
 lib:lending-activity a skos:Concept ;

@@ -57,7 +57,7 @@ python3 skills/engineering/way-of-working/scripts/test_pr_scripts.py
 
 echo
 echo "== ontology skill scripts =="
-(cd skills/data/ontology/scripts && uv run --no-project --with rdflib --with pyyaml python3 -m unittest -q test_checks)
+(cd skills/data/ontology/scripts && uv run --no-project --with rdflib --with pyyaml --with pyshacl python3 -m unittest -q test_checks)
 
 echo
 echo "== shell syntax =="

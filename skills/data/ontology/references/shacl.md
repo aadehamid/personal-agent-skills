@@ -10,6 +10,8 @@ Standard: SHACL, W3C Recommendation 20 July 2017, https://www.w3.org/TR/shacl/.
 2. **Then add, in this order:** every relationship fact links to its evidence; every controlled value comes from its own list; no definition is typed as an occurrence (`provenance.md`). *Why:* each one catches a failure the slice cannot see.
 3. **Carry evidence in the graph as one qualified-relation node per fact**, naming exactly one subject, predicate and object and every supporting source row, and keep the direct triple. Shape both directions: every fact triple has its node, and every node has its triple. Check in the build that each node's rows equal the evidence mapping's rows for that exact fact. *Why:* a shape can see that evidence exists; only the build can see that a well-formed row ID sits on the wrong fact.
 4. **Shape every code-list property against its own scheme, and test the coverage:** a test fails when a property takes values from a code list and no shape covers it. *Why:* `sh:class skos:Concept` lets a value from the wrong list through, and a hand-written shapes file misses properties.
+Shapes files may use blank nodes (property shapes, `sh:in` lists); the no-blank-node rule covers data only (`identity-taxonomy.md`, Step 2, rule 5).
+
 5. **State a cardinality on every property:** `sh:maxCount 1` on a single-valued one, no maximum on a multi-valued one, including properties declared but not used yet. Test that every property has one. *Why:* the property-graph load reads single or list from it, and an unstated cardinality is a guess.
 6. **Use SHACL Core first; use SHACL-SPARQL only where Core cannot express the constraint.** *Why:* Core runs in more engines, and SPARQL targets are the first thing a property-graph engine drops (`lpg-projection.md`).
 
