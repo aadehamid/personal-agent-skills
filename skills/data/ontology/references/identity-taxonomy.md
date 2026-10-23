@@ -1,6 +1,6 @@
 # Identity and the SKOS taxonomy
 
-Serves Steps 2 and 3. Read it before you mint any IRI, build or regenerate the concept scheme, build a code list, or rename a concept. What kind each term is (concept, class, property, code value) is decided first, in `domain-model.md`.
+Serves Steps 2 and 3. Read it before you mint any IRI, build or regenerate the concept scheme, build a code list, or rename a concept. What kind each term is (concept, class, property, metadata property, code value, reference individual) is decided first, in `domain-model.md`.
 
 ## Step 2: identity
 

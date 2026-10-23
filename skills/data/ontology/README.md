@@ -29,7 +29,7 @@ The skill works on its own. If the `way-of-working` skill is installed too, the 
 | `SKILL.md` | agent, every run | The index: the scope line, where to start, Steps 0 to 12 with their gates and references, the rules that apply at every step, and the templates and scripts. Its `description` decides when the skill triggers. |
 | `references/foundations.md` | agent, Steps 0, 1 and 8 | Conceptual modelling, aligning a reference framework, the ten policies, source policies, and the scope review. |
 | `references/identity-taxonomy.md` | agent, Steps 2 and 3 | Stable IRIs and slugs, the SKOS concept scheme, code lists, and the register that maps source strings to code values. |
-| `references/domain-model.md` | agent, Step 3 | When a term is a concept, a class, a property, a code-list value or a reference individual, and how to write classes and properties (definition; for object and datatype properties, domain, range and cardinality shape; for annotation properties, label and definition only). |
+| `references/domain-model.md` | agent, Step 3 | When a term is a concept, a class, a property, a metadata (annotation) property, a code-list value or a reference individual, and how to write classes and properties (definition; for object and datatype properties, domain, range and cardinality shape; for annotation properties, label and definition only). |
 | `references/quality.md` | agent, Step 3 onward and before any hand-off | The definition quality bar, with a form for each kind of term, and the soundness checks on every change. |
 | `references/promotion.md` | agent, Step 4 | Promoting provisional source data into governed triples: eleven rules, the predicate review, the source-correction backlog, the first release, example predicate definitions. |
 | `references/organization.md` | agent, Step 5 | Roles and the role register, RACI assignments, party roles as dated nodes, and real organizations in a reference module. |
@@ -48,7 +48,7 @@ The skill works on its own. If the `way-of-working` skill is installed too, the 
 | `templates/parked-list.md` | agent, from Step 1 | Parked future concepts with their questions, "done when" and revival trigger. |
 | `templates/competency-questions.md` | agent, Step 1 and Step 11 | The regression table: tested parts, status, what each waits for, the elements it needs, and what was left out. |
 | `templates/identity-table.md` | agent, Step 2 | Each node's IRI, kind, notation, slug source and renames, and the source-string register. |
-| `templates/ontology-skeleton.ttl` | agent, Step 3 | A module header, a concept scheme, a code-list scheme, three classes and four properties, for a library. Passes `check_taxonomy.py`. |
+| `templates/ontology-skeleton.ttl` | agent, Step 3 | A module header, a concept scheme, a code-list scheme, three classes, four object and datatype properties and one annotation property, for a library. Passes `check_taxonomy.py`. |
 | `templates/shapes-skeleton.ttl` | agent, Step 3 | The SHACL node and property shapes for the skeleton's class, with cardinalities. |
 | `templates/definition-review.md` | agent, Step 3 | The quality-bar review sheet, one row per term. |
 | `templates/decision-record.md` | agent, when recording a decision | A numbered record: the question and recommendation quoted, context with the agent's plan, the owner's decision (their words only), alternatives, the owner's recorded words, evidence. |

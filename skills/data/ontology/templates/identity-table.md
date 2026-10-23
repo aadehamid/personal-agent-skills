@@ -4,7 +4,7 @@
 
 Base IRI: `<https://id.example.org/library/>` (policy 4; <record, or "ASSUMED, not yet answered (Q<n>)">).
 
-| IRI | Kind (concept, class, property, code value, reference individual) | `skos:notation` | Slug source (local ID, or "minted <YYYY-MM-DD> from the label then") | Current label | Prior label (overlay) | Rename record |
+| IRI | Kind (concept, class, property, metadata property, code value, reference individual) | `skos:notation` | Slug source (local ID, or "minted <YYYY-MM-DD> from the label then") | Current label | Prior label (overlay) | Rename record |
 |---|---|---|---|---|---|---|
 | `lib:circulation` | concept | C | minted 2026-10-22 from "Circulation" | Circulation | | |
 | `lib:Loan` | class | | minted 2026-10-22 from "Loan" | Loan | | |

@@ -36,4 +36,4 @@ Standards: OWL 2 Web Ontology Language Primer (Second Edition), W3C Recommendati
 
 9. **Define the class, not its instances.** The ontology holds `Loan`, its properties and its shapes; the loans themselves live in the lending system (`foundations.md`, policy 2). Ship one illustrative instance per class only inside a shapes test, marked as an illustration (`provenance.md`, rule 6). *Why:* an instance in the ontology is a record that goes stale the next day.
 
-`templates/ontology-skeleton.ttl` shows each kind for a library (concepts, a code list, three classes, four properties); `templates/shapes-skeleton.ttl` shows their shapes. `scripts/check_taxonomy.py` checks the mechanical part of rules 4 to 6 and 8, including that each object or datatype property's range matches its kind.
+`templates/ontology-skeleton.ttl` shows each kind for a library (concepts, a code list, three classes, four object and datatype properties, one annotation property); `templates/shapes-skeleton.ttl` shows their shapes. `scripts/check_taxonomy.py` checks the mechanical part of rules 4 to 6 and 8, including that each object or datatype property's range matches its kind.
