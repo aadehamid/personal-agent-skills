@@ -34,7 +34,7 @@ Last full review: 2026-10-22. Check the sources below every three months, and wh
 | SKOS Reference, https://www.w3.org/TR/skos-reference/ | W3C Recommendation, 18 August 2009 | `identity-taxonomy.md`, Step 3; `domain-model.md`, rule 1 | The SKOS model; integrity condition S14 (one `skos:prefLabel` per language tag); §1.3: concepts are individuals, classes are classes, and a SKOS-aware system must tell them apart (quoted). |
 | SKOS Primer, https://www.w3.org/TR/skos-primer/ | W3C Working Group Note, 18 August 2009 | `domain-model.md`, rules 1 and 3 | §5.2, "SKOS Concepts and OWL Classes": SKOS concepts are OWL individuals; OWL DL users keep concepts and classes formally distinct and bridge them with an annotation property (quoted). |
 | OWL 2 Document Overview (Second Edition), https://www.w3.org/TR/owl2-overview/ | W3C Recommendation, 11 December 2012 | `domain-model.md`, `lpg-projection.md` | The OWL 2 document set, including the EL profile kept for reasoning. |
-| OWL 2 Primer (Second Edition), https://www.w3.org/TR/owl2-primer/ | W3C Recommendation, 11 December 2012 | `domain-model.md`, rule 7 | §2, "What is OWL 2?": the open-world assumption. Quoted. |
+| OWL 2 Primer (Second Edition), https://www.w3.org/TR/owl2-primer/ | W3C Recommendation, 11 December 2012 | `domain-model.md`, rule 7; `identity-taxonomy.md`, Step 3, rule 1 | §2, "What is OWL 2?": the open-world assumption; §4.2: a subclass axiom lets a reasoner infer membership in the parent; §4.3: disjointness must be stated explicitly. Quoted. |
 | SHACL, https://www.w3.org/TR/shacl/ | W3C Recommendation, 20 July 2017 | `shacl.md`, `domain-model.md`, templates | Shapes, cardinality, `sh:in` (§4.8.3, quoted), `sh:pattern` (§4.4.3). |
 | SPARQL 1.1 Query Language, https://www.w3.org/TR/sparql11-query/ | W3C Recommendation, 21 March 2013 | `shacl.md`, rule 17; `regression.md` | §17.4.3.14 `REGEX`; competency questions as queries. |
 | XPath and XQuery Functions and Operators 3.1, https://www.w3.org/TR/xpath-functions-31/ | W3C Recommendation, 21 March 2017 | `shacl.md`, rule 17 | §5.6.3 `fn:matches` searches the string. Quoted. |
@@ -48,12 +48,15 @@ Last full review: 2026-10-22. Check the sources below every three months, and wh
 
 **How to check for updates:** open each W3C link and compare the "Latest published version" with the date above; read the errata page linked from it. For DCMI Metadata Terms, compare the date at the top of the page.
 
-## 5. Tool behaviour observed in October 2026
+## 5. n10s: its source code, and behaviour observed in October 2026
 
-These facts in `references/shacl.md` (rules 17 and 18) and `references/lpg-projection.md` (rules 5, 12 and 13) come from running the projection pipeline with n10s 2025.06.1 on Neo4j 2025.06.2:
+The two `sh:pattern` and `sh:in` facts in `references/shacl.md` (rules 17 and 18) rest on the n10s source at tag 2025.06.1 (commit `6a5846b`), `src/main/java/n10s/validation/SHACLValidator.java`, https://github.com/neo4j-labs/neosemantics/blob/2025.06.1/src/main/java/n10s/validation/SHACLValidator.java:
 
-- n10s tests `sh:pattern` with Cypher's `=~`, which matches the whole string: an unanchored `"\S"` failed every value longer than one character, and an anchored pattern passed.
-- n10s did not match a loaded `true` against `sh:in (true)`.
+- Lines 1408 to 1417: `sh:pattern` compiles to Cypher `toString(x) =~ params.theRegex`; Cypher's `=~` matches the whole string.
+- Lines 1044 to 1048, 465 to 471 and 1359: a literal `sh:in` list is read as strings and compared with `val in params.theInLiterals`.
+
+The other facts in `references/lpg-projection.md` (rules 5, 12 and 13) come from running the projection pipeline with n10s 2025.06.1 on Neo4j 2025.06.2 in October 2026:
+
 - n10s rejects `sh:datatype rdf:langString`; does not support `sh:not`, `sh:languageIn`, `sh:node`, `sh:targetSubjectsOf` or `sh:targetObjectsOf`; never runs a shape with a SPARQL target; imports and validates shapes only in a namespace-aware graph.
 - MAP mode breaks in-graph SHACL (neosemantics issue #237, open since 2021-11-09).
 
