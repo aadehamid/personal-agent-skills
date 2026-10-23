@@ -1061,6 +1061,12 @@ class LoadVerifyPure(unittest.TestCase):
         self.assertEqual(lv.mutant_case(sub, module(), config()), ("lib__Authorship", "lib__position"))
 
 
+def data_with_name_on_copies():
+    g = module()
+    g.add((COPY, lib("name"), Literal("first copy")))
+    return g
+
+
 class FakeResult:
     def __init__(self, rows):
         self.rows = rows
@@ -1317,7 +1323,80 @@ class RoundFour(OneBreak, unittest.TestCase):
         self.assertNotIn(lib("Copy"), igs.applied_node_shapes(g))
         sub, dropped = igs.subset(g)
         self.assertNotIn((lib("C-p"), SH.minCount, Literal(1)), sub)
-        self.assertIn(lib("Copy"), {x for x, _, _ in dropped})
+        reasons = {(x, p): r for x, p, r in dropped}
+        # quick check 3, #4: the reason states what failed for this node, and nothing false about it
+        self.assertIn("it is not typed sh:NodeShape or sh:Shape", reasons[(lib("Copy"), SH.property)])
+        self.assertNotIn("not an rdfs:Class", reasons[(lib("Copy"), SH.property)])
+        self.assertIn("no shape typed sh:NodeShape or sh:Shape reaches it", reasons[(lib("C-p"), SH.minCount)])
+
+    # quick check 3: each graph the report names, with the engine's result on 2026-10-23
+    def test_sh_shape_class_keeps_its_own_property(self):
+        g = Graph()
+        g.add((lib("Copy"), RDF.type, RDFS.Class))
+        g.add((lib("Copy"), RDF.type, SH.Shape))
+        g.add((lib("Copy"), SH.property, lib("A-p")))
+        g.add((lib("A-p"), SH.path, lib("name")))
+        g.add((lib("A-p"), SH.minCount, Literal(1)))
+        sub, dropped = igs.subset(g)
+        self.assertIn((lib("A-p"), SH.minCount, Literal(1)), sub)
+        self.assertEqual(dropped, [])
+        self.assertEqual(lv.mutant_case(sub, data_with_name_on_copies(), config()), ("lib__Copy", "lib__name"))
+
+    def test_class_to_class_hop_is_kept(self):
+        g = Graph()
+        g.add((lib("Work"), RDF.type, RDFS.Class))
+        g.add((lib("Work"), RDF.type, SH.NodeShape))
+        g.add((lib("Work"), SH.node, lib("Copy")))
+        g.add((lib("Copy"), RDF.type, RDFS.Class))
+        g.add((lib("Copy"), SH.property, lib("B-p")))
+        g.add((lib("B-p"), SH.path, lib("name")))
+        g.add((lib("B-p"), SH.minCount, Literal(1)))
+        sub, dropped = igs.subset(g)
+        self.assertIn((lib("B-p"), SH.minCount, Literal(1)), sub)
+        self.assertIn((lib("Work"), SH.node, lib("Copy")), sub)
+        self.assertEqual(dropped, [])
+        self.assertEqual(lv.target_pairs(sub), [(lib("Copy"), lib("B-p"))])
+
+    def test_untyped_target_class_shape_with_a_hop_is_dropped(self):
+        g = Graph()
+        g.add((lib("C1"), SH.targetClass, lib("Copy")))
+        g.add((lib("C1"), SH.node, lib("C2")))
+        g.add((lib("C2"), RDF.type, SH.NodeShape))
+        g.add((lib("C2"), SH.property, lib("C-p")))
+        g.add((lib("C-p"), SH.path, lib("name")))
+        g.add((lib("C-p"), SH.minCount, Literal(1)))
+        sub, dropped = igs.subset(g)
+        self.assertEqual(len(sub), 0)
+        reasons = {(x, p): r for x, p, r in dropped}
+        self.assertIn("it is not typed sh:NodeShape or sh:Shape", reasons[(lib("C1"), SH.node)])
+        self.assertIn("library/C2>) have no sh:targetClass", reasons[(lib("C-p"), SH.minCount)])
+
+    def test_closed_on_a_shape_that_is_not_a_node_shape_is_dropped(self):
+        g = Graph()
+        g.add((lib("E"), RDF.type, SH.Shape))
+        g.add((lib("E"), SH.targetClass, lib("Person")))
+        g.add((lib("E"), SH.closed, Literal(True)))
+        g.add((lib("E"), SH.property, lib("E-p")))
+        g.add((lib("E-p"), SH.path, lib("name")))
+        g.add((lib("E-p"), SH.minCount, Literal(0)))
+        sub, dropped = igs.subset(g)
+        self.assertIn((lib("E-p"), SH.minCount, Literal(0)), sub)
+        self.assertNotIn((lib("E"), SH.closed, None), sub)
+        reasons = {(x, p): r for x, p, r in dropped}
+        self.assertIn("not typed sh:NodeShape", reasons[(lib("E"), SH.closed)])
+
+    def test_closed_on_a_targeted_node_shape_is_kept(self):
+        sub, _ = igs.subset(shapes() + Graph().add((lib("PersonShape"), SH.closed, Literal(True))))
+        self.assertIn((lib("PersonShape"), SH.closed, Literal(True)), sub)
+        self.assertIn("closed", lv.kept_kinds(sub, module()))
+
+    def test_the_subset_is_the_rows_of_n10s_queries(self):
+        # every property shape in the subset is reached by a row of the property query, run on the subset
+        sub, _ = igs.subset(shapes())
+        reached = {ps for _, ps, _, _ in igs.property_rows(sub)}
+        self.assertEqual(reached, set(sub.subjects(SH.path, None)))
+        self.assertIn("SELECT DISTINCT ?ns ?ps ?targetClass ?targetIsQuery", igs.PROPERTY_ROWS)
+        self.assertIn("sh:node?/sh:property ?ps", igs.PROPERTY_ROWS)
 
     def main_output(self, kinds):
         """load_verify.main with the database part replaced by a fixed report."""
@@ -1339,22 +1418,38 @@ class RoundFour(OneBreak, unittest.TestCase):
         code, out = self.main_output(["closed"])
         self.assertEqual(code, 0, out)
         self.assertIn("still need a case: closed. Next: keep the container up", out)
+        self.assertIn("build.py check-report --manifest <projection-manifest.json> --report ", out)
         self.assertNotIn("every check passed", out)
 
     def test_load_verify_names_the_next_step_when_nothing_is_left(self):
         code, out = self.main_output([])
         self.assertEqual(code, 0, out)
-        self.assertIn("Next: run build.py check-report, then remove the container", out)
+        self.assertIn("Next: run build.py check-report --manifest <projection-manifest.json> --report ", out)
+        self.assertIn("then remove the container", out)
+        self.assertNotIn("every check passed", out)
 
-    def test_rdfs_class_shape_that_is_only_closed_is_inventoried(self):
+    def test_manual_cases_survive_a_rerun_on_the_same_inputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "r.json")
+            case = {"kind": "closed", "cypher": "MATCH", "focus": "x", "components": ["C"], "passed": True}
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"input_fingerprint": "f", "shapes_fingerprint": "s", "manual_cases": [case]}, f)
+            self.assertEqual(lv.carried_manual_cases(path, {"input_fingerprint": "f", "shapes_fingerprint": "s"}), [case])
+            self.assertEqual(lv.carried_manual_cases(path, {"input_fingerprint": "g", "shapes_fingerprint": "s"}), [])
+            self.assertEqual(lv.carried_manual_cases(os.path.join(tmp, "none.json"), {}), [])
+
+    def test_rdfs_class_shape_that_is_only_closed_is_dropped(self):
+        # quick check 3: NODE_CONSTRAINT_QUERY's class branch filters on ?ns inside its own group, so it
+        # returns no row; in the engine on 2026-10-23 such a shape reported no closed violation.
         g = Graph()
         g.add((lib("Copy"), RDF.type, RDFS.Class))
         g.add((lib("Copy"), RDF.type, SH.NodeShape))
         g.add((lib("Copy"), SH.closed, Literal(True)))
-        sub, _ = igs.subset(g)
-        self.assertIn((lib("Copy"), SH.closed, Literal(True)), sub)
-        self.assertIn("closed", lv.kept_kinds(sub, module()))
-        self.assertIn("closed", [k for k, _, _ in lv.fail_cases(sub, module(), config())])
+        sub, dropped = igs.subset(g)
+        self.assertNotIn((lib("Copy"), SH.closed, None), sub)
+        self.assertNotIn("closed", lv.kept_kinds(sub, module()))
+        reasons = {(x, p): r for x, p, r in dropped}
+        self.assertIn("NODE_CONSTRAINT_QUERY", reasons[(lib("Copy"), SH.closed)])
 
     def test_load_verify_passes_with_kinds_left_for_manual_cases(self):
         # quick check 2: the gate for a listed kind is check-report with a manual case, not load_verify

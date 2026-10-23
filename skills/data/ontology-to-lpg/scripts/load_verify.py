@@ -23,7 +23,9 @@ What it does, in order (references/pipeline.md, rules 8 to 17):
      diffs against loadable.nt plus inferred.nt.
   8. Hashes the graph, empties it, overwrites the import copy of loadable.nt with its lines shuffled
      (random.Random(12)), loads again, hashes again, and puts the sorted file back.
-  9. Writes the report and exits 0 when every check passed, 1 otherwise, 2 on bad input.
+  9. Writes the report, with an empty manual_cases list, or with the cases already in the report when
+     its fingerprints are the same. Exits 0 when the generated checks passed (kinds still needing a
+     case are left to build.py check-report and printed as the next step), 1 otherwise, 2 on bad input.
 
 The graph hash (graph_hash): every :Resource node as [uri, sorted labels, properties] and every
 relationship between two :Resource nodes as [source uri, type, target uri, relationship uri or "",
@@ -173,28 +175,17 @@ def _label(iri, cfg):
     return build.shorten(URIRef(iri), cfg)
 
 
-def applied_shapes(subset):
-    """(node shape, its target classes) for every node shape n10s applies in the graph: one with
-    sh:targetClass, one that is itself an rdfs:Class (its own class), and one with sh:targetQuery,
-    whose nodes come from a query and so has no class to pick nodes by (an empty list)."""
-    shapes = igs.applied_node_shapes(subset)
-    out = []
-    for ns in sorted(shapes, key=str):
-        classes = set(subset.objects(ns, SH.targetClass))
-        if (ns, RDF.type, RDFS.Class) in subset:
-            classes.add(ns)
-        out.append((ns, sorted(classes, key=str)))
-    return out
+def target_pairs(subset):
+    """(target class, property shape) for every row of n10s's property query on the subset whose
+    target is a class (in_graph_shapes.property_rows). A sh:targetQuery row has no class to pick
+    nodes by, so it is not here; kept_kinds still counts it."""
+    return sorted({(target, ps) for _, ps, target, is_query in igs.property_rows(subset) if not is_query},
+                  key=lambda pair: (str(pair[0]), str(pair[1])))
 
 
 def shape_properties(subset, ns):
-    """The property shapes n10s runs for a node shape: its own, and, for a shape with sh:targetClass
-    or sh:targetQuery, those of a shape it reaches with sh:node (one hop; in_graph_shapes.hop_source)."""
-    found = set(subset.objects(ns, SH.property))
-    if igs.hop_source(subset, ns):
-        for other in subset.objects(ns, SH.node):
-            found |= set(subset.objects(other, SH.property))
-    return sorted(found, key=str)
+    """The property shapes n10s runs for a node shape: those its rows of the property query reach."""
+    return sorted({ps for n, ps, _, _ in igs.property_rows(subset) if n == ns}, key=str)
 
 
 def fail_cases(subset, data, cfg):
@@ -203,95 +194,95 @@ def fail_cases(subset, data, cfg):
     transaction (pipeline.md, rule 14)."""
     literal_preds = {p for _, p, o in data if isinstance(o, Literal)}
     cases = {}
-    for ns, classes in applied_shapes(subset):
-        for cls in classes:
-            T = _label(cls, cfg)
-            for ps in shape_properties(subset, ns):
-                path = subset.value(ps, SH.path)
-                if path is None:
+    for cls, ps in target_pairs(subset):
+        T = _label(cls, cfg)
+        path = subset.value(ps, SH.path)
+        if path is None:
+            continue
+        inverse = subset.value(path, SH.inversePath) if not isinstance(path, URIRef) else None
+        if inverse is not None:
+            k = _label(inverse, cfg)
+            if subset.value(ps, SH.minCount) is not None and int(subset.value(ps, SH.minCount)) >= 1:
+                cases.setdefault("inverseMinCount", (ps, (
+                    f"MATCH (n:`{T}`)<-[:`{k}`]-() WITH DISTINCT n ORDER BY n.uri LIMIT 1 "
+                    f"MATCH (n)<-[r:`{k}`]-() DELETE r RETURN DISTINCT n.uri AS focus")))
+            if subset.value(ps, SH.maxCount) is not None:
+                cases.setdefault("inverseMaxCount", (ps, (
+                    f"MATCH (n:`{T}`)<-[:`{k}`]-() WITH DISTINCT n ORDER BY n.uri LIMIT 1 "
+                    f"MATCH (o:Resource) WHERE NOT (o)-[:`{k}`]->(n) AND o <> n WITH n, o ORDER BY o.uri "
+                    f"LIMIT {int(subset.value(ps, SH.maxCount)) + 1} CREATE (o)-[:`{k}`]->(n) "
+                    "RETURN DISTINCT n.uri AS focus")))
+            continue
+        if not isinstance(path, URIRef):
+            continue
+        k = _label(path, cfg)
+        literal = path in literal_preds
+        pick_prop = f"MATCH (n:`{T}`) WHERE n.`{k}` IS NOT NULL WITH n ORDER BY n.uri LIMIT 1 "
+        pick_rel = f"MATCH (n:`{T}`)-[:`{k}`]->() WITH DISTINCT n ORDER BY n.uri LIMIT 1 "
+        min_count = subset.value(ps, SH.minCount)
+        if min_count is not None and int(min_count) >= 1:
+            if literal:
+                cases.setdefault("minCount", (ps, pick_prop + f"REMOVE n.`{k}` RETURN n.uri AS focus"))
+            else:
+                cases.setdefault("minCount", (ps, pick_rel + f"MATCH (n)-[r:`{k}`]->() DELETE r "
+                                                             "RETURN DISTINCT n.uri AS focus"))
+        if subset.value(ps, SH.maxCount) == Literal(1) and literal:
+            cases.setdefault("maxCount", (ps, pick_prop + f"SET n.`{k}` = [toString(n.`{k}`), "
+                                                          f"toString(n.`{k}`) + ' (second)'] RETURN n.uri AS focus"))
+        dt = subset.value(ps, SH.datatype)
+        if dt is not None and literal:
+            wrong = "0" if dt == XSD.string else "'not a value of this datatype'"
+            cases.setdefault(f"datatype {dt.n3(subset.namespace_manager)}",
+                             (ps, pick_prop + f"SET n.`{k}` = {wrong} RETURN n.uri AS focus"))
+        cls_c = subset.value(ps, SH["class"])
+        if cls_c is not None and not literal:
+            C = _label(cls_c, cfg)
+            cases.setdefault("class", (ps, pick_rel + f"MATCH (n)-[r:`{k}`]->() WITH n, collect(r) AS rs "
+                                       f"MATCH (o:Resource) WHERE NOT o:`{C}` WITH n, rs, o ORDER BY o.uri LIMIT 1 "
+                                       f"FOREACH (r IN rs | DELETE r) CREATE (n)-[:`{k}`]->(o) "
+                                       "RETURN n.uri AS focus"))
+        members = subset.value(ps, SH["in"])
+        if members is not None and not literal:
+            from rdflib.collection import Collection
+            allowed = json.dumps([str(m) for m in Collection(subset, members)])
+            cases.setdefault("in", (ps, pick_rel + f"MATCH (n)-[r:`{k}`]->() WITH n, collect(r) AS rs "
+                                    f"MATCH (o:Resource) WHERE NOT o.uri IN {allowed} WITH n, rs, o "
+                                    f"ORDER BY o.uri LIMIT 1 FOREACH (r IN rs | DELETE r) "
+                                    f"CREATE (n)-[:`{k}`]->(o) RETURN n.uri AS focus"))
+        if subset.value(ps, SH.nodeKind) == SH.IRI and not literal:
+            cases.setdefault("nodeKind", (ps, pick_rel + f"SET n.`{k}` = 'not an IRI' RETURN n.uri AS focus"))
+        has_value = subset.value(ps, SH.hasValue)
+        if isinstance(has_value, URIRef) and not literal:
+            cases.setdefault("hasValue", (ps, pick_rel + f"MATCH (n)-[r:`{k}`]->() DELETE r "
+                                                         "RETURN DISTINCT n.uri AS focus"))
+        for kind, delta in (("minInclusive", "- 1"), ("maxInclusive", "+ 1"),
+                            ("minExclusive", "- 0"), ("maxExclusive", "+ 0")):
+            bound = subset.value(ps, SH[kind])
+            if bound is not None and literal:
+                cases.setdefault(kind, (ps, pick_prop + f"SET n.`{k}` = {bound.toPython()} {delta} "
+                                                        "RETURN n.uri AS focus"))
+        other = subset.value(ps, SH.disjoint)
+        if isinstance(other, URIRef):
+            k2 = _label(other, cfg)
+            if literal:
+                cases.setdefault("disjoint", (ps, pick_prop + f"SET n.`{k2}` = n.`{k}` RETURN n.uri AS focus"))
+            else:
+                cases.setdefault("disjoint", (ps, f"MATCH (n:`{T}`)-[:`{k}`]->(m) WITH n, m ORDER BY n.uri, m.uri "
+                                                  f"LIMIT 1 CREATE (n)-[:`{k2}`]->(m) RETURN n.uri AS focus"))
+        for kind in ("minLength", "maxLength"):
+            bound = subset.value(ps, SH[kind])
+            if bound is not None and literal:
+                value = "''" if kind == "minLength" else f"'{'x' * (int(bound) + 1)}'"
+                if kind == "minLength" and int(bound) == 0:
                     continue
-                inverse = subset.value(path, SH.inversePath) if not isinstance(path, URIRef) else None
-                if inverse is not None:
-                    k = _label(inverse, cfg)
-                    if subset.value(ps, SH.minCount) is not None and int(subset.value(ps, SH.minCount)) >= 1:
-                        cases.setdefault("inverseMinCount", (ps, (
-                            f"MATCH (n:`{T}`)<-[:`{k}`]-() WITH DISTINCT n ORDER BY n.uri LIMIT 1 "
-                            f"MATCH (n)<-[r:`{k}`]-() DELETE r RETURN DISTINCT n.uri AS focus")))
-                    if subset.value(ps, SH.maxCount) is not None:
-                        cases.setdefault("inverseMaxCount", (ps, (
-                            f"MATCH (n:`{T}`)<-[:`{k}`]-() WITH DISTINCT n ORDER BY n.uri LIMIT 1 "
-                            f"MATCH (o:Resource) WHERE NOT (o)-[:`{k}`]->(n) AND o <> n WITH n, o ORDER BY o.uri "
-                            f"LIMIT {int(subset.value(ps, SH.maxCount)) + 1} CREATE (o)-[:`{k}`]->(n) "
-                            "RETURN DISTINCT n.uri AS focus")))
-                    continue
-                if not isinstance(path, URIRef):
-                    continue
-                k = _label(path, cfg)
-                literal = path in literal_preds
-                pick_prop = f"MATCH (n:`{T}`) WHERE n.`{k}` IS NOT NULL WITH n ORDER BY n.uri LIMIT 1 "
-                pick_rel = f"MATCH (n:`{T}`)-[:`{k}`]->() WITH DISTINCT n ORDER BY n.uri LIMIT 1 "
-                min_count = subset.value(ps, SH.minCount)
-                if min_count is not None and int(min_count) >= 1:
-                    if literal:
-                        cases.setdefault("minCount", (ps, pick_prop + f"REMOVE n.`{k}` RETURN n.uri AS focus"))
-                    else:
-                        cases.setdefault("minCount", (ps, pick_rel + f"MATCH (n)-[r:`{k}`]->() DELETE r "
-                                                                     "RETURN DISTINCT n.uri AS focus"))
-                if subset.value(ps, SH.maxCount) == Literal(1) and literal:
-                    cases.setdefault("maxCount", (ps, pick_prop + f"SET n.`{k}` = [toString(n.`{k}`), "
-                                                                  f"toString(n.`{k}`) + ' (second)'] RETURN n.uri AS focus"))
-                dt = subset.value(ps, SH.datatype)
-                if dt is not None and literal:
-                    wrong = "0" if dt == XSD.string else "'not a value of this datatype'"
-                    cases.setdefault(f"datatype {dt.n3(subset.namespace_manager)}",
-                                     (ps, pick_prop + f"SET n.`{k}` = {wrong} RETURN n.uri AS focus"))
-                cls_c = subset.value(ps, SH["class"])
-                if cls_c is not None and not literal:
-                    C = _label(cls_c, cfg)
-                    cases.setdefault("class", (ps, pick_rel + f"MATCH (n)-[r:`{k}`]->() WITH n, collect(r) AS rs "
-                                               f"MATCH (o:Resource) WHERE NOT o:`{C}` WITH n, rs, o ORDER BY o.uri LIMIT 1 "
-                                               f"FOREACH (r IN rs | DELETE r) CREATE (n)-[:`{k}`]->(o) "
-                                               "RETURN n.uri AS focus"))
-                members = subset.value(ps, SH["in"])
-                if members is not None and not literal:
-                    from rdflib.collection import Collection
-                    allowed = json.dumps([str(m) for m in Collection(subset, members)])
-                    cases.setdefault("in", (ps, pick_rel + f"MATCH (n)-[r:`{k}`]->() WITH n, collect(r) AS rs "
-                                            f"MATCH (o:Resource) WHERE NOT o.uri IN {allowed} WITH n, rs, o "
-                                            f"ORDER BY o.uri LIMIT 1 FOREACH (r IN rs | DELETE r) "
-                                            f"CREATE (n)-[:`{k}`]->(o) RETURN n.uri AS focus"))
-                if subset.value(ps, SH.nodeKind) == SH.IRI and not literal:
-                    cases.setdefault("nodeKind", (ps, pick_rel + f"SET n.`{k}` = 'not an IRI' RETURN n.uri AS focus"))
-                has_value = subset.value(ps, SH.hasValue)
-                if isinstance(has_value, URIRef) and not literal:
-                    cases.setdefault("hasValue", (ps, pick_rel + f"MATCH (n)-[r:`{k}`]->() DELETE r "
-                                                                 "RETURN DISTINCT n.uri AS focus"))
-                for kind, delta in (("minInclusive", "- 1"), ("maxInclusive", "+ 1"),
-                                    ("minExclusive", "- 0"), ("maxExclusive", "+ 0")):
-                    bound = subset.value(ps, SH[kind])
-                    if bound is not None and literal:
-                        cases.setdefault(kind, (ps, pick_prop + f"SET n.`{k}` = {bound.toPython()} {delta} "
-                                                                "RETURN n.uri AS focus"))
-                other = subset.value(ps, SH.disjoint)
-                if isinstance(other, URIRef):
-                    k2 = _label(other, cfg)
-                    if literal:
-                        cases.setdefault("disjoint", (ps, pick_prop + f"SET n.`{k2}` = n.`{k}` RETURN n.uri AS focus"))
-                    else:
-                        cases.setdefault("disjoint", (ps, f"MATCH (n:`{T}`)-[:`{k}`]->(m) WITH n, m ORDER BY n.uri, m.uri "
-                                                          f"LIMIT 1 CREATE (n)-[:`{k2}`]->(m) RETURN n.uri AS focus"))
-                for kind in ("minLength", "maxLength"):
-                    bound = subset.value(ps, SH[kind])
-                    if bound is not None and literal:
-                        value = "''" if kind == "minLength" else f"'{'x' * (int(bound) + 1)}'"
-                        if kind == "minLength" and int(bound) == 0:
-                            continue
-                        cases.setdefault(kind, (ps, pick_prop + f"SET n.`{k}` = {value} RETURN n.uri AS focus"))
-            if (ns, SH.closed, Literal(True)) in subset:
-                key = f"{_label(URIRef(cfg.own[0] + 'notInTheShape'), cfg)}"
-                cases.setdefault("closed", (ns, f"MATCH (n:`{T}`) WITH n ORDER BY n.uri LIMIT 1 "
-                                                f"SET n.`{key}` = 'a property the closed shape does not declare' "
-                                                "RETURN n.uri AS focus"))
+                cases.setdefault(kind, (ps, pick_prop + f"SET n.`{k}` = {value} RETURN n.uri AS focus"))
+    for ns, cls, is_query in igs.closed_rows(subset):
+        if is_query:
+            continue
+        key = f"{_label(URIRef(cfg.own[0] + 'notInTheShape'), cfg)}"
+        cases.setdefault("closed", (ns, f"MATCH (n:`{_label(cls, cfg)}`) WITH n ORDER BY n.uri LIMIT 1 "
+                                        f"SET n.`{key}` = 'a property the closed shape does not declare' "
+                                        "RETURN n.uri AS focus"))
     return [(kind, ps, cypher) for kind, (ps, cypher) in sorted(cases.items())]
 
 
@@ -300,34 +291,33 @@ def kept_kinds(subset, data):
     data uses, plus closed node shapes. Each needs a fail case (pipeline.md, rule 14)."""
     used = set(data.predicates())
     kinds = set()
-    for ns, _ in applied_shapes(subset):
-        if (ns, SH.closed, Literal(True)) in subset:
-            kinds.add("closed")
-        for ps in shape_properties(subset, ns):
-            path = subset.value(ps, SH.path)
-            inverse = subset.value(path, SH.inversePath) if path is not None and not isinstance(path, URIRef) else None
-            if (inverse or path) not in used:
-                continue
-            min_count = subset.value(ps, SH.minCount)
-            if min_count is not None and int(min_count) >= 1:
-                kinds.add("inverseMinCount" if inverse else "minCount")
-            if subset.value(ps, SH.maxCount) is not None:
-                kinds.add("inverseMaxCount" if inverse else "maxCount")
-            dt = subset.value(ps, SH.datatype)
-            if dt is not None:
-                kinds.add(f"datatype {dt.n3(subset.namespace_manager)}")
-            node_kind = subset.value(ps, SH.nodeKind)
-            if node_kind is not None:
-                kinds.add("nodeKind" if node_kind == SH.IRI else f"nodeKind {node_kind.n3(subset.namespace_manager)}")
-            for p, kind in ((SH["class"], "class"), (SH["in"], "in"), (SH.hasValue, "hasValue"), (SH.disjoint, "disjoint"),
-                            (SH.minInclusive, "minInclusive"), (SH.maxInclusive, "maxInclusive"),
-                            (SH.minExclusive, "minExclusive"), (SH.maxExclusive, "maxExclusive"),
-                            (SH.maxLength, "maxLength")):
-                if subset.value(ps, p) is not None:
-                    kinds.add(kind)
-            min_length = subset.value(ps, SH.minLength)
-            if min_length is not None and int(min_length) > 0:
-                kinds.add("minLength")
+    if igs.closed_rows(subset):
+        kinds.add("closed")
+    for ps in sorted({row[1] for row in igs.property_rows(subset)}, key=str):
+        path = subset.value(ps, SH.path)
+        inverse = subset.value(path, SH.inversePath) if path is not None and not isinstance(path, URIRef) else None
+        if (inverse or path) not in used:
+            continue
+        min_count = subset.value(ps, SH.minCount)
+        if min_count is not None and int(min_count) >= 1:
+            kinds.add("inverseMinCount" if inverse else "minCount")
+        if subset.value(ps, SH.maxCount) is not None:
+            kinds.add("inverseMaxCount" if inverse else "maxCount")
+        dt = subset.value(ps, SH.datatype)
+        if dt is not None:
+            kinds.add(f"datatype {dt.n3(subset.namespace_manager)}")
+        node_kind = subset.value(ps, SH.nodeKind)
+        if node_kind is not None:
+            kinds.add("nodeKind" if node_kind == SH.IRI else f"nodeKind {node_kind.n3(subset.namespace_manager)}")
+        for p, kind in ((SH["class"], "class"), (SH["in"], "in"), (SH.hasValue, "hasValue"), (SH.disjoint, "disjoint"),
+                        (SH.minInclusive, "minInclusive"), (SH.maxInclusive, "maxInclusive"),
+                        (SH.minExclusive, "minExclusive"), (SH.maxExclusive, "maxExclusive"),
+                        (SH.maxLength, "maxLength")):
+            if subset.value(ps, p) is not None:
+                kinds.add(kind)
+        min_length = subset.value(ps, SH.minLength)
+        if min_length is not None and int(min_length) > 0:
+            kinds.add("minLength")
     return sorted(kinds)
 
 
@@ -342,12 +332,10 @@ def component(value):
 def mutant_case(subset, data, cfg):
     """The deliberate mutant: the first minCount case on a literal value (pipeline.md, rule 15)."""
     literal_preds = {p for _, p, o in data if isinstance(o, Literal)}
-    for ns, classes in applied_shapes(subset):
-        for cls in classes:
-            for ps in shape_properties(subset, ns):
-                path, mc = subset.value(ps, SH.path), subset.value(ps, SH.minCount)
-                if isinstance(path, URIRef) and path in literal_preds and mc is not None and int(mc) >= 1:
-                    return _label(cls, cfg), _label(path, cfg)
+    for cls, ps in target_pairs(subset):
+        path, mc = subset.value(ps, SH.path), subset.value(ps, SH.minCount)
+        if isinstance(path, URIRef) and path in literal_preds and mc is not None and int(mc) >= 1:
+            return _label(cls, cfg), _label(path, cfg)
     return None
 
 
@@ -485,6 +473,21 @@ def run(driver, cfg, data_paths, shape_paths, import_dir, merged, loadable, infe
     return report
 
 
+def check_report_command(report_path):
+    return f"build.py check-report --manifest <projection-manifest.json> --report {report_path}"
+
+
+def carried_manual_cases(report_path, report):
+    """Manual cases already in the report, kept when it describes the same inputs and shapes."""
+    try:
+        with open(report_path, encoding="utf-8") as f:
+            old = json.load(f)
+    except (OSError, ValueError):
+        return []
+    same = all(old.get(k) == report.get(k) for k in ("input_fingerprint", "shapes_fingerprint"))
+    return old.get("manual_cases") or [] if same else []
+
+
 def passed(report):
     return (report["shacl_violations_in_graph"] == 0 and report["in_graph_mutant_violations"] > 0
             and report["mutant"]["after_restore"] == 0
@@ -519,6 +522,7 @@ def main(argv):
         return 1
     finally:
         driver.close()
+    report["manual_cases"] = carried_manual_cases(opts["--report"], report)
     with open(opts["--report"], "w", encoding="utf-8") as f:
         f.write(json.dumps(report, indent=2, sort_keys=True, default=str) + "\n")
     summary = {k: report[k] for k in ("shapes_import_rows", "in_graph_shape_constraints", "shacl_violations_in_graph",
@@ -534,10 +538,11 @@ def main(argv):
     if report["kinds_without_case"]:
         print(f"wrote {opts['--report']}: the generated checks passed, and these kinds still need a case: "
               + ", ".join(report["kinds_without_case"]) + ". Next: keep the container up, run a case for each by hand, "
-              "add it to the report's manual_cases, run build.py check-report, then remove the container "
-              "(pipeline.md, rule 14).")
+              "add it to the report's manual_cases, run " + check_report_command(opts["--report"])
+              + ", then remove the container (pipeline.md, rule 14; running.md, rule 5).")
         return 0
-    print(f"wrote {opts['--report']}: every check passed. Next: run build.py check-report, then remove the container.")
+    print(f"wrote {opts['--report']}: the generated checks passed. Next: run {check_report_command(opts['--report'])}, "
+          "then remove the container (running.md, rule 5).")
     return 0
 
 

@@ -48,7 +48,7 @@ Serves the load step (rule 5, the container) and the running step. Read it befor
 
 4. **Commit `inferred.nt`, the manifest and the report together, after one full workstation run.** Keep `loadable.nt`, `merged.ttl` and the downloads out of the repository; they are rebuilt from the Turtle files. *Why:* the three describe one run, and CI compares them with each other.
 
-5. **Run Neo4j in a container bound to localhost, with the pinned plugins, and remove it after each run.** Use the `neo4j:2025.06.2` image (Community edition), mount a plugins folder holding the checked n10s jar at `/plugins` and the import folder at `/import`, let the image install APOC, allow both procedure namespaces, and bind Bolt to `127.0.0.1` on a non-default port, with a password made for this run.
+5. **Run Neo4j in a container bound to localhost, with the pinned plugins, and remove it once `check-report` has passed, or when you stop.** Use the `neo4j:2025.06.2` image (Community edition), mount a plugins folder holding the checked n10s jar at `/plugins` and the import folder at `/import`, let the image install APOC, allow both procedure namespaces, and bind Bolt to `127.0.0.1` on a non-default port, with a password made for this run.
 
    The plugins folder must be writable: the image changes its owner and writes `apoc.jar` into it, so a read-only mount (`:ro`) stops the container. Make new folders for each run, and copy the checked n10s jar into the plugins folder, so the image never writes into the folder that holds your downloads. Open both folders to other users (`chmod 755`): `mktemp -d` makes a folder only its owner can open, and with it the container exits at once ("Folder /plugins is not accessible for user: neo4j").
 
@@ -75,10 +75,10 @@ Serves the load step (rule 5, the container) and the running step. Read it befor
    ```
 
    Then, in this order:
-   1. run `load_verify.py` with `NEO4J_PASSWORD="$PASSWORD"`, `--bolt bolt://127.0.0.1:17687`, `--import-dir "$IMPORT"` and `--plugins-dir "$PLUGINS"`;
-   2. if it lists kinds that still need a case, run a case for each by hand against the same container and add it to the report's `manual_cases` (`pipeline.md`, rule 14);
-   3. run `build.py check-report`;
-   4. only then `docker rm -f -v lpg-projection` and `unset PASSWORD`; `docker ps -a` then lists no projection container. The `-v` removes the container's anonymous `/data` and `/logs` volumes; without it each run leaves them behind, and after a few runs Docker's disk fills and Neo4j fails to start ("Database name 'system' is invalid"). *Why:* the load script reads `file:///import/...`; Community edition has one user database, so the determinism check empties it between loads (`pipeline.md`, rule 17); and a forgotten container with a known password is an open database on the workstation.
+   1. run `load_verify.py` as its docstring shows, with `NEO4J_PASSWORD="$PASSWORD"`, `--bolt bolt://127.0.0.1:17687`, `--import-dir "$IMPORT"`, `--plugins-dir "$PLUGINS"` and the configuration, shape, data, `merged.ttl`, `loadable.nt`, `inferred.nt` and `--report` arguments;
+   2. if it lists kinds that still need a case, run a case for each by hand against the same container and add it to the report's `manual_cases` (`pipeline.md`, rule 14). The script writes the key as an empty list, and keeps cases already in the report when a rerun describes the same inputs and shapes;
+   3. run `build.py check-report --manifest projection-manifest.json --report projection-report.json`, as in rule 1;
+   4. only then `docker rm -f -v lpg-projection` and `unset PASSWORD`. If you stop before `check-report` passes, run the same removal anyway; `docker ps -a` then lists no projection container. The `-v` removes the container's anonymous `/data` and `/logs` volumes; without it each run leaves them behind, and after a few runs Docker's disk fills and Neo4j fails to start ("Database name 'system' is invalid"). *Why:* the load script reads `file:///import/...`; Community edition has one user database, so the determinism check empties it between loads (`pipeline.md`, rule 17); and a forgotten container with a known password is an open database on the workstation.
 
 6. **Change only the loader as the graph grows:**
 
