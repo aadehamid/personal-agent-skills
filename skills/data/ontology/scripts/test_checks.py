@@ -182,6 +182,15 @@ class TaxonomyChecks(OneBreak, unittest.TestCase):
             g.add((lib("loanOf"), RDF.type, RDF.Property))
         self.broken(mutate, "property-kind", "lib:loanOf is typed 0")
 
+    def test_characteristic_only_property(self):
+        # Declared only as owl:TransitiveProperty: still a property, so it needs a kind, a label and a definition.
+        g = skeleton()
+        g.add((lib("partOf"), RDF.type, OWL.TransitiveProperty))
+        fails = check_taxonomy.check(g)
+        self.assertEqual({n for n, _ in fails}, {"property-kind", "label", "definition"}, fails)
+        self.assertIn(("property-kind", "lib:partOf is typed 0 of owl:ObjectProperty, "
+                                        "owl:DatatypeProperty and owl:AnnotationProperty; it needs exactly one"), fails)
+
     # domain-range
     def test_property_with_two_domains(self):
         self.broken(lambda g: g.add((lib("dueDate"), RDFS.domain, lib("Copy"))), "domain-range", "lib:dueDate has 2 rdfs:domain values")

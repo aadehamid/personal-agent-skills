@@ -23,7 +23,8 @@ Checks (references/identity-taxonomy.md and references/domain-model.md):
   class-kind     each class is an owl:Class; an rdfs:Class without owl:Class fails
                  (domain-model.md, rule 4)
   property-kind  each property is exactly one of owl:ObjectProperty, owl:DatatypeProperty,
-                 owl:AnnotationProperty (domain-model.md, rule 5); a bare rdf:Property fails
+                 owl:AnnotationProperty (domain-model.md, rule 5); a bare rdf:Property, or a
+                 property declared only by a characteristic such as owl:TransitiveProperty, fails
   domain-range   each object and datatype property has exactly one rdfs:domain and one
                  rdfs:range (annotation properties need neither); no rdfs:Literal range;
                  every domain, range and rdfs:subClassOf target is an IRI (a literal, even
@@ -51,6 +52,8 @@ VALUE_KINDS = (OWL.ObjectProperty, OWL.DatatypeProperty)
 KNOWN_NAMESPACES = (str(XSD), str(RDF), str(RDFS), str(OWL), str(SKOS),
                     "http://www.w3.org/ns/org#", str(PROV), str(DCAT), str(DCTERMS))
 RDF_DATATYPES = {RDF.langString, RDF.HTML, RDF.XMLLiteral}
+CHARACTERISTICS = (OWL.TransitiveProperty, OWL.SymmetricProperty, OWL.AsymmetricProperty, OWL.ReflexiveProperty,
+                   OWL.IrreflexiveProperty, OWL.FunctionalProperty, OWL.InverseFunctionalProperty)
 
 
 def check(g, allowed_namespaces=()):
@@ -154,6 +157,8 @@ def check(g, allowed_namespaces=()):
             fails.append(("class-kind", f"{short(c)} is an rdfs:Class; write classes as owl:Class"))
     properties = {p for kind in PROPERTY_KINDS for p in g.subjects(RDF.type, kind)}
     properties |= set(g.subjects(RDF.type, RDF.Property))
+    # A characteristic (owl:TransitiveProperty and the rest) also declares a property; it still needs its kind.
+    properties |= {p for kind in CHARACTERISTICS for p in g.subjects(RDF.type, kind)}
     for term in sorted(classes | properties):
         name = short(term)
         if not any(True for _ in g.objects(term, RDFS.label)):
