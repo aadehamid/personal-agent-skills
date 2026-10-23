@@ -94,6 +94,9 @@ def check(g, allowed_namespaces=()):
         schemes = set(g.objects(c, SKOS.inScheme))
         if not schemes:
             fails.append(("scheme", f"{name} is in no skos:ConceptScheme (skos:inScheme)"))
+        for scheme in schemes:
+            if (scheme, RDF.type, SKOS.ConceptScheme) not in g:
+                fails.append(("scheme", f"{name} is in {short(scheme)}, which is not a declared skos:ConceptScheme"))
         codes = list(g.objects(c, SKOS.notation))
         if not codes:
             fails.append(("notation", f"{name} has no skos:notation"))
@@ -104,6 +107,9 @@ def check(g, allowed_namespaces=()):
                 notations[(scheme, str(code))].append(name)
 
         tops = set(g.objects(c, SKOS.topConceptOf))
+        for scheme in tops:
+            if (scheme, RDF.type, SKOS.ConceptScheme) not in g:
+                fails.append(("scheme", f"{name} is a top concept of {short(scheme)}, which is not a declared skos:ConceptScheme"))
         parents = list(g.objects(c, SKOS.broader))
         if tops and parents:
             fails.append(("parent", f"{name} is a top concept and also has skos:broader"))
@@ -125,6 +131,9 @@ def check(g, allowed_namespaces=()):
 
     for scheme in g.subjects(RDF.type, SKOS.ConceptScheme):
         for top in g.objects(scheme, SKOS.hasTopConcept):
+            if top not in concepts:
+                fails.append(("scheme", f"{short(scheme)} lists {short(top)} as a top concept, "
+                                        f"but {short(top)} is not a declared skos:Concept"))
             if (top, SKOS.topConceptOf, scheme) not in g:
                 fails.append(("scheme", f"{short(scheme)} lists {short(top)} as a top concept, "
                                         f"but {short(top)} has no skos:topConceptOf it"))

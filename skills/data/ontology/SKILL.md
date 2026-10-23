@@ -66,4 +66,4 @@ Each rule lives in the reference named; read it there.
 
 ## Templates and scripts
 
-Copy from `templates/`: the requirements file, policies, survey register, scope review, parked list, identity table, Turtle and shapes skeletons, definition review, competency questions, decision record, decision package, answers file, release checklist and check script. Run from `scripts/` (with `uv run --with rdflib --with pyyaml`): `check_requirements.py` on the requirements file and `check_taxonomy.py` on the Turtle; both exit non-zero on any failure.
+Copy from `templates/`: the requirements file, policies, survey register, scope review, parked list, identity table, Turtle and shapes skeletons, definition review, competency questions, decision record, decision package, answers file, release checklist and check script. Run from `scripts/` (with `uv run --with rdflib --with pyyaml`): `check_requirements.py` on the requirements file and `check_taxonomy.py` on the data files, never on `*-shapes.ttl` (`references/identity-taxonomy.md`, Step 2, rule 5); both exit non-zero on any failure.
