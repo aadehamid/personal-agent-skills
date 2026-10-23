@@ -13,7 +13,7 @@ Every authored definition meets all eight points. Points 1 and 3 take the form f
    | Activity or process | The recurring activity and its intended outcome. Classify by primary purpose: the decision, outcome or responsibility it serves, never the asset, department or system. | "This is a way of carrying out [parent]." |
    | Thing (a class, or a concept naming a kind of thing) | Genus and difference: "a [parent or broader kind] that [what sets it apart]", plus what makes two of them the same one ("identified by its barcode"). | "Every [term] is a [parent]." |
    | State or code value | The condition it names, of what, from when it starts until when it ends. | It is in its list's scheme; its siblings exclude each other unless the list says a thing can hold two at once. |
-   | Property | What it relates (domain to range) and what the link means in the business, in the stored direction. | For a subproperty: every use of it is also a use of the parent. |
+   | Property | Object or datatype: what it relates (domain to range) and what the link means in the business, in the stored direction. Annotation: what it records about a term and who reads it. | For a subproperty: every use of it is also a use of the parent. |
 
 2. **Distinguishing.** The definition tells the term apart from its siblings and nearest neighbours; no two siblings share the part that sets them apart.
 3. **Parent test.** The test for its kind (table above) holds. Top concepts and classes with no parent skip it.

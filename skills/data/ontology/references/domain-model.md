@@ -11,7 +11,8 @@ Standards: OWL 2 Web Ontology Language Primer (Second Edition), W3C Recommendati
    | Kind | Test | Written as |
    |---|---|---|
    | **Code-list value** | It is one of the values a property takes from a governed list ("overdue", "lost"). | `skos:Concept` in the list's own scheme (`identity-taxonomy.md`, Step 3, rule 11) |
-   | **Property** | It names a link between two things ("a loan's borrower") or between a thing and a value ("a loan's due date"). | `owl:ObjectProperty` or `owl:DatatypeProperty`; `owl:AnnotationProperty` for metadata about terms (rules 5 to 8) |
+   | **Metadata property** | It records something about a term itself, not about the things the term describes (a graph name, an editorial status). | `owl:AnnotationProperty` (rules 5 and 8) |
+   | **Property** | It names a link between two things ("a loan's borrower") or between a thing and a value ("a loan's due date"). | `owl:ObjectProperty` or `owl:DatatypeProperty` (rules 5 to 8) |
    | **Class** | Consumers' records will be instances of it, and a competency question asks about their properties or links ("which copy is this loan of?"). | `owl:Class` (rule 4) |
    | **Concept** | The business names and classifies it, and no question asks about the properties of its instances: an activity in a process hierarchy, a category, a kind used only to sort things. | `skos:Concept` in the main scheme (`identity-taxonomy.md`, Step 3) |
    | **Reference individual** | A named real thing or a published parameter (one organization, the loan period a published policy sets). | An instance of a class, with a source and an as-of date (`foundations.md`, policy 2) |
@@ -35,4 +36,4 @@ Standards: OWL 2 Web Ontology Language Primer (Second Edition), W3C Recommendati
 
 9. **Define the class, not its instances.** The ontology holds `Loan`, its properties and its shapes; the loans themselves live in the lending system (`foundations.md`, policy 2). Ship one illustrative instance per class only inside a shapes test, marked as an illustration (`provenance.md`, rule 6). *Why:* an instance in the ontology is a record that goes stale the next day.
 
-`templates/ontology-skeleton.ttl` shows each kind for a library (concepts, a code list, three classes, four properties); `templates/shapes-skeleton.ttl` shows their shapes. `scripts/check_taxonomy.py` checks the mechanical part of rules 4 to 6 and 8, including that each property's range matches its kind.
+`templates/ontology-skeleton.ttl` shows each kind for a library (concepts, a code list, three classes, four properties); `templates/shapes-skeleton.ttl` shows their shapes. `scripts/check_taxonomy.py` checks the mechanical part of rules 4 to 6 and 8, including that each object or datatype property's range matches its kind.

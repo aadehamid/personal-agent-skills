@@ -91,7 +91,8 @@ lib:Copy a owl:Class ;
     skos:definition "A physical item in the collection that can be lent on its own, identified by its barcode."@en ;
     dcterms:source "Example lending policy, edition 2026-01, clause 2.4"@en .
 
-# --- Properties: one kind, one domain, one range each (domain-model.md, rules 5 to 8).
+# --- Properties: one kind each; object and datatype properties one domain and one range; annotation
+#     properties label and definition only (domain-model.md, rules 5 to 8).
 lib:borrower a owl:ObjectProperty ;
     rdfs:label "borrower"@en ;
     skos:definition "Relates a loan to the member who may keep the copy under it."@en ;
