@@ -181,7 +181,9 @@ def applied_node_shapes(shapes):
     """Shapes a SHACL validator applies: those with any target (sh:targetClass, sh:targetNode,
     sh:targetSubjectsOf, sh:targetObjectsOf, or a SHACL-SPARQL sh:target), those that are themselves
     a class (the implicit class target), and every shape reached from one of these through sh:node,
-    sh:and, sh:or or sh:xone. This is what pySHACL validates, not what n10s runs in the graph."""
+    sh:and, sh:or or sh:xone. This is what pySHACL validates, not what n10s runs in the graph: Rule 2
+    and the multivalued list follow SHACL, which runs before the load on every shape. What n10s runs
+    is in_graph_shapes.applied_node_shapes and hop_source."""
     from rdflib.collection import Collection
     applied = {s for p in TARGET_PREDICATES for s in shapes.subjects(p, None)}
     applied |= {s for kind in CLASS_KINDS for s in shapes.subjects(RDF.type, kind)

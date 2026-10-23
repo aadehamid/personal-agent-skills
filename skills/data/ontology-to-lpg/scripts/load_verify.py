@@ -188,11 +188,12 @@ def applied_shapes(subset):
 
 
 def shape_properties(subset, ns):
-    """The property shapes n10s runs for a node shape: its own, and those of a shape it reaches with
-    sh:node (n10s reads sh:node?/sh:property, one hop)."""
+    """The property shapes n10s runs for a node shape: its own, and, for a shape with sh:targetClass
+    or sh:targetQuery, those of a shape it reaches with sh:node (one hop; in_graph_shapes.hop_source)."""
     found = set(subset.objects(ns, SH.property))
-    for other in subset.objects(ns, SH.node):
-        found |= set(subset.objects(other, SH.property))
+    if igs.hop_source(subset, ns):
+        for other in subset.objects(ns, SH.node):
+            found |= set(subset.objects(other, SH.property))
     return sorted(found, key=str)
 
 
@@ -531,10 +532,12 @@ def main(argv):
         print("FAIL the verify step did not pass; see the report's samples")
         return 1
     if report["kinds_without_case"]:
-        print("NOTE kinds left in the graph with no generated fail case: " + ", ".join(report["kinds_without_case"])
-              + ". Write a case for each while the container is up and add it to the report's manual_cases; "
-              "build.py check-report fails until each has one (pipeline.md, rule 14).")
-    print(f"wrote {opts['--report']}: every check passed")
+        print(f"wrote {opts['--report']}: the generated checks passed, and these kinds still need a case: "
+              + ", ".join(report["kinds_without_case"]) + ". Next: keep the container up, run a case for each by hand, "
+              "add it to the report's manual_cases, run build.py check-report, then remove the container "
+              "(pipeline.md, rule 14).")
+        return 0
+    print(f"wrote {opts['--report']}: every check passed. Next: run build.py check-report, then remove the container.")
     return 0
 
 

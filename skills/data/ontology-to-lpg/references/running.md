@@ -74,7 +74,11 @@ Serves the load step (rule 5, the container) and the running step. Read it befor
    docker logs lpg-projection 2>&1 | grep -q 'Started.' || { echo 'Neo4j did not start in 180 seconds'; exit 1; }
    ```
 
-   Then run `load_verify.py` with `NEO4J_PASSWORD="$PASSWORD"`, `--bolt bolt://127.0.0.1:17687`, `--import-dir "$IMPORT"` and `--plugins-dir "$PLUGINS"`. After the run, `docker rm -f -v lpg-projection` and `unset PASSWORD`; `docker ps -a` then lists no projection container. The `-v` removes the container's anonymous `/data` and `/logs` volumes; without it each run leaves them behind, and after a few runs Docker's disk fills and Neo4j fails to start ("Database name 'system' is invalid"). *Why:* the load script reads `file:///import/...`; Community edition has one user database, so the determinism check empties it between loads (`pipeline.md`, rule 17); and a forgotten container with a known password is an open database on the workstation.
+   Then, in this order:
+   1. run `load_verify.py` with `NEO4J_PASSWORD="$PASSWORD"`, `--bolt bolt://127.0.0.1:17687`, `--import-dir "$IMPORT"` and `--plugins-dir "$PLUGINS"`;
+   2. if it lists kinds that still need a case, run a case for each by hand against the same container and add it to the report's `manual_cases` (`pipeline.md`, rule 14);
+   3. run `build.py check-report`;
+   4. only then `docker rm -f -v lpg-projection` and `unset PASSWORD`; `docker ps -a` then lists no projection container. The `-v` removes the container's anonymous `/data` and `/logs` volumes; without it each run leaves them behind, and after a few runs Docker's disk fills and Neo4j fails to start ("Database name 'system' is invalid"). *Why:* the load script reads `file:///import/...`; Community edition has one user database, so the determinism check empties it between loads (`pipeline.md`, rule 17); and a forgotten container with a known password is an open database on the workstation.
 
 6. **Change only the loader as the graph grows:**
 

@@ -1271,8 +1271,7 @@ class RoundFour(OneBreak, unittest.TestCase):
         self.assertIn("minCount", [k for k, _, _ in lv.fail_cases(sub, module(), config())])
         self.assertEqual(lv.mutant_case(sub, module(), config()), ("lib__Copy", "lib__barcode"))
 
-    def test_rdfs_class_shape_with_only_a_node_hop_is_inventoried(self):
-        # quick check 1: an implicit-class shape whose constraint sits behind sh:node
+    def class_with_hop(self):
         g = Graph()
         g.add((lib("Copy"), RDF.type, RDFS.Class))
         g.add((lib("Copy"), RDF.type, SH.NodeShape))
@@ -1281,11 +1280,71 @@ class RoundFour(OneBreak, unittest.TestCase):
         g.add((lib("Inner"), SH.property, lib("Inner-p")))
         g.add((lib("Inner-p"), SH.path, lib("barcode")))
         g.add((lib("Inner-p"), SH.minCount, Literal(1)))
+        return g
+
+    def test_node_hop_from_an_rdfs_class_shape_is_dropped(self):
+        # quick check 2: n10s's implicit-class branch reads only the class's own sh:property
+        # (SHACLValidator.java lines 88 and 89), so the hop never runs; the subset drops it and records why.
+        sub, dropped = igs.subset(self.class_with_hop())
+        self.assertNotIn((lib("Copy"), SH.node, None), sub)
+        self.assertNotIn((lib("Inner-p"), SH.minCount, Literal(1)), sub)
+        self.assertIn((lib("Copy"), SH.node), {(x, p) for x, p, _ in dropped})
+        self.assertEqual(lv.kept_kinds(sub, module()), [])
+        self.assertEqual(lv.fail_cases(sub, module(), config()), [])
+        self.assertIsNone(lv.mutant_case(sub, module(), config()))
+
+    def test_rdfs_class_keeps_its_own_property_and_drops_the_hop(self):
+        g = self.class_with_hop()
+        g.add((lib("Copy"), SH.property, lib("Own-p")))
+        g.add((lib("Own-p"), SH.path, lib("copyOf")))
+        g.add((lib("Own-p"), SH.minCount, Literal(1)))
         sub, _ = igs.subset(g)
-        self.assertIn((lib("Inner-p"), SH.minCount, Literal(1)), sub)
-        self.assertIn("minCount", lv.kept_kinds(sub, module()))
-        self.assertIn("minCount", [k for k, _, _ in lv.fail_cases(sub, module(), config())])
-        self.assertEqual(lv.mutant_case(sub, module(), config()), ("lib__Copy", "lib__barcode"))
+        self.assertIn((lib("Own-p"), SH.minCount, Literal(1)), sub)
+        self.assertNotIn((lib("Inner-p"), SH.minCount, Literal(1)), sub)
+        self.assertEqual(lv.shape_properties(sub, lib("Copy")), [lib("Own-p")])
+
+    def test_inventories_do_not_follow_a_hop_from_a_class_shape(self):
+        # even if a hop from an rdfs:Class reached the inventories, they would not follow it
+        self.assertEqual(lv.shape_properties(self.class_with_hop(), lib("Copy")), [])
+
+    def test_rdfs_class_not_typed_as_a_shape_is_not_applied(self):
+        # both n10s queries need ?ns typed sh:NodeShape (lines 72 to 74, 129 and 130)
+        g = Graph()
+        g.add((lib("Copy"), RDF.type, RDFS.Class))
+        g.add((lib("Copy"), SH.property, lib("C-p")))
+        g.add((lib("C-p"), SH.path, lib("barcode")))
+        g.add((lib("C-p"), SH.minCount, Literal(1)))
+        self.assertNotIn(lib("Copy"), igs.applied_node_shapes(g))
+        sub, dropped = igs.subset(g)
+        self.assertNotIn((lib("C-p"), SH.minCount, Literal(1)), sub)
+        self.assertIn(lib("Copy"), {x for x, _, _ in dropped})
+
+    def main_output(self, kinds):
+        """load_verify.main with the database part replaced by a fixed report."""
+        import sys as _sys
+        from unittest import mock
+        report = {"shacl_violations_in_graph": 0, "in_graph_mutant_violations": 1, "mutant": {"after_restore": 0},
+                  "roundtrip_lost": 0, "roundtrip_added": 0, "determinism_hash_sorted": "h",
+                  "determinism_hash_shuffled": "h", "fail_cases": [], "kinds_without_case": kinds,
+                  "shapes_import_rows": 1, "in_graph_shape_constraints": 1, "nodes": 1, "relationships": 0}
+        fake = mock.MagicMock()
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "x"}), \
+                mock.patch.dict(_sys.modules, {"neo4j": fake}), mock.patch.object(lv, "run", return_value=report):
+            args = ["--config", CONFIG, "--shapes", SHAPES, "--bolt", "bolt://127.0.0.1:1", "--import-dir", tmp,
+                    "--merged", MODULE, "--loadable", MODULE, "--inferred", MODULE,
+                    "--report", os.path.join(tmp, "r.json"), MODULE]
+            return run_main(lv.main, args)
+
+    def test_load_verify_says_to_keep_the_container_for_manual_cases(self):
+        code, out = self.main_output(["closed"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("still need a case: closed. Next: keep the container up", out)
+        self.assertNotIn("every check passed", out)
+
+    def test_load_verify_names_the_next_step_when_nothing_is_left(self):
+        code, out = self.main_output([])
+        self.assertEqual(code, 0, out)
+        self.assertIn("Next: run build.py check-report, then remove the container", out)
 
     def test_rdfs_class_shape_that_is_only_closed_is_inventoried(self):
         g = Graph()

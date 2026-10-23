@@ -105,14 +105,27 @@ def _reason(shapes, s, p, o):
 
 
 def _applied(g, shape):
+    """sh:targetClass or sh:targetQuery; or an rdfs:Class that is also typed sh:NodeShape (or sh:Shape):
+    both n10s queries need ?ns typed as a shape (lines 72 to 74, and 129 to 130 for sh:closed)."""
+    is_shape = (shape, RDF.type, SH.NodeShape) in g or (shape, RDF.type, SH.Shape) in g
     return ((shape, SH.targetClass, None) in g or (shape, TARGET_QUERY, None) in g
-            or any((shape, RDF.type, k) in g for k in CLASS_KINDS))
+            or (is_shape and any((shape, RDF.type, k) in g for k in CLASS_KINDS)))
+
+
+def hop_source(g, shape):
+    """True when n10s follows sh:node from this shape: only from one with sh:targetClass or
+    sh:targetQuery. PROP_CONSTRAINT_QUERY (SHACLValidator.java at 2025.06.1) reaches ?ps through
+    "?ns a sh:NodeShape ; sh:node?/sh:property ?ps" (lines 72 to 74), but its implicit-class branch
+    (lines 88 and 89) reads "?targetClass sh:property ?ps; a rdfs:Class", so an rdfs:Class runs only
+    its own sh:property shapes."""
+    return (shape, SH.targetClass, None) in g or (shape, TARGET_QUERY, None) in g
 
 
 def applied_node_shapes(g):
     """Every shape n10s applies in g: one with sh:targetClass or sh:targetQuery, or one typed
-    rdfs:Class, whatever its constraints (own sh:property, an sh:node hop, sh:closed). load_verify.py
-    builds its inventories from this, so they cover exactly what the subset keeps as applied."""
+    rdfs:Class (its own sh:property shapes, and sh:closed through NODE_CONSTRAINT_QUERY, line 138).
+    An sh:node hop counts only from a hop_source. load_verify.py builds its inventories from this
+    and from hop_source, so they cover exactly what the subset keeps and n10s reads."""
     candidates = set(g.subjects(RDF.type, None)) | set(g.subjects(SH.targetClass, None)) \
         | set(g.subjects(TARGET_QUERY, None))
     return {s for s in candidates if _applied(g, s)}
@@ -152,13 +165,19 @@ def subset(shapes):
             dropped.append((node, RDF.type, "a SHACL-SPARQL node left without its query"))
     node_shapes = sorted(set(g.subjects(RDF.type, SH.NodeShape)) | set(g.subjects(SH.node, None)), key=str)
     applied = {n for n in node_shapes if _applied(g, n)}
-    # n10s follows sh:node one hop from an applied shape; a hop from any other shape is not read.
-    for n in sorted(set(g.subjects(SH.node, None)) - applied, key=str):
+    # n10s follows sh:node one hop, and only from a shape with sh:targetClass or sh:targetQuery.
+    for n in sorted(set(g.subjects(SH.node, None)), key=str):
+        if n in applied and hop_source(g, n):
+            continue
+        reason = ("n10s does not follow sh:node from an rdfs:Class shape: its implicit-class query reads only "
+                  "the class's own sh:property" if n in applied else
+                  "n10s follows sh:node one hop, from a shape with sh:targetClass or sh:targetQuery only")
         for o in list(g.objects(n, SH.node)):
             g.remove((n, SH.node, o))
-            dropped.append((n, SH.node, "n10s follows sh:node one hop from an applied shape only"))
+            dropped.append((n, SH.node, reason))
     reached = {o for n in applied for o in g.objects(n, SH.node)}
-    node_shapes = sorted(set(g.subjects(RDF.type, SH.NodeShape)) | reached, key=str)
+    node_shapes = sorted(set(g.subjects(RDF.type, SH.NodeShape)) | set(g.subjects(SH.property, None)) | reached,
+                         key=str)
     unapplied = [n for n in node_shapes if n not in applied and n not in reached]
     kept_uses = {ps for n in node_shapes if n not in unapplied for ps in g.objects(n, SH.property)}
     for shape in unapplied:
