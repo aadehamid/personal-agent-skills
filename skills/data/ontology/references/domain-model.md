@@ -1,6 +1,6 @@
 # Concept kinds, classes and properties
 
-Serves Step 3. Read it before you decide what a term becomes (a SKOS concept, an OWL class, a property or a code-list value), and before you write a class or a property. The SKOS scheme itself is in `identity-taxonomy.md`, Step 3; the definition bar is in `quality.md`.
+Serves Step 3. Read it before you decide what a term becomes (a SKOS concept, an OWL class, a property, a metadata property, a code-list value or a reference individual), and before you write a class or a property. The SKOS scheme itself is in `identity-taxonomy.md`, Step 3; the definition bar is in `quality.md`.
 
 Standards: OWL 2 Web Ontology Language Primer (Second Edition), W3C Recommendation 11 December 2012, https://www.w3.org/TR/owl2-primer/; RDF Schema 1.1, W3C Recommendation 25 February 2014, https://www.w3.org/TR/rdf-schema/; SKOS Reference, W3C Recommendation 18 August 2009, §1.3 "SKOS, RDF and OWL", https://www.w3.org/TR/skos-reference/; SKOS Primer, W3C Working Group Note 18 August 2009, §5.2 "SKOS Concepts and OWL Classes", https://www.w3.org/TR/skos-primer/; SHACL, W3C Recommendation 20 July 2017, https://www.w3.org/TR/shacl/.
 
