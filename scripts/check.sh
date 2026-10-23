@@ -60,6 +60,10 @@ echo "== ontology skill scripts =="
 (cd skills/data/ontology/scripts && uv run --no-project --with rdflib --with pyyaml --with pyshacl python3 -m unittest -q test_checks)
 
 echo
+echo "== ontology-to-lpg skill scripts =="
+(cd skills/data/ontology-to-lpg/scripts && uv run --no-project --with rdflib --with pyshacl python3 -m unittest -q test_projection)
+
+echo
 echo "== shell syntax =="
 while IFS= read -r script; do
   bash -n "$script"

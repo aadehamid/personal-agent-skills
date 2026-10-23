@@ -1,14 +1,14 @@
 ---
 name: ontology
 description: >-
-  Gated method for building a business ontology for any domain on the W3C stack (RDF, SKOS, OWL, SHACL, PROV-O, DCAT). Use when designing, extending or reviewing an ontology or knowledge graph; deciding whether a term is a SKOS concept, an OWL class, a property, a metadata property, a code-list value or a reference individual; promoting spreadsheet or workbook data into governed triples; modelling roles, RACI or real organizations; writing SHACL shapes or competency questions as SPARQL; versioning, packaging or approving a release; deciding whether to reuse a public ontology; or projecting an ontology into a Neo4j property graph.
+  Gated method for building a business ontology for any domain on the W3C stack (RDF, SKOS, OWL, SHACL, PROV-O, DCAT). Use when designing, extending or reviewing an ontology or knowledge graph; deciding whether a term is a SKOS concept, an OWL class, a property, a metadata property, a code-list value or a reference individual; promoting spreadsheet or workbook data into governed triples; modelling roles, RACI or real organizations; writing SHACL shapes or competency questions as SPARQL; versioning, packaging or approving a release; or deciding whether to reuse a public ontology.
 ---
 
 # Ontology
 
 Build the ontology in **gated** steps. Each step ends on its "Done when" gate; start the next step only when the gate is met. The user, the ontology owner, makes every decision; your job is the evidence, the options and a recommendation. What counts as decided, and what stays with the owner under a delegation: `references/governance.md`, rules 6 and 12.
 
-Scope: from intake to a released, checked ontology and its property-graph projection. Namespace hosting is the owner's decision (`references/release.md`, rule 20); event records and measure values stay in the consumers' systems (`references/foundations.md`, policy 2); application Cypher and data-model advice for a graph database belong to a graph-database skill.
+Scope: from intake to a released, checked ontology; Step 12 hands its property-graph projection to the `ontology-to-lpg` skill. Namespace hosting is the owner's decision (`references/release.md`, rule 20); event records and measure values stay in the consumers' systems (`references/foundations.md`, policy 2); application Cypher and data-model advice for a graph database belong to a graph-database skill.
 
 ## First, find where the build stands
 
@@ -45,8 +45,8 @@ Keep the order, except Step 8, which runs right after Step 0. Before you work on
     Done when: every released module is a package that passes `--verify`, the combined catalog lists every release and passes `--verify`, and each release is retrievable at its tag. Before the first module release, every row on the source-correction backlog has a fresh verdict (`references/promotion.md`, the first-release gate). "The catalog resolves" waits for the owner's hosting decision.
 11. **Regression.** Read `references/regression.md`.
     Done when: every competency question passes on the released packages, or is partial, parked or waiting by a recorded decision that names what it waits for.
-12. **Property-graph projection (optional).** Read `references/lpg-projection.md`; its design rules apply from Step 1.
-    Done when: over every released package, the in-graph SHACL is clean and its mutant fails, the round-trip diff is empty, and two load orders give equal hashes.
+12. **Property-graph projection (optional).** Read `references/lpg-projection.md`, then load the `ontology-to-lpg` skill, which holds the method; its design rules apply from Step 1.
+    Done when: `ontology-to-lpg`'s verify gate is met over every released package: the in-graph SHACL is clean and its mutant fails, the round-trip diff is empty, and two load orders give equal hashes.
 
 ## Rules that apply at every step
 

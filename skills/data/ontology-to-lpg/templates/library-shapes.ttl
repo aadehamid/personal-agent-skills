@@ -1,0 +1,83 @@
+# The shapes released with library-module.ttl. Every own property has a cardinality (Rule 2).
+# Some constraints here cannot run in n10s 2025.06.1 and are dropped from the in-graph subset by
+# scripts/in_graph_shapes.py (references/pipeline.md, rule 13): sh:datatype rdf:langString,
+# sh:languageIn, sh:pattern and the literal sh:in list on lib:position. The IRI sh:in list on
+# lib:creatorRole stays.
+
+@prefix lib:  <https://id.example.org/library/> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+lib:WorkShape a sh:NodeShape ;
+    sh:targetClass lib:Work ;
+    sh:property lib:WorkShape-title, lib:WorkShape-altTitle, lib:WorkShape-hasAuthorship .
+
+lib:WorkShape-title a sh:PropertyShape ;
+    sh:path lib:title ; sh:datatype rdf:langString ; sh:languageIn ( "en" ) ;
+    sh:minCount 1 ; sh:maxCount 1 ;
+    sh:message "A work has exactly one English title."@en .
+
+lib:WorkShape-altTitle a sh:PropertyShape ;
+    sh:path lib:altTitle ; sh:datatype rdf:langString ;
+    sh:minCount 0 ;
+    sh:message "Alternative titles are language-tagged text; a work may have any number."@en .
+
+lib:WorkShape-hasAuthorship a sh:PropertyShape ;
+    sh:path lib:hasAuthorship ; sh:class lib:Authorship ; sh:nodeKind sh:IRI ;
+    sh:minCount 1 ;
+    sh:message "A work has at least one authorship, each an IRI."@en .
+
+lib:PersonShape a sh:NodeShape ;
+    sh:targetClass lib:Person ;
+    sh:property lib:PersonShape-name .
+
+lib:PersonShape-name a sh:PropertyShape ;
+    sh:path lib:name ; sh:datatype xsd:string ;
+    sh:minCount 1 ; sh:maxCount 1 ;
+    sh:message "A person has exactly one name."@en .
+
+lib:CopyShape a sh:NodeShape ;
+    sh:targetClass lib:Copy ;
+    sh:property lib:CopyShape-barcode, lib:CopyShape-copyOf, lib:CopyShape-shelfNote .
+
+lib:CopyShape-barcode a sh:PropertyShape ;
+    sh:path lib:barcode ; sh:datatype xsd:string ; sh:pattern "^[0-9]{8}$" ;
+    sh:minCount 1 ; sh:maxCount 1 ;
+    sh:message "A copy has exactly one eight-digit barcode."@en .
+
+lib:CopyShape-copyOf a sh:PropertyShape ;
+    sh:path lib:copyOf ; sh:class lib:Work ;
+    sh:minCount 1 ; sh:maxCount 1 ;
+    sh:message "A copy is a copy of exactly one work."@en .
+
+lib:CopyShape-shelfNote a sh:PropertyShape ;
+    sh:path lib:shelfNote ; sh:datatype rdf:langString ;
+    sh:maxCount 1 ;
+    sh:message "A copy has at most one shelf note."@en .
+
+lib:AuthorshipShape a sh:NodeShape ;
+    sh:targetClass lib:Authorship ;
+    sh:property lib:AuthorshipShape-agent, lib:AuthorshipShape-role, lib:AuthorshipShape-position,
+                lib:AuthorshipShape-source .
+
+lib:AuthorshipShape-agent a sh:PropertyShape ;
+    sh:path lib:authorshipAgent ; sh:class lib:Person ;
+    sh:minCount 1 ; sh:maxCount 1 ;
+    sh:message "An authorship names exactly one person (Rule 4a: one value per end)."@en .
+
+lib:AuthorshipShape-role a sh:PropertyShape ;
+    sh:path lib:creatorRole ; sh:in ( lib:author lib:illustrator ) ;
+    sh:minCount 1 ; sh:maxCount 1 ;
+    sh:message "An authorship has exactly one role from the creator-role list."@en .
+
+lib:AuthorshipShape-position a sh:PropertyShape ;
+    sh:path lib:position ; sh:datatype xsd:integer ; sh:in ( 1 2 3 ) ;
+    sh:minCount 1 ; sh:maxCount 1 ;
+    sh:message "An authorship has one position from 1 to 3."@en .
+
+lib:AuthorshipShape-source a sh:PropertyShape ;
+    sh:path lib:source ; sh:datatype xsd:string ;
+    sh:minCount 1 ; sh:maxCount 1 ;
+    sh:message "An authorship cites exactly one source."@en .

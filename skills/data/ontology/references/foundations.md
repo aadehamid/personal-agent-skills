@@ -13,7 +13,7 @@ These come from Juha Korpela, *Building Semantics with Conceptual Models* (Commo
 5. **Name every relationship with a verb** that says why A relates to B in the business. Two verbs for two business realities between the same pair are two relationships ("a member *reserves* a title" and "a member *borrows* a copy"). *Why:* the verbs become your predicates, and consumers depend on the distinction.
 6. **Add subtypes only where the business tells the kinds apart in practice**, and declare no disjointness until the business guarantees it. *Why:* extra generalization makes the model unreadable, and an unearned disjointness axiom makes valid data inconsistent.
 7. **Declare, don't suggest.** A workshop mind map suggests; the conceptual model declares and stays true until the business changes. *Why:* only a declared model converts into an ontology.
-8. **Give a relationship that carries its own properties (a share, a date, a level, a source) a node with its own IRI that points at both ends**, the pattern of W3C ORG's `org:Membership` and PROV-O's qualified relations. A link the business tracks as a thing in its own right (its own lifecycle or identity, referred to by other records) is a domain class instead. *Why:* plain RDF, plain SHACL and every common tool handle the pattern today, and it loads into a property graph as an ordinary node (`lpg-projection.md`, rule 4).
+8. **Give a relationship that carries its own properties (a share, a date, a level, a source) a node with its own IRI that points at both ends**, the pattern of W3C ORG's `org:Membership` and PROV-O's qualified relations. A link the business tracks as a thing in its own right (its own lifecycle or identity, referred to by other records) is a domain class instead. *Why:* plain RDF, plain SHACL and every common tool handle the pattern today, and it loads into a property graph as an ordinary node (the `ontology-to-lpg` skill, design rule 4).
 
 The conversion: each term takes one kind (`domain-model.md`, rule 1); each definition becomes `skos:definition`; each name becomes `skos:prefLabel` or `rdfs:label`; each subtype link becomes `skos:broader` or `rdfs:subClassOf`; each verb becomes an `owl:ObjectProperty`.
 
@@ -41,7 +41,7 @@ Record each policy with its reason in `templates/policies.md` before any modelli
    - **Reference instances of real organizations, places and assets go in their own module.** *Why:* the core stays organization-neutral and reusable, and the reference module versions as its sources change.
    - **When two modules hold the same thing, link them with `skos:exactMatch`; never merge them.** Where the IRIs differ, hold the match by hand in the build and fail the build if the target is missing or shares no label with it. *Why:* each module stays built from its own source.
 9. **Consumers.** Record who will consume the ontology and whether any consumer is active yet. Only the owner can state this fact. *Why:* release rules depend on it; with no active consumer, provisional data can be retired in one release.
-10. **Target formats.** If the ontology will be projected into a labelled property graph, adopt the projection's design rules now (`lpg-projection.md`). *Why:* rules adopted late force a remodel of released modules.
+10. **Target formats.** If the ontology will be projected into a labelled property graph, adopt the projection's design rules now (`lpg-projection.md`, rule 1). *Why:* rules adopted late force a remodel of released modules.
 
 ### Source policies that apply from Step 1
 
