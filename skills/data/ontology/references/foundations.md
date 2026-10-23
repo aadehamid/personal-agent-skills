@@ -23,7 +23,7 @@ The conversion: each entity becomes a SKOS concept or an `owl:Class` (SKOS first
 2. **Store the framework with its attribution and licence notice intact.** *Why:* most frameworks permit reuse only with the notice travelling with every copy.
 3. **Make the local model the source of truth and the framework the check.** Framework IDs attach by `dcterms:references`; they never replace local IDs. *Why:* you model your own business; the framework only shows where you diverge.
 4. **Record every divergence as a boundary note with a reason.** Never hide one, and never quietly conform. *Why:* an unexplained divergence reads as an error to the next reviewer.
-5. **Survey public ontologies and code lists, and give each a treatment** (map, import or ignore) and a target step. Method: `external-ontologies.md`.
+5. **Survey public ontologies and code lists** by the method and to the "Done when" in `external-ontologies.md`.
 
 ## Step 1: record the ten policies
 
@@ -32,7 +32,7 @@ Record each policy with its reason before any modelling. *Why:* every later step
 1. **Competency questions.** Draft the questions the ontology must answer; the owner approves and locks them. They are the acceptance test (Step 11, `regression.md`). *Why:* write the exam before the coursework; a question the model cannot answer is a modelling gap, not a bad question.
 2. **Data scope: define, don't record.** The ontology holds concepts, definitions, relationships, and public reference facts about real organizations and assets, each with a source and an as-of date. Stable attributes (a site's capacity, an ownership share) are reference facts. Event records ("member 1042 borrowed copy 7") and observed measure values ("loan turnover was 3.1 in May") are not. *Why:* records and values change daily in the systems that compute them; an ontology that holds them becomes a stale second copy.
 3. **Evidence order.** Rank sources: the anchor organization's own filings and publications first, then direct peers, then industry-specific sources. Generic frameworks support a decision but never settle one alone. Cite every fact; a fact without a citation stays out. *Why:* the closest source knows the business best, and the order settles disagreements.
-4. **URI policy.** A persistent base behind a redirect, scoped to the organization, never to a person or a project. Local IDs become `skos:notation`. No version in term IRIs. Detail: `identity-taxonomy.md`. *Why:* a rename then changes one redirect, not every identity.
+4. **URI policy.** A persistent base behind a redirect, scoped to the organization, never to a person or a project. Local IDs become `skos:notation`. Versions and term IRIs: `identity-taxonomy.md`, Step 2, rule 3. *Why:* a rename then changes one redirect, not every identity.
 5. **Language policy.** Declare the primary language and tag every literal. *Why:* tagged and untagged literals are different RDF terms, so SPARQL treats them as different values.
 6. **Version policy.** Semantic versioning per module and per release; deprecate, never delete. Detail: `release.md`.
 7. **Licence policy.** Decide before publishing anything; proprietary is the safe default for competitively sensitive operations. Respect each reference's licence: carry its attribution, cite IDs freely, quote sparingly. *Why:* a closed artifact can be opened later; an open one cannot be closed.

@@ -39,7 +39,7 @@ Keep the order, except Step 8, which runs right after Step 0. Before you work on
 9. **SHACL.** Read `references/shacl.md`.
    Done when: every module's shapes, the whole-graph gate and the release-package test run with zero unexplained violations, and each guard has a negative test that asserts its violation.
 10. **Release and publication.** Read `references/release.md`.
-    Done when: every released module is a package that passes `--verify`, the combined catalog lists every release and passes `--verify`, and each release is retrievable at its tag. "The catalog resolves" waits for the owner's hosting decision.
+    Done when: every released module is a package that passes `--verify`, the combined catalog lists every release and passes `--verify`, and each release is retrievable at its tag. Before the first module release, every row on the source-correction backlog has a fresh verdict (`references/promotion.md`, the first-release gate). "The catalog resolves" waits for the owner's hosting decision.
 11. **Regression.** Read `references/regression.md`.
     Done when: every competency question passes on the released packages, or is partial or waiting with what it waits for, and only a recorded decision parks one.
 12. **Property-graph projection (optional).** Read `references/lpg-projection.md`; its design rules apply from Step 1.
@@ -57,4 +57,4 @@ Each rule lives in the reference named; read it there.
 - **Park, don't smuggle; invent no owner:** `references/foundations.md`, source policies.
 - **Every count reconciles:** `references/quality.md`, counts.
 - **Released packages never change:** `references/release.md`, rule 10.
-- **Before any hand-off,** run the soundness checks in `references/quality.md` on what changed, and the project's full check script.
+- **Before any hand-off:** `references/quality.md`, soundness checks.

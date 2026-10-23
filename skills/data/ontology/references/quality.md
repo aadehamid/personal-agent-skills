@@ -25,6 +25,8 @@ Every authored definition meets all ten:
 
 ## Soundness checks on every change
 
+Before you hand a change to the owner, run these checks on what changed, then the project's full check script. *Why:* the checks below catch what a script cannot judge, and the script catches the rest.
+
 **Evidence.**
 - Every verdict records what was checked, what passed, who decided, and when.
 - Take match types from the evidence file, never from memory or a neighbouring row.
