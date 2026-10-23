@@ -8,12 +8,19 @@ This README is for people. Agents do not read it. They read `SKILL.md` and the f
 
 | Path | Read by | What it does |
 |---|---|---|
-| `SKILL.md` | agent, every run | The skill itself. The frontmatter `description` decides when it triggers. The body lists Steps 0 to 12, each with a "done when" gate, and the rules that apply at every step. |
-| `references/external-ontologies.md` | agent, Step 0 or when asked about existing ontologies | Where to look for public ontologies and code lists, how to assess them, and the map, import or ignore choice. |
-| `references/promotion.md` | agent, Step 4 | The eleven rules for promoting provisional source data into governed triples, the predicate review method, and example predicate definitions. |
-| `references/quality.md` | agent, Step 3 onward and before any hand-off | The ten-point definition quality bar and the soundness checks. |
-| `references/versioning.md` | agent, before a release | Change classification, deprecation, the release gate, and an ontology header example. |
-| `references/lpg-projection.md` | agent, when projecting to a property graph | The design rules (Rule 4 option 4a, qualified-relation nodes) and the check, reason, serialise, load, verify pipeline. |
+| `SKILL.md` | agent, every run | The skill itself. The frontmatter `description` decides when it triggers. The body lists Steps 0 to 12, each with its "Done when" gate and the reference file to read, then the rules that apply at every step. |
+| `references/foundations.md` | agent, Steps 0, 1 and 8 | Conceptual-modelling foundations, aligning a reference framework, the ten policies, source policies, and the scope review. |
+| `references/identity-taxonomy.md` | agent, Steps 2 and 3 | Rules for stable IRIs and identity, and for building the SKOS concept scheme. |
+| `references/promotion.md` | agent, Step 4 | The eleven rules for promoting provisional source data into governed triples, the predicate review method, the release gate and source-correction backlog, building the first release, and example predicate definitions. |
+| `references/organization.md` | agent, Step 5 | Roles and the role register, RACI assignments, party roles as dated nodes, and real companies in a reference module. |
+| `references/provenance.md` | agent, Step 6 | Definitions against runs: planned inputs and outputs, the PROV-O and P-Plan link from a run to its definition, and the shapes a consumer's run must meet. |
+| `references/integration.md` | agent, Step 7 | Bringing back overlays: measures, market series, data products, value streams, systems, placement kinds, source tiers and consumer rules. |
+| `references/shacl.md` | agent, Step 9 | What to shape and in what order, how to test shapes, and how to check a SHACL feature in a target engine. |
+| `references/release.md` | agent, Step 10 and any release | Change classification, deprecation, approvals, the release package and its builder, candidates and the cut, the combined catalog, and the ontology header. |
+| `references/regression.md` | agent, Step 11 | Tracing elements to competency questions, writing them as SPARQL, question statuses, and when the suite runs. |
+| `references/lpg-projection.md` | agent, Step 12 and Step 1's target formats | The design rules (Rule 4 option 4a, qualified-relation nodes) and the check, reason, serialise, load, verify pipeline, with what running it taught. |
+| `references/external-ontologies.md` | agent, Step 0 or when asked about existing ontologies | Where to look for public ontologies and code lists, how to assess them, the map, import or ignore choice, and rules for applying mappings. |
+| `references/quality.md` | agent, Step 3 onward and before any hand-off | The ten-point definition quality bar and the soundness checks on every change. |
 | `SOURCES.md` | you | What the skill was built from, the versions used, and how to check for updates. |
 | `README.md` | you | This file. |
 

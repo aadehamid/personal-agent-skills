@@ -1,6 +1,6 @@
 # Definition quality and soundness checks
 
-Read this when writing or reviewing definitions (Step 3 onward), and before handing any change to the owner.
+Serves Step 3 onward. Read it when you write or review a definition, and before you hand any change to the owner. Identity and taxonomy checks live in `identity-taxonomy.md`; predicate checks in `promotion.md`; shape checks in `shacl.md`.
 
 ## Definition quality bar
 
@@ -12,25 +12,39 @@ Every authored definition meets all ten:
 4. **Parent test.** "This is a way of carrying out [parent]" holds.
 5. **Sibling-disjoint.** No two siblings claim the same primary activity.
 6. **Stable terms.** One meaning per material term across the scheme.
-7. **Park, don't smuggle.** No data fields, systems, KPIs, controls or thresholds as concepts.
+7. **Park, don't smuggle,** as `foundations.md` sets it out.
 8. **Evidence-based.** References inform; nothing is copied verbatim.
-9. **Baseline preserved.** Comparisons use the approved plan and its assumptions at the time.
-10. **Clean provenance.** Author, approver, date.
+9. **Baseline preserved.** A comparison (actual against plan) uses the approved plan and its assumptions at the time, not a later forecast.
+10. **Clean provenance.** Who wrote it, who approved it, when.
 
-Candidate text collected from references goes through a human gate, exactly like text a person wrote.
+*Why:* each point is a way a definition failed a reader in practice; together they make a definition something a reviewer can reject.
 
-## Soundness checks
+**Say only what the source says.** When a definition cites a filing, every claim in it must be in that filing, with the item that holds it. *Why:* a plausible claim with no primary source is the builder's, not the source's.
 
-**Identity.** Identity before direction before meaning. A label suggests a candidate and never confirms one. Renames are overlay fields on the identity map; restore them after any regeneration before rebuilding the Turtle.
+Candidate text collected from references goes through a human gate, exactly like text a person wrote: a validator first (required fields, controlled values, no label collisions, no open questions on approved rows), then a person reviews the meaning. Nothing merges on assumption.
 
-**Taxonomy.** Exactly one parent per concept, except the scheme's top concepts (`skos:topConceptOf`), which have none; no cycles; every concept at a level, with its parent shown unless it is a top concept; one `prefLabel` per language; a language tag on every literal; local IDs as `skos:notation`; external IDs via `dcterms:references`.
+## Soundness checks on every change
 
-**Predicates.** Judge each row against its written definition. Never translate a verb silently. A failing row is held, and its fact removed if it was emitting.
+**Evidence.**
+- Every verdict records what was checked, what passed, who decided, and when.
+- Take match types from the evidence file, never from memory or a neighbouring row.
+- Held rows carry their reason and reopen condition in the source record.
+- A supersession is explicit and keeps the earlier reason; append a dated note, never rewrite history.
+- If the evidence does not establish something, the cell stays empty and the row stays held. No evidence, no fact.
 
-**Evidence.** Every verdict records what was checked, what passed, who decided, when. Match types come from the evidence file. Held rows carry their reason and reopen condition in the source record. Supersessions keep the earlier reason; history is appended, never rewritten. No evidence, no fact.
+**Counts.**
+- Conservation is an equation. Recompute every figure from the source files before you write it.
+- Every count change names the row ID, the old bucket, the new bucket and the reason.
+- When one figure is wrong, assume it is wrong elsewhere: search every governed document for the old number, and recompute every table total.
+- Search for the claim, not for the words your change used: the old figure in its other phrasings, across line breaks, and in record metadata. *Why:* a sweep with the change's own words finds only the places the change already touched.
+- If figures do not reconcile, report the gap and stop. Never adjust a number to make the arithmetic work.
 
-**Counts.** Conservation is an equation. Every count change names row ID, old bucket, new bucket, reason. When one figure is wrong, search every governed document for it. If figures do not reconcile, report and stop.
+**Changes.**
+- Name the one safety fact a change depends on and prove it by running code against the real artifacts. Mark anything unproven as unproven.
+- A migration proves replacement, not deletion: a per-predicate ledger, a held-items report reconciled row by row, and a dry-run count reviewed before emission.
+- Turn ordering dependencies into assertions that fail fast on known stale state. A rerun on unchanged input reproduces identical output.
 
-**Changes.** Name the one safety fact a change depends on and prove it by running code against the real artifacts. Migrations prove replacement with a per-predicate ledger and a dry-run count. Reruns on unchanged input produce identical output.
-
-**Sampling.** Samples come only from promotions, with a recorded seed, and stay pending until the owner reviews them. One wrong sample stops the pass.
+**Sampling.**
+- Draw samples only from promotions, with a fixed, recorded seed.
+- A sample is pending until the owner reviews it.
+- One wrong sample stops the pass; it is not averaged away.
