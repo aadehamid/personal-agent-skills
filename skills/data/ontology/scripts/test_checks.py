@@ -191,6 +191,10 @@ class TaxonomyChecks(OneBreak, unittest.TestCase):
         self.assertIn(("property-kind", "lib:partOf is typed 0 of owl:ObjectProperty, "
                                         "owl:DatatypeProperty and owl:AnnotationProperty; it needs exactly one"), fails)
 
+    def test_undeclared_local_predicate(self):
+        self.broken(lambda g: g.add((lib("Copy"), lib("lpgNme"), Literal("Item", lang="en"))), "property-kind",
+                    "lib:lpgNme is used as a predicate but is not declared as a property")
+
     # domain-range
     def test_property_with_two_domains(self):
         self.broken(lambda g: g.add((lib("dueDate"), RDFS.domain, lib("Copy"))), "domain-range", "lib:dueDate has 2 rdfs:domain values")
@@ -409,6 +413,13 @@ class RequirementsChecks(OneBreak, unittest.TestCase):
     # structural schema (finding #2 of the db5ae6d review)
     def test_missing_scope_out(self):
         self.broken(lambda r: r["scope"].pop("out"), "schema", "'scope' needs 'in'")
+
+    def test_duplicate_assumption_id(self):
+        def mutate(req):
+            twin = dict(req["assumptions"][0])
+            twin["text"] = "A different assumption with the same id."
+            req["assumptions"].append(twin)
+        self.broken(mutate, "assumptions", "is used twice")
 
     def test_assumed_item_with_a_record(self):
         self.broken(lambda r: r["assumptions"][0].update(record="DEC-001"),

@@ -6,7 +6,7 @@ Serves Step 7. Read it before you bring back a parked overlay (measures, data pr
 
 1. **Revive one parked overlay at a time, each in its own module** with its own namespace, vocabulary, shapes, build and tests, referring to core processes by IRI. *Why:* each overlay then releases and versions on its own, and one bad overlay blocks nothing else.
 2. **Reference process nodes; never duplicate them.** An overlay node is its own thing that points at processes. *Why:* a value stream cuts across the hierarchy, and every concept has exactly one parent, so a value stream can never be a parent.
-3. **Define only what a source describes.** An item an overlay names without describing (a data product, a system) gets an editorial note that its definition waits for its owners, never a definition written from its name. A shape requires the definition or the note, and rejects both together. *Why:* a definition guessed from a name is read as the owners' meaning.
+3. **Define only what a source describes.** An item an overlay names without describing (a data product, a system) stays on the parked list (`templates/parked-list.md`), with the note that its definition waits for its owners and that answer as its trigger, and enters the governed data only with a sourced definition. Never write a definition from its name. *Why:* a definition guessed from a name is read as the owners' meaning, and the Step 3 gate requires a definition on every concept in the data (`identity-taxonomy.md`, Step 3).
 4. **Resolve each gap an earlier step exposed (an empty output set, a missing owner) as its own recorded decision**: linked, or parked with a trigger, never filled by an invented owner (`foundations.md`). *Why:* the Step 7 gate counts decisions.
 5. **Apply the external mappings that the Step 0 survey assigned to Step 7** (`external-ontologies.md`, rule 1), and park any that must wait with its trigger.
 
@@ -38,14 +38,14 @@ Serves Step 7. Read it before you bring back a parked overlay (measures, data pr
 
 ## Data products, value streams, capabilities
 
-19. **Model a data product as a definition in its own scheme** (its line as `skos:broader`), mapped to DCAT with `skos:closeMatch dcat:Dataset` (DCAT Version 3, W3C Recommendation 22 August 2024, https://www.w3.org/TR/vocab-dcat-3/), not typed as one. *Why:* a definition of a product is not a published dataset, and mapping keeps DCAT's authority without its commitments.
+19. **Model a data product as a definition in its own scheme** (its line as `skos:broader`), neither typed nor matched as a `dcat:Dataset` (DCAT Version 3, W3C Recommendation 22 August 2024, https://www.w3.org/TR/vocab-dcat-3/): where a published dataset realizes the product, link the concept to that dataset's catalog record with `rdfs:seeAlso`, and keep the DCAT typing on the record. *Why:* a definition of a product is not a published dataset, and a SKOS match between a concept and a class crosses kinds (`external-ontologies.md`, rule 5).
 20. **Make a value-stream process its own node that `realizes` each process it names**, with its produce and consume links to data products. A producing process is the data product's owning process. *Why:* the overlay keeps its own identity and the backbone stays untouched.
 21. **Qualify a measure link on a value-stream process** (measure, relationship, cited basis), and let no measure kind sit on the link. *Why:* a link is not a KPI designation.
 22. **Keep the source's own domain label as written** when it does not map cleanly to your domain list. *Why:* a forced mapping claims a scope match the source never made.
 
 ## Systems and other code lists
 
-23. **Build systems from the source's strings through a register**, as roles are built (`organization.md`, rules 2 to 5): merge on spelling only, split a string joined by "/" into its systems, create nothing for a string that names no system. Give each system a kind (application, office tool, working document) and no definition until its owners give one. *Why:* systems are shared by many processes, so they are things, not process attributes.
+23. **Build systems from the source's strings through a register**, as roles are built (`organization.md`, rules 2 to 5): merge on spelling only, split a string joined by "/" into its systems, create nothing for a string that names no system. Give each system a kind (application, office tool, working document); a system its owners have not yet described stays parked until they do (rule 3). *Why:* systems are shared by many processes, so they are things, not process attributes.
 24. **Link a code-list value to a process by key** (the value's `skos:notation`), checked by the build, and inherit nothing down the hierarchy. *Why:* the key is how the source names it; inheritance is a guess (`organization.md`, rule 8).
 
 ## Placement, authority and consumers

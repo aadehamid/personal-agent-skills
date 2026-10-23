@@ -109,9 +109,10 @@ def check(req):
                 fails.append(("schema", f"{label} has no '{field}'"))
             elif field != "needs" and not text(cq[field]):
                 fails.append(("schema", f"{label} '{field}' must be a string"))
-        if cid in seen:
-            fails.append(("schema", f"{cid} is used twice"))
-        seen.add(cid)
+        if text(cid):
+            if cid in seen:
+                fails.append(("schema", f"{cid} is used twice"))
+            seen.add(cid)
         if text(cq.get("priority")) and cq["priority"] not in ("must", "should", "could"):
             fails.append(("schema", f"{label} priority '{cq['priority']}' is not must, should or could"))
         if text(cq.get("status")) and cq["status"] not in ("drafted", "locked"):
@@ -135,8 +136,13 @@ def check(req):
     if not isinstance(assumptions, list):
         fails.append(("assumptions", "'assumptions' must be a list (empty if none)"))
         assumptions = []
+    seen_assumptions = set()
     for i, a in enumerate(assumptions):
         label = (a.get("id") if isinstance(a, dict) else None) or f"assumption {i + 1}"
+        if isinstance(a, dict) and text(a.get("id")):
+            if a["id"] in seen_assumptions:
+                fails.append(("assumptions", f"{a['id']} is used twice"))
+            seen_assumptions.add(a["id"])
         if (not isinstance(a, dict) or not text(a.get("id")) or not text(a.get("text"))
                 or not isinstance(a.get("record"), str)):
             fails.append(("assumptions", f"{label} needs an 'id', a 'text' and a 'record' string"))

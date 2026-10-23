@@ -23,8 +23,9 @@ Checks (references/identity-taxonomy.md and references/domain-model.md):
   class-kind     each class is an owl:Class; an rdfs:Class without owl:Class fails
                  (domain-model.md, rule 4)
   property-kind  each property is exactly one of owl:ObjectProperty, owl:DatatypeProperty,
-                 owl:AnnotationProperty (domain-model.md, rule 5); a bare rdf:Property, or a
-                 property declared only by a characteristic such as owl:TransitiveProperty, fails
+                 owl:AnnotationProperty (domain-model.md, rule 5); a bare rdf:Property, a property
+                 declared only by a characteristic such as owl:TransitiveProperty, or a predicate
+                 outside the known namespaces that is used but never declared, fails
   domain-range   each object and datatype property has exactly one rdfs:domain and one
                  rdfs:range (annotation properties need neither); no rdfs:Literal range;
                  every domain, range and rdfs:subClassOf target is an IRI (a literal, even
@@ -159,6 +160,11 @@ def check(g, allowed_namespaces=()):
     properties |= set(g.subjects(RDF.type, RDF.Property))
     # A characteristic (owl:TransitiveProperty and the rest) also declares a property; it still needs its kind.
     properties |= {p for kind in CHARACTERISTICS for p in g.subjects(RDF.type, kind)}
+    # A predicate outside the known namespaces that the files use but never declare is a local property
+    # with no kind, label or definition.
+    for pred in sorted({p for p in g.predicates() if isinstance(p, URIRef)} - properties):
+        if not str(pred).startswith(known):
+            fails.append(("property-kind", f"{short(pred)} is used as a predicate but is not declared as a property"))
     for term in sorted(classes | properties):
         name = short(term)
         if not any(True for _ in g.objects(term, RDFS.label)):
