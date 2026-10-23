@@ -1,15 +1,20 @@
-<!-- Copy this file when you record one decision. Rules: references/governance.md, "Decisions" and "Delegation". Delete every comment before you commit. -->
+<!-- Copy this file when you record one decision. Rules: references/governance.md, "Decisions" and "Delegation"; where the way-of-working skill is installed, its references/deciding.md is the home of the record rules this template carries. Delete every comment before you commit. -->
 
 # <PREFIX>-<NNNN>: <the decision, as one sentence>
 
-<!-- Example title: "LIB-0007: A loan is a qualified relation between a member and a copy" -->
+<!-- Example title: "LIB-0007: A loan is a class with a borrower, a copy and a due date" -->
 
 | Field | Value |
 |---|---|
-| Status | <Proposed / Decided (the owner, YYYY-MM-DD) / Decided (delegated under <PREFIX>-<NNNN>)> |
+| Status | <Proposed / Decided (the owner, YYYY-MM-DD) / Decided (delegated under <PREFIX>-<NNNN>) / Superseded by <PREFIX>-<NNNN>> |
 | Date | <YYYY-MM-DD; add the decided date if it differs from the proposed date> |
-| Questions | <the question or package item this answers, by name or number> |
 | Source | <the session or comment where the owner answered; the answers file's path> |
+
+<!-- While the owner has not answered, or answered "not yet": Status is "Proposed. ASSUMED, not yet answered (Q<n>)", the Decision section says "Not decided", and Consequences lists the work done on the assumption and how to undo it (governance.md, rule 3). -->
+
+## Question
+
+<The question as asked, in full, and the recommendation that came with it, quoted. Markdown stripped from the quotes, and this line says so.>
 
 ## Context
 
@@ -17,7 +22,7 @@
 
 ## Decision
 
-**The owner's decision:** <the owner's words, or the exact text of the option they chose. Nothing else.>
+**The owner's decision:** <When the owner accepted the recommendation: that recommendation, quoted, plus the text of the option it chose. When the owner answered in their own words: only those words. Nothing else.>
 
 <!-- Under a delegation, write "None for this choice; delegated under <record>." in place of the line above. -->
 
@@ -35,12 +40,12 @@
 
 Saved in `<path to the answers file>`: "<verbatim quote>".
 
-<!-- The check script compares each quoted span here with the answers file. Under a delegation, quote the delegation's own words and say "The owner can reverse any item." -->
+<!-- The check script compares each quoted span here with the answers file, and each quoted recommendation in the Decision section with the same quote here. Under a delegation, quote the delegation's own words and say "The owner can reverse any item." -->
 
 ## Evidence
 
-- <Source, with tier, item or line, and date. Figures quote the shared tool's commit line.>
+- <Source, with its tier (foundations.md, policy 3), item or line, and date. Figures quote the command and commit that computed them.>
 
 ## Consequences
 
-- <What changes for later work, which records or documents now point here, and what each open item waits on and whom (governance rule 14).>
+- <What changes for later work, which records or documents now point here, and what each open item waits on and whom (governance.md, rule 14). An earlier record this one amends gets a dated note pointing here.>

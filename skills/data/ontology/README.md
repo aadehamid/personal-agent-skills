@@ -1,51 +1,79 @@
 # ontology
 
-A skill that makes an agent build a business ontology the way the enterprise-performance-model ontology was built: in gated steps, with every decision left to you, and with rules that keep promoted data from being corrupted. It also covers reusing public ontologies and projecting the result into a Neo4j property graph.
+An agent skill for building a business ontology in any domain, on the W3C stack (RDF, SKOS, OWL, SHACL, PROV-O, DCAT). The agent works in thirteen gated steps, from intake and competency questions to a released, checked package and an optional Neo4j property-graph projection. You, the ontology owner, make every decision; the agent brings the evidence, the options and a recommendation, and records your answers word for word.
 
-This README is for people. Agents do not read it. They read `SKILL.md` and the files it points to.
+The method comes from a downstream refining enterprise's process ontology, built privately and rewritten here in neutral terms. The examples use a public library's lending and, in two places, Marathon Petroleum's public SEC filings.
+
+This README is for people. Agents read `SKILL.md` and the files it points to.
+
+## How to use it
+
+1. Install the skill where your agent finds skills, and ask the agent to start an ontology for your domain.
+2. The agent fills `templates/requirements.yaml` with you: purpose, users, scope, draft competency questions, and the inputs you have. Where an input is missing, it stops and asks.
+3. It then works through Steps 0 to 12 in `SKILL.md`. Each step names the reference to read, the template to fill and the "Done when" gate. Expect a question from the agent at every decision; answer "not yet" when you are unsure, and the agent marks the item as assumed and keeps it reversible.
+4. From Step 3, run the checks the agent runs:
+
+   ```sh
+   uv run --with pyyaml python3 scripts/check_requirements.py requirements.yaml
+   uv run --with rdflib python3 scripts/check_taxonomy.py <your module>.ttl
+   ```
+
+   Each prints one line per failure and exits 1, or prints a pass line and exits 0.
+
+The skill works on its own. If the `way-of-working` skill is installed too, the agent follows it for decision records, the pull-request loop, the check script's design and a shared tool for figures; `references/governance.md` says what changes without it.
 
 ## Files
 
 | Path | Read by | What it does |
 |---|---|---|
-| `SKILL.md` | agent, every run | The skill itself. The frontmatter `description` decides when it triggers. The body lists Steps 0 to 12, each with its "Done when" gate and the reference file to read, then the rules that apply at every step. |
-| `references/foundations.md` | agent, Steps 0, 1 and 8 | Conceptual-modelling foundations, aligning a reference framework, the ten policies, source policies, and the scope review. |
-| `references/identity-taxonomy.md` | agent, Steps 2 and 3 | Rules for stable IRIs and identity, and for building the SKOS concept scheme. |
-| `references/promotion.md` | agent, Step 4 | The eleven rules for promoting provisional source data into governed triples, the predicate review method, the release gate and source-correction backlog, building the first release, and example predicate definitions. |
-| `references/organization.md` | agent, Step 5 | Roles and the role register, RACI assignments, party roles as dated nodes, and real companies in a reference module. |
-| `references/provenance.md` | agent, Step 6 | Definitions against runs: planned inputs and outputs, the PROV-O and P-Plan link from a run to its definition, and the shapes a consumer's run must meet. |
+| `SKILL.md` | agent, every run | The index: the scope line, where to start, Steps 0 to 12 with their gates and references, the rules that apply at every step, and the templates and scripts. Its `description` decides when the skill triggers. |
+| `references/foundations.md` | agent, Steps 0, 1 and 8 | Conceptual modelling, aligning a reference framework, the ten policies, source policies, and the scope review. |
+| `references/identity-taxonomy.md` | agent, Steps 2 and 3 | Stable IRIs and slugs, the SKOS concept scheme, code lists, and the register that maps source strings to code values. |
+| `references/domain-model.md` | agent, Step 3 | When a term is a concept, a class, a property, a code-list value or a reference individual, and how to write classes and properties (domain, range, definition, cardinality shape). |
+| `references/quality.md` | agent, Step 3 onward and before any hand-off | The definition quality bar, with a form for each kind of term, and the soundness checks on every change. |
+| `references/promotion.md` | agent, Step 4 | Promoting provisional source data into governed triples: eleven rules, the predicate review, the source-correction backlog, the first release, example predicate definitions. |
+| `references/organization.md` | agent, Step 5 | Roles and the role register, RACI assignments, party roles as dated nodes, and real organizations in a reference module. |
+| `references/provenance.md` | agent, Step 6 | Definitions against runs: PROV-O and P-Plan, and the shapes a consumer's run must meet. |
 | `references/integration.md` | agent, Step 7 | Bringing back overlays: measures, market series, data products, value streams, systems, placement kinds, source tiers and consumer rules. |
 | `references/shacl.md` | agent, Step 9 | What to shape and in what order, how to test shapes, and how to check a SHACL feature in a target engine. |
-| `references/release.md` | agent, Step 10 and any release | Change classification, deprecation, approvals, the release package and its builder, candidates and the cut, the combined catalog, and the ontology header. |
+| `references/release.md` | agent, Step 10 and any release | Change classification, deprecation, approvals, release packages, candidates, the catalog and the ontology header. |
 | `references/regression.md` | agent, Step 11 | Tracing elements to competency questions, writing them as SPARQL, question statuses, and when the suite runs. |
-| `references/lpg-projection.md` | agent, Step 12 and Step 1's target formats | The design rules (Rule 4 option 4a, qualified-relation nodes) and the check, reason, serialise, load, verify pipeline, with what running it taught. |
-| `references/external-ontologies.md` | agent, Step 0 or when asked about existing ontologies | Where to look for public ontologies and code lists, how to assess them, the map, import or ignore choice, and rules for applying mappings. |
-| `references/quality.md` | agent, Step 3 onward and before any hand-off | The ten-point definition quality bar and the soundness checks on every change. |
-| `references/governance.md` | agent, before a new ontology, a decision, a delegation, setting up checks, a review, a release or publication | Intake gaps, decision records and answers files, delegation and its limits, the check script, the shared figures and search tool, generated content, review, privacy, source tiers, claims and scope statements. |
-| `templates/decision-record.md` | agent, when recording a decision | A numbered decision record with the owner's words, "What follows" and evidence. |
-| `templates/decision-package.md` | agent, when asking the owner a question | A question with context, options (recommendation first), what each changes and an answer box. |
+| `references/lpg-projection.md` | agent, Step 12 and Step 1's target formats | Design rules for a property-graph projection and the check, reason, serialise, load and verify pipeline. |
+| `references/external-ontologies.md` | agent, Step 0 or when asked about existing ontologies | Where to find public ontologies and code lists, how to assess them, and the map, import or ignore choice. |
+| `references/governance.md` | agent, before a new ontology, a decision, a delegation, setting up checks, a review, a release or publication | Intake and requirements, "not yet" answers, decision records, delegation, checks, generated content, review, privacy, and claims; with and without `way-of-working`. |
+| `templates/requirements.yaml` | agent, before Step 0 | The intake and requirements file, with its schema in the header. |
+| `templates/survey-register.md` | agent, Step 0 | The reference framework's verified elements, boundary notes, and the survey of public ontologies. |
+| `templates/scope-review.md` | agent, Step 8 | In or out call per candidate area, with boundary notes and revival triggers. |
+| `templates/policies.md` | agent, Step 1 | The ten policies with choice, reason and deciding record. |
+| `templates/parked-list.md` | agent, from Step 1 | Parked future concepts with their questions, "done when" and revival trigger. |
+| `templates/competency-questions.md` | agent, Step 1 and Step 11 | The regression table: tested parts, status, what each waits for, the elements it needs, and what was left out. |
+| `templates/identity-table.md` | agent, Step 2 | Each node's IRI, kind, notation, slug source and renames, and the source-string register. |
+| `templates/ontology-skeleton.ttl` | agent, Step 3 | A module header, a concept scheme, a code-list scheme, three classes and four properties, for a library. Passes `check_taxonomy.py`. |
+| `templates/shapes-skeleton.ttl` | agent, Step 3 | The SHACL node and property shapes for the skeleton's class, with cardinalities. |
+| `templates/definition-review.md` | agent, Step 3 | The quality-bar review sheet, one row per term. |
+| `templates/decision-record.md` | agent, when recording a decision | A numbered record: question and recommendation quoted, the owner's decision, what follows, the owner's words, evidence, consequences. |
+| `templates/decision-package.md` | agent, when asking the owner a question | A question with context, options (recommendation first), what each changes, and an answer box. |
 | `templates/answers-file.md` | agent, when saving the owner's answers | The owner's words verbatim, with the agent's questions inside comments. |
-| `templates/competency-questions.md` | agent, Step 1 and Step 11 | The question table with tested parts, status, what each waits for and the elements it needs, plus what was left out. |
 | `templates/release-checklist.md` | agent, before each release | The release gate as a checklist, each item pointing to its rule. |
-| `templates/check.sh` | agent, when setting up a repository | A check-script skeleton with the no-writes guard and a TODO per step. |
-| `SOURCES.md` | you | What the skill was built from, the versions used, and how to check for updates. |
+| `templates/check.sh` | agent, when setting up a repository | A check-script skeleton with the four-snapshot no-writes guard; it fails until every TODO is replaced. |
+| `scripts/check_requirements.py` | agent and check script | Checks the requirements file's schema and its scope conflicts. Needs PyYAML. |
+| `scripts/check_taxonomy.py` | agent and check script | The Step 2 and 3 mechanical checks on Turtle files. Needs rdflib. |
+| `scripts/test_checks.py` | this repository's check script | Tests for both scripts: the templates pass, and each deliberate break fails with its own message. |
+| `SOURCES.md` | you | Every source the skill draws on, what it took, versions, how to check for updates, and which outside proposals it adopted. |
 | `README.md` | you | This file. |
 
 ## Common tasks
 
-**Change a rule.** Edit `SKILL.md` or the reference file that holds the rule. Keep each rule in one place. If the change came from the EPM build, update the EPM playbook in the same week so the two stay in step.
+**Change a rule.** Edit the reference file that holds it; `SKILL.md` only points. Keep each rule in one place, with a one-sentence reason and a source.
 
-**Check the sources for updates.** Follow "How to check for updates" in `SOURCES.md`.
+**Check the sources for updates.** Follow "How to check for updates" in each section of `SOURCES.md`.
 
 ## Status
 
-Last updated 2026-10-05 (first version).
+Last updated 2026-10-22.
 
-- **No evals yet.** Write test prompts for three branches before tuning: starting a new ontology, promoting a workbook into triples, and planning a Neo4j projection. Then tune the description with skill-creator.
-- **Rule 4 option 4a is a toolchain choice.** The skill uses qualified-relation nodes (the guideline's option 4a), not RDF 1.2 reifiers (4b), because rdflib and pySHACL do not support RDF 1.2 yet. Recheck rdflib issue #3524 and the RDF 1.2 W3C status every few months.
-- **The LPG guideline master may change.** If the guideline in enterprise-people-graph is revised after v2.1 (for example to fix the pipeline defects in its issue #2), update `references/lpg-projection.md` and `SOURCES.md`.
-- **Only one build so far.** Every rule comes from one ontology build. Expect changes after the people-graph build uses the skill.
-
-## Sources
-
-See `SOURCES.md`.
+- **No evals yet.** One walk-through on a library's lending process (Steps 0, 8, 1, 2 and 3) shaped this version. Write test prompts for three branches before tuning: starting a new ontology, promoting a workbook into triples, and planning a Neo4j projection.
+- **Scripts cover Steps 0 to 3 only.** Later steps describe their checks; the project writes them.
+- **Outside proposals not adopted yet:** a check that cited sources still hold, a queryable decision trace, a quality scorecard, views for the projection's consumers, and extraction artifacts. Reasons are in `SOURCES.md`, section 6.
+- **Rule 4 option 4a is a toolchain choice.** The projection uses qualified-relation nodes, not RDF 1.2 reifiers, because rdflib and pySHACL do not read RDF 1.2 yet. Recheck rdflib issue #3524 and the RDF 1.2 status every three months.
+- **Two sources of experience.** Most rules come from one private build and one walk-through. Expect changes after a second full build.

@@ -20,7 +20,7 @@ Serves Step 10, and every module release from Step 4 on. Read it before you clas
 
 ## Who approves
 
-6. **The module owner approves minor and patch releases. The ontology owner approves every major release, including a module's first release (1.0.0) and any deprecation.** *Why:* a major can make existing consumers wrong, and a first release sets the meaning every consumer starts from.
+6. **The module owner (the role the ontology owner names for a module in its decision record; the ontology owner until one is named) approves minor and patch releases. The ontology owner approves every major release, including a module's first release (1.0.0) and any deprecation.** *Why:* a major can make existing consumers wrong, and a first release sets the meaning every consumer starts from.
 7. **Quote the sentence that approved the release in the manifest, and pin it in a test that reads it from the saved answer.** *Why:* the release cannot then be issued without the approval it claims.
 
 ## The release package

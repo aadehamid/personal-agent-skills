@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 # Copy to scripts/check.sh when you set up an ontology repository; CI and the pre-push hook run it.
-# Rules: references/governance.md, "Checks"; the guard's full design: the way-of-working skill,
-# references/guardrails.md. Replace every TODO, and delete a step only when the repo has nothing for it.
+# Rules: references/governance.md, "Checks" (rules 15 to 17). The no-writes guard below is the
+# four-snapshot guard of the way-of-working skill's references/guardrails.md, written out so the
+# script works without that skill.
+#
+# Replace each "# TODO:" line with the command it names, and delete a step only when the repository
+# has nothing for it. Until no "# TODO:" line is left, the script fails at the end, so an unfilled
+# copy can never pass in CI.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -12,60 +17,78 @@ cd "$ROOT"
 while IFS= read -r var; do unset "$var"; done < <(compgen -e | grep '^GIT_' || true)
 export PYTHONDONTWRITEBYTECODE=1
 
-run() { echo "--- $*"; "$@"; }
-
-# No-writes guard: a check that writes to the repository is a bug. This snapshot hashes git's
-# status, the index entries and the bytes of every modified or untracked file. Python, so a
-# failed read raises instead of dropping the path. Add entry types, modes and symlink targets
-# as guardrails.md describes if the repo has untracked scripts or links.
+# No-writes guard (governance rule 15; guardrails.md "One check script, run everywhere"). Four
+# snapshots, each pinned to what it must observe:
+#   contents       every tracked and non-ignored untracked path, opened directly (a file named '-'
+#                  is never read as stdin)
+#   entry          type and permission bits from lstat, and a symlink's exact target bytes
+#   index          blob id and mode of every index entry (git ls-files --stage)
+#   status         git's own porcelain view
+# A failed read or stat raises, so the snapshot aborts instead of dropping the path from both sides.
 snapshot() {
   python3 - <<'PY'
-import hashlib, os, subprocess
+import hashlib, os, stat, subprocess
 h = hashlib.sha256()
-h.update(subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"]))
-h.update(subprocess.check_output(["git", "ls-files", "-s"]))
-names = subprocess.check_output(["git", "ls-files", "-z", "-m", "-o", "--exclude-standard"]).split(b"\0")
-for name in sorted(n for n in names if n):
-    h.update(name + b"\0")
+listing = subprocess.run(["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+                         capture_output=True, check=True)
+if listing.stderr:
+    raise SystemExit("git ls-files: " + listing.stderr.decode(errors="replace").strip())
+for name in sorted(n for n in listing.stdout.split(b"\0") if n):
     path = os.fsdecode(name)
-    if os.path.lexists(path):
-        with open(path, "rb") as f:
-            h.update(hashlib.sha256(f.read()).digest())
-    else:
-        h.update(b"deleted")
+    st = os.lstat(path)
+    h.update(name + b"\0" + oct(st.st_mode).encode())
+    if stat.S_ISLNK(st.st_mode):
+        h.update(b"link:" + os.fsencode(os.readlink(path)))
+        if not stat.S_ISREG(os.stat(path).st_mode):
+            raise SystemExit(f"{path}: symlink to a non-regular file; the guard cannot read it")
+    elif not stat.S_ISREG(st.st_mode):
+        raise SystemExit(f"{path}: listed by git but not a file or symlink; the guard cannot read it")
+    with open(path, "rb") as f:
+        h.update(hashlib.sha256(f.read()).digest())
+h.update(subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=all"]))
+h.update(subprocess.check_output(["git", "ls-files", "--stage", "-z"]))
 print(h.hexdigest())
 PY
 }
 before="$(snapshot)"
 
-# 1. Requirements: the machine-readable requirements file has no internal conflicts (governance rule 2).
-# TODO: run "python3 requirements/check_requirements.py"
+# 1. Requirements: schema and conflicts (governance rule 2). Copy the skill's scripts/ folder to scripts/ontology/.
+# TODO: uv run --no-project --with pyyaml python3 scripts/ontology/check_requirements.py requirements.yaml
 
-# 2. Generated files: every builder rebuilds into a temporary directory and --verify compares
+# 2. Taxonomy, classes and properties: the mechanical checks (identity-taxonomy.md, Step 3, rule 13).
+# TODO: uv run --no-project --with rdflib python3 scripts/ontology/check_taxonomy.py modules/*/*.ttl
+
+# 3. Generated files: every builder rebuilds into a temporary directory and --verify compares
 #    (release.md, rules 9 and 19). One line per module package, then the catalog.
-# TODO: run "python3 release/build_module.py <module> --verify"   # one per module
-# TODO: run "python3 release/build_catalog.py --verify"
+# TODO: python3 release/build_module.py <module> --verify   # one per module
+# TODO: python3 release/build_catalog.py --verify
 
-# 3. Shapes: every module's shapes, the whole-graph gate and the release-package test (shacl.md).
-#    Validate against the pinned shape version only (governance rule 18).
-# TODO: run "python3 validation/validate_all.py"
+# 4. Shapes: every module's shapes, the whole-graph gate and the release-package test (shacl.md),
+#    against the pinned shape version only (governance rule 17).
+# TODO: python3 validation/validate_all.py
 
-# 4. Regression: every competency question on the released packages (regression.md, rule 13).
-# TODO: run "python3 regression/run.py"
+# 5. Regression: every competency question on the released packages (regression.md, rule 13).
+# TODO: python3 regression/run.py
 
-# 5. Every test file.
-# TODO: run "python3 -m pytest -q -p no:cacheprovider tests/"
+# 6. Every test file (governance rule 15).
+# TODO: python3 -m pytest -q -p no:cacheprovider tests/
 
-# 6. The shared tool's consistency checks (governance rules 7, 19 and 26).
-# TODO: run "python3 scripts/facts.py decisions"   # decision records agree with their index
-# TODO: run "python3 scripts/facts.py quotes"      # quotes match the saved answers files
-# TODO: run "python3 scripts/facts.py names"       # no tracked file names the owner
-# TODO: run "python3 scripts/facts.py counts" >/dev/null   # figures compute from source
+# 7. Records and privacy: quotes match the saved answers files (governance rule 7); no tracked file
+#    names the owner (governance rule 23); figures compute from committed code (governance rule 15).
+# TODO: python3 scripts/facts.py quotes
+# TODO: python3 scripts/facts.py names
+# TODO: python3 scripts/facts.py counts >/dev/null
 
 after="$(snapshot)"  # a standalone assignment, so a failing snapshot stops the script
 if [ "$before" != "$after" ]; then
   echo "the checks changed the working tree; they must only read it:" >&2
-  git status --short >&2
+  git --no-pager status --short >&2
+  exit 1
+fi
+
+todo_left="$(grep -c '^# TODO:' "${BASH_SOURCE[0]}" || true)"
+if [ "$todo_left" -gt 0 ]; then
+  echo "FAIL: this check script is still the skeleton: $todo_left '# TODO:' line(s) to replace with real commands" >&2
   exit 1
 fi
 echo "all checks passed"

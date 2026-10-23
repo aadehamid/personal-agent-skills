@@ -1,33 +1,34 @@
 ---
 name: ontology
 description: >-
-  Gated method for building a business ontology on the W3C stack (RDF, SKOS, OWL, SHACL, PROV-O, DCAT). Use when designing, extending or reviewing an ontology or knowledge graph; promoting spreadsheet or workbook data into governed triples; modelling roles, RACI or real organizations; writing SHACL shapes or competency questions as SPARQL; versioning, packaging or approving a release; deciding whether to reuse a public ontology; or projecting an ontology into a Neo4j property graph.
+  Gated method for building a business ontology for any domain on the W3C stack (RDF, SKOS, OWL, SHACL, PROV-O, DCAT). Use when designing, extending or reviewing an ontology or knowledge graph; deciding whether a term is a SKOS concept, an OWL class, a property or a code-list value; promoting spreadsheet or workbook data into governed triples; modelling roles, RACI or real organizations; writing SHACL shapes or competency questions as SPARQL; versioning, packaging or approving a release; deciding whether to reuse a public ontology; or projecting an ontology into a Neo4j property graph.
 ---
 
 # Ontology
 
-Build the ontology in **gated** steps. Each step ends on its "Done when" gate; start the next step only when the gate is met. The user, the ontology owner, makes every decision. Your job is the evidence, the options and a recommendation. A decision is real only when the owner has recorded it in their own words, or when it falls inside a delegation the owner recorded and says so. A statement only the owner can make (who consumes the ontology) and the approvals reserved to the owner (`references/release.md`) stay with the owner even under a delegation.
+Build the ontology in **gated** steps. Each step ends on its "Done when" gate; start the next step only when the gate is met. The user, the ontology owner, makes every decision; your job is the evidence, the options and a recommendation. What counts as decided, and what stays with the owner under a delegation: `references/governance.md`, rules 6 and 12.
 
-This skill builds and checks the ontology. It hosts no namespace, holds no event records or measure values, and makes no decision that is the owner's; where the project has its own playbook, that playbook wins.
+Scope: from intake to a released, checked ontology and its property-graph projection. Namespace hosting is the owner's decision (`references/release.md`, rule 20); event records and measure values stay in the consumers' systems (`references/foundations.md`, policy 2); application Cypher and data-model advice for a graph database belong to a graph-database skill.
 
 ## First, find where the build stands
 
-1. Read the project's decision log, worklog, competency questions and released packages, if they exist.
-2. Name the current step and its open gate before you do any work.
-3. If the project has its own playbook, its rules win where they conflict with this skill.
+1. Read the project's decision log, worklog, requirements file, competency questions and released packages, if they exist.
+2. Read the project's playbook (its own written method), if it has one. Its rules win where they conflict with this skill.
+3. For a new ontology, sort the inputs and fill `templates/requirements.yaml` before Step 0 (`references/governance.md`, rules 1 to 3).
+4. Name the current step and its open gate before you do any work.
 
 ## The steps
 
 Keep the order, except Step 8, which runs right after Step 0. Before you work on a step, read the reference it names.
 
-0. **Reference framework and existing ontologies.** Read `references/foundations.md` and `references/external-ontologies.md`.
-   Done when: every cited framework ID is verified against the published source, every divergence has a boundary note, and the survey meets the "Done when" in `references/external-ontologies.md`.
-1. **Foundations: the ten policies.** Read `references/foundations.md`; for target formats, `references/lpg-projection.md`.
-   Done when: all ten policies are recorded with their reasons, and the owner has approved and locked the competency questions.
-2. **Identity.** Read `references/identity-taxonomy.md`.
-   Done when: every node has a stable HTTP IRI and nothing in the build identifies a node by its label.
-3. **SKOS taxonomy.** Read `references/identity-taxonomy.md` and `references/quality.md`.
-   Done when: every concept has a label and a definition that meets the quality bar; every concept except the top concepts has exactly one parent; the mechanical checks pass.
+0. **Reference framework and existing ontologies.** Read `references/foundations.md` and `references/external-ontologies.md`; record in `templates/survey-register.md`.
+   Done when: every cited framework ID is verified against the publisher's copy (or the framework's absence is a recorded finding), every divergence has a boundary note, and the survey meets the "Done when" in `references/external-ontologies.md`.
+1. **Foundations: the ten policies.** Read `references/foundations.md`; for target formats, `references/lpg-projection.md`. Record in `templates/policies.md`.
+   Done when: all ten policies are recorded with their reasons and none is marked ASSUMED, and the owner has approved and locked the competency questions.
+2. **Identity.** Read `references/identity-taxonomy.md`; record in `templates/identity-table.md`.
+   Done when: every node has an HTTP IRI under the base the URI policy records, every node has a kind, and nothing in the build identifies a node by its label.
+3. **Taxonomy, classes and properties.** Read `references/domain-model.md`, `references/identity-taxonomy.md` and `references/quality.md`; start from `templates/ontology-skeleton.ttl` and `templates/shapes-skeleton.ttl`.
+   Done when: every concept has a label and a definition that meets the quality bar for its kind; every concept except the top concepts has exactly one parent; every class and property has a label and a definition, and every property one domain, one range and a cardinality shape; `scripts/check_taxonomy.py` passes; the review is recorded in `templates/definition-review.md`.
 4. **Relationships.** Read `references/promotion.md`.
    Done when: every row has a recorded verdict (APPROVE, STAND or HOLD), the conservation ledger reconciles, and the evidence gate passes. The release gate for the first module release (the source-correction backlog) is in `references/promotion.md`; Step 10 checks it.
 5. **Organizations and roles.** Read `references/organization.md`.
@@ -36,8 +37,8 @@ Keep the order, except Step 8, which runs right after Step 0. Before you work on
    Done when: no definition is typed as an occurrence, and the definition-to-run pattern ships as shapes with an example run that passes, so every run a consumer records can link to its definition.
 7. **Integration.** Read `references/integration.md`.
    Done when: every integration gap is linked or parked by a recorded decision.
-8. **Scope review.** Read `references/foundations.md`.
-   Done when: every candidate area has an in or out call, a reason and a revival trigger.
+8. **Scope review.** Read `references/foundations.md`; record in `templates/scope-review.md`.
+   Done when: every candidate area has an in or out call and a reason, and every out call has a boundary note and a revival trigger.
 9. **SHACL.** Read `references/shacl.md`.
    Done when: every module's shapes, the whole-graph gate and the release-package test run with zero unexplained violations, and each guard has a negative test that asserts its violation.
 10. **Release and publication.** Read `references/release.md`.
@@ -53,12 +54,16 @@ Each rule lives in the reference named; read it there.
 
 - **Define, don't record:** `references/foundations.md`, policy 2.
 - **Cite every fact in the evidence order:** `references/foundations.md`, policy 3.
+- **One kind per term:** `references/domain-model.md`, rule 1.
 - **Map, don't import:** `references/external-ontologies.md`.
-- **SKOS first:** `references/identity-taxonomy.md`, Step 3, rule 1.
 - **Qualified relations:** `references/foundations.md`, conceptual modelling, rule 8.
 - **Park, don't smuggle; invent no owner:** `references/foundations.md`, source policies.
+- **Not yet answered means ASSUMED, marked, and reversible:** `references/governance.md`, rule 3.
 - **Every count reconciles:** `references/quality.md`, counts.
 - **Released packages never change:** `references/release.md`, rule 10.
 - **Before any hand-off:** `references/quality.md`, soundness checks.
-- **Governance:** read `references/governance.md` before you start a new ontology, record a decision, work under a delegation, set up checks, review a change, release or publish.
-- **Templates:** copy the decision record, decision package, answers file, competency-question table, release checklist or check-script skeleton from `templates/`.
+- **Governance:** read `references/governance.md` before you start a new ontology, record a decision, work under a delegation, set up checks, review a change, release or publish. It says what to do with and without the `way-of-working` skill.
+
+## Templates and scripts
+
+Copy from `templates/`: the requirements file, policies, survey register, scope review, parked list, identity table, Turtle and shapes skeletons, definition review, competency questions, decision record, decision package, answers file, release checklist and check script. Run from `scripts/` (with `uv run --with rdflib --with pyyaml`): `check_requirements.py` on the requirements file and `check_taxonomy.py` on the Turtle; both exit non-zero on any failure.

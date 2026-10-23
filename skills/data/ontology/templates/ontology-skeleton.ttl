@@ -1,0 +1,117 @@
+# Copy at Step 3 as the module's Turtle. Rules: references/domain-model.md (kinds, classes,
+# properties), references/identity-taxonomy.md (scheme, code lists), references/release.md
+# (header), references/quality.md (definitions). Check it with:
+#   uv run --with rdflib python3 <skill>/scripts/check_taxonomy.py <this file>
+# Replace the example base, terms and sources with your own; keep the shape of each block.
+
+@prefix lib:     <https://id.example.org/library/> .
+@prefix owl:     <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos:    <http://www.w3.org/2004/02/skos/core#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
+
+# --- Ontology header: a module is an ontology and its main concept scheme (release.md, rules 1, 14, 21, 22).
+lib:lending a owl:Ontology, skos:ConceptScheme ;
+    dcterms:title "Library lending"@en ;
+    skos:prefLabel "Library lending"@en ;
+    owl:versionIRI <https://id.example.org/library/lending/0.1.0-rc.1> ;
+    owl:versionInfo "0.1.0-rc.1" ;
+    dcterms:rights "Draft. Licence not yet decided (policy 7)."@en ;
+    skos:hasTopConcept lib:circulation .
+
+# --- Concepts: activities in the naming hierarchy (identity-taxonomy.md, Step 3).
+lib:circulation a skos:Concept ;
+    skos:inScheme lib:lending ;
+    skos:topConceptOf lib:lending ;
+    skos:notation "C" ;
+    skos:prefLabel "Circulation"@en ;
+    skos:definition "The library's recurring work of putting copies into members' hands for a limited time and getting them back, so that members can use the collection away from the library."@en ;
+    skos:scopeNote "Includes lending, renewal and holds. Excludes cataloguing and acquisitions."@en ;
+    dcterms:source "Example lending policy, edition 2026-01, section 3"@en .
+
+lib:lending-activity a skos:Concept ;
+    skos:inScheme lib:lending ;
+    skos:broader lib:circulation ;
+    skos:notation "C-1" ;
+    skos:prefLabel "Lending"@en ;
+    skos:definition "The recurring activity of checking a copy out to a member under a due date, so that the member can take it away."@en ;
+    rdfs:seeAlso lib:Loan ;
+    dcterms:source "Example lending policy, edition 2026-01, clause 3.1"@en .
+
+lib:renewal a skos:Concept ;
+    skos:inScheme lib:lending ;
+    skos:broader lib:circulation ;
+    skos:notation "C-2" ;
+    skos:prefLabel "Renewal"@en ;
+    skos:definition "The recurring activity of moving an open loan's due date later at the member's request, so that the member can keep the copy without returning it; it does not start a new loan."@en ;
+    dcterms:source "Example lending policy, edition 2026-01, clause 3.3"@en .
+
+# --- Code list: its own scheme; every value is a top concept (identity-taxonomy.md, Step 3, rule 11).
+lib:loan-state a skos:ConceptScheme ;
+    skos:prefLabel "Loan state"@en ;
+    skos:definition "The states a loan passes through; a loan is in exactly one at a time."@en ;
+    skos:hasTopConcept lib:on-loan, lib:overdue, lib:returned .
+
+lib:on-loan a skos:Concept ;
+    skos:inScheme lib:loan-state ; skos:topConceptOf lib:loan-state ;
+    skos:notation "LS-1" ;
+    skos:prefLabel "On loan"@en ;
+    skos:definition "The state of a loan from checkout up to and including its due date, while the copy has not been returned."@en ;
+    dcterms:source "Example lending policy, edition 2026-01, clause 3.5"@en .
+
+lib:overdue a skos:Concept ;
+    skos:inScheme lib:loan-state ; skos:topConceptOf lib:loan-state ;
+    skos:notation "LS-2" ;
+    skos:prefLabel "Overdue"@en ;
+    skos:definition "The state of a loan from the day after its due date until the copy is returned."@en ;
+    dcterms:source "Example lending policy, edition 2026-01, clause 3.5"@en .
+
+lib:returned a skos:Concept ;
+    skos:inScheme lib:loan-state ; skos:topConceptOf lib:loan-state ;
+    skos:notation "LS-3" ;
+    skos:prefLabel "Returned"@en ;
+    skos:definition "The state of a loan whose copy has been checked in, which closes the loan."@en ;
+    dcterms:source "Example lending policy, edition 2026-01, clause 3.6"@en .
+
+# --- Classes: things consumers' records instantiate (domain-model.md, rule 4).
+lib:Loan a owl:Class ;
+    rdfs:label "Loan"@en ;
+    skos:definition "An agreement under which one member may keep one copy until a due date, from checkout until the copy is checked in."@en ;
+    rdfs:seeAlso lib:lending-activity ;
+    dcterms:source "Example lending policy, edition 2026-01, clause 3.1"@en .
+
+lib:Member a owl:Class ;
+    rdfs:label "Member"@en ;
+    skos:definition "A person who holds a current library card, which entitles them to borrow copies."@en ;
+    dcterms:source "Example lending policy, edition 2026-01, clause 2.1"@en .
+
+lib:Copy a owl:Class ;
+    rdfs:label "Copy"@en ;
+    skos:definition "A physical item in the collection that can be lent on its own, identified by its barcode."@en ;
+    dcterms:source "Example lending policy, edition 2026-01, clause 2.4"@en .
+
+# --- Properties: one kind, one domain, one range each (domain-model.md, rules 5 to 8).
+lib:borrower a owl:ObjectProperty ;
+    rdfs:label "borrower"@en ;
+    skos:definition "Relates a loan to the member who may keep the copy under it."@en ;
+    rdfs:domain lib:Loan ;
+    rdfs:range lib:Member .
+
+lib:loanOf a owl:ObjectProperty ;
+    rdfs:label "loan of"@en ;
+    skos:definition "Relates a loan to the copy lent under it."@en ;
+    rdfs:domain lib:Loan ;
+    rdfs:range lib:Copy .
+
+lib:dueDate a owl:DatatypeProperty ;
+    rdfs:label "due date"@en ;
+    skos:definition "Relates a loan to the last day on which the copy may be returned without the loan becoming overdue."@en ;
+    rdfs:domain lib:Loan ;
+    rdfs:range xsd:date .
+
+lib:loanState a owl:ObjectProperty ;
+    rdfs:label "loan state"@en ;
+    skos:definition "Relates a loan to its current value in the loan-state code list."@en ;
+    rdfs:domain lib:Loan ;
+    rdfs:range skos:Concept .

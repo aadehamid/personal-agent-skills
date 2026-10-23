@@ -13,7 +13,7 @@ Serves Step 7. Read it before you bring back a parked overlay (measures, data pr
 ## Measures: definitions, never values
 
 6. **Model a measure as a definition:** name, definition, kind, population, grain, basis, and what it is not. It carries no value, target or actual, and a closed shape lists every property a measure may carry so any other property fails. *Why:* the data-scope policy (`foundations.md`, policy 2); the closed shape makes it checkable.
-7. **Cite the public filing or source that uses each measure.** *Why:* a measure's meaning is what its source computes, not what its name suggests.
+7. **Cite the published source that uses each measure.** *Why:* a measure's meaning is what its source computes, not what its name suggests.
 8. **Classify each measure's kind with tests in a fixed order, and stop at the first that assigns one.** Record the test and the reason.
    1. No formula, unit or time grain: a tracker or report (or not a measure at all, for a capability request).
    2. Emitted only when a condition is met: an alert.
@@ -21,9 +21,9 @@ Serves Step 7. Read it before you bring back a parked overlay (measures, data pr
    4. Actual or plan against a plan, forecast, prior version or history for one period: a plan-variance diagnostic.
    5. Otherwise an operational metric, unless designated a KPI (rule 9).
    *Why:* a fixed order gives every reviewer the same answer for the same row.
-9. **Treat a KPI as a designation, not a kind.** A measure is a KPI only when the business names it as one of the few measures of a stated objective, with a recorded target and an accountable owner. Mark an operational metric a KPI candidate only where evidence makes it strong (a headline measure the company reports, or one a peer targets); never invent a target or an owner. *Why:* the same ratio can be a KPI for a region and an operational metric for a unit.
+9. **Treat a KPI as a designation, not a kind.** A measure is a KPI only when the business names it as one of the few measures of a stated objective, with a recorded target and an accountable owner. Mark an operational metric a KPI candidate only where evidence makes it strong (a headline measure the organization reports, or one a peer targets); never invent a target or an owner. *Why:* the same ratio can be a KPI for a region and an operational metric for a unit.
 10. **Make a comparison part of a variance measure, and only a view of any other.** "Loans against forecast" is defined by its comparison; "shelf utilization" against plan or against five years of history is one measure asked two ways, recorded as a `comparedAgainst` list. *Why:* a new measure per reference multiplies definitions of one thing.
-11. **Name the basis in words:** numerator, denominator and unit (calendar-day or stream-day capacity; net or gross throughput). Give a definition that changes between filings a version, not a silent edit. *Why:* two ratios with different denominators are different measures.
+11. **Name the basis in words:** numerator, denominator and unit (loans per member or per active member; issues gross or net of renewals). Give a definition that changes between editions of its source a version, not a silent edit. *Why:* two ratios with different denominators are different measures.
 12. **State a measure's population (what it includes and excludes) only where its source states it**, with the evidence; park the rest by decision until the owner states it. *Why:* a population written from the definition is a guess.
 13. **Link "what it is not" explicitly:** a `notToBeConfusedWith` link to a nearby measure, with a scope note saying how they differ. *Why:* the commonest consumer error is answering with the neighbouring measure.
 14. **Turn the people on a measure list into the roles they hold**, defined by plan type and horizon; no person's name enters the ontology. *Why:* `organization.md`, rule 22.
@@ -34,7 +34,7 @@ Serves Step 7. Read it before you bring back a parked overlay (measures, data pr
 16. **Separate a measure from its published series.** A series is one form of a measure, built from parts its source names. Two series are the same only when every attribute their sources use to tell them apart is the same; otherwise they are two series of one measure, not two measures. Record which attributes decide it in a decision record. *Why:* treating series as measures splits one definition; treating them as one hides a real difference.
     Example: Marathon Petroleum's Form 10-K for fiscal 2025 (filed 2026-02-26, accession 0001510295-26-000009) says "The benchmark crack spreads below do not reflect the market cost of RINs necessary to meet the EPA renewable volume obligations for attributable products under the Renewable Fuel Standard." A Gulf Coast 3-2-1 crack spread that deducts that cost is a different series of the same crack-spread measure, even with the same crude and product markets.
 17. **Store the recipe, never the prices.** A leg names a benchmark and its quantity; weights that change by period go in a cited note. *Why:* prices are observed values (`foundations.md`, policy 2).
-18. **Keep price markets apart from the company's own reporting regions** as two schemes. *Why:* they answer different questions and change on different schedules.
+18. **Keep price markets apart from the organization's own reporting regions** as two schemes. *Why:* they answer different questions and change on different schedules.
 
 ## Data products, value streams, capabilities
 
@@ -51,7 +51,7 @@ Serves Step 7. Read it before you bring back a parked overlay (measures, data pr
 ## Placement, authority and consumers
 
 25. **Say what each placing link claims, in a form a query reads.** Annotate every property that places a measure, data product or system on a process with a placement kind: **certification** (the link names one end's owning process) or **context** (it says only where one thing is used or placed). Only an owning link certifies. *Why:* consumers otherwise read every placement as ownership.
-26. **Give every cited source an evidence tier from the project's evidence order, each tier with a rank,** and test that no cited source lacks one. *Why:* when two sources of one concept disagree, the best tier wins, and a query can say which.
+26. **Give every cited source its evidence tier (`foundations.md`, policy 3), and test that no cited source lacks one.** *Why:* when two sources of one concept disagree, the best tier wins, and a query can say which.
 27. **Write down the rules for the graph's consumers:**
     - **The catalog binding:** a row binds a measure to the data product that publishes its values only when both ends are defined first, checked by a shape.
     - **What an agent may answer from the graph alone:** what a thing is; what it is not; where it sits and what the placement claims; what a series is built from; who is responsible; which source says so and which wins; what a measure includes and excludes, where its source says.

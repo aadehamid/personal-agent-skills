@@ -6,7 +6,7 @@ The competency questions are the exam the owner approved and locked at Step 1 (`
 
 ## Trace every element to a question
 
-1. **Trace every class and property to at least one competency question or explicit requirement, in a table kept with the questions:** per question, the classes and properties it needs. *Why:* an element no question or requirement needs is scope nobody asked for. The rule follows the requirement gate of the `ontology-builder-assistant` skill from Jesús Barrasa's Going Meta session S03E07, "Agent Skills For Creating and Using Ontologies" (7 April 2026; `session45/.agent/skills/ontology-builder-assistant/SKILL.md` in https://github.com/jbarrasa/goingmeta): "An ontology element is eligible only if it is required to answer at least one competency question or explicit requirement."
+1. **Trace every class and property to at least one competency question or explicit requirement, in a table kept with the questions:** per question, the classes and properties it needs. *Why:* an element no question or requirement needs is scope nobody asked for. The rule follows the requirement gate of the ontology-builder skill in Going Meta S03E07 (7 April 2026; `SOURCES.md`): "An ontology element is eligible only if it is required to answer at least one competency question or explicit requirement."
 2. **List what was left out on purpose, each with its reason** (no question needs it, no source supports it, parked with a trigger), including terms of a reused vocabulary you chose not to use. *Why:* the next reviewer can then tell a deliberate omission from a gap, and nobody re-adds it unasked.
 3. **Treat a question the model cannot answer as a modelling gap, not a bad question.** Change a locked question only by the owner's recorded decision. *Why:* editing the exam to fit the model hides the gap.
 
@@ -22,6 +22,7 @@ The competency questions are the exam the owner approved and locked at Step 1 (`
 ## Give every question a status
 
 10. **Start the harness early, before most questions can pass, and give each question one status:**
+    - **drafted:** written at Step 1, not yet locked or not yet run; the elements it names are expected, and their names may change until Step 3;
     - **answerable:** all its queries run on the released packages;
     - **partial:** the graph part runs and the rest is named, with what it waits for;
     - **waiting:** it names the step, module or decision it waits for.

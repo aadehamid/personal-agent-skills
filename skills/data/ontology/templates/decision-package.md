@@ -6,7 +6,7 @@
 
 ## Context
 
-<Two to five sentences: what is open, why it matters now, and what waits on it. Cite each fact by source, with its tier.>
+<Two to five sentences: what is open, why it matters now, and what waits on it. Cite each fact by source, with its tier (foundations.md, policy 3).>
 
 ## Options
 
