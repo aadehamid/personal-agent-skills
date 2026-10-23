@@ -14,7 +14,8 @@ Checks (references/identity-taxonomy.md and references/domain-model.md):
                  each class and property has an rdfs:label
   definition     each concept, class and property has a skos:definition
   notation       each concept has a skos:notation, unique within each scheme
-  scheme         each concept is skos:inScheme a scheme; a scheme's top concepts say so
+  scheme         each concept is skos:inScheme a declared scheme; skos:topConceptOf names a declared
+                 scheme; a scheme's top concepts are declared concepts and say so
   parent         one skos:broader per concept except top concepts, which have none;
                  the parent is a declared concept; no cycles
   collision      no two concepts in one scheme share a preferred label (ignoring case)

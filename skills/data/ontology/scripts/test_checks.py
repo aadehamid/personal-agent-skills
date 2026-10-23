@@ -121,6 +121,12 @@ class TaxonomyChecks(OneBreak, unittest.TestCase):
         self.broken(lambda g: g.set((lib("renewal"), SKOS.inScheme, lib("lendng"))), "scheme",
                     "lib:renewal is in lib:lendng, which is not a declared skos:ConceptScheme")
 
+    def test_misspelled_top_concept_of(self):
+        def mutate(g):
+            g.remove((lib("renewal"), SKOS.broader, None))
+            g.add((lib("renewal"), SKOS.topConceptOf, lib("lendng")))
+        self.broken(mutate, "scheme", "lib:renewal is a top concept of lib:lendng, which is not a declared skos:ConceptScheme")
+
     def test_class_listed_as_top_concept(self):
         self.broken(lambda g: g.add((lib("loan-state"), SKOS.hasTopConcept, lib("Loan"))), "scheme",
                     "lists lib:Loan as a top concept, but lib:Loan is not a declared skos:Concept")
