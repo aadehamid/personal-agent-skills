@@ -42,7 +42,7 @@ import shutil
 import sys
 
 from rdflib import Graph, Literal, URIRef
-from rdflib.namespace import RDF, SH, XSD
+from rdflib.namespace import RDF, RDFS, SH, XSD
 
 import build
 import check_projection_rules as cpr
@@ -173,16 +173,40 @@ def _label(iri, cfg):
     return build.shorten(URIRef(iri), cfg)
 
 
+def applied_shapes(subset):
+    """(node shape, its target classes) for every node shape n10s applies in the graph: one with
+    sh:targetClass, one that is itself an rdfs:Class (its own class), and one with sh:targetQuery,
+    whose nodes come from a query and so has no class to pick nodes by (an empty list)."""
+    shapes = set(subset.subjects(SH.targetClass, None)) | set(subset.subjects(igs.TARGET_QUERY, None))
+    shapes |= {s for s in subset.subjects(RDF.type, RDFS.Class) if (s, SH.property, None) in subset}
+    out = []
+    for ns in sorted(shapes, key=str):
+        classes = set(subset.objects(ns, SH.targetClass))
+        if (ns, RDF.type, RDFS.Class) in subset:
+            classes.add(ns)
+        out.append((ns, sorted(classes, key=str)))
+    return out
+
+
+def shape_properties(subset, ns):
+    """The property shapes n10s runs for a node shape: its own, and those of a shape it reaches with
+    sh:node (n10s reads sh:node?/sh:property, one hop)."""
+    found = set(subset.objects(ns, SH.property))
+    for other in subset.objects(ns, SH.node):
+        found |= set(subset.objects(other, SH.property))
+    return sorted(found, key=str)
+
+
 def fail_cases(subset, data, cfg):
     """One fail case per constraint kind: (kind, shape, Cypher that mutates one node and returns its
     uri as focus). Generated from the in-graph shapes and the data; each runs in a rolled-back
     transaction (pipeline.md, rule 14)."""
     literal_preds = {p for _, p, o in data if isinstance(o, Literal)}
     cases = {}
-    for ns in sorted(subset.subjects(SH.targetClass, None), key=str):
-        for cls in sorted(subset.objects(ns, SH.targetClass), key=str):
+    for ns, classes in applied_shapes(subset):
+        for cls in classes:
             T = _label(cls, cfg)
-            for ps in sorted(subset.objects(ns, SH.property), key=str):
+            for ps in shape_properties(subset, ns):
                 path = subset.value(ps, SH.path)
                 if path is None:
                     continue
@@ -276,10 +300,10 @@ def kept_kinds(subset, data):
     data uses, plus closed node shapes. Each needs a fail case (pipeline.md, rule 14)."""
     used = set(data.predicates())
     kinds = set()
-    for ns in subset.subjects(SH.targetClass, None):
+    for ns, _ in applied_shapes(subset):
         if (ns, SH.closed, Literal(True)) in subset:
             kinds.add("closed")
-        for ps in subset.objects(ns, SH.property):
+        for ps in shape_properties(subset, ns):
             path = subset.value(ps, SH.path)
             inverse = subset.value(path, SH.inversePath) if path is not None and not isinstance(path, URIRef) else None
             if (inverse or path) not in used:
@@ -318,9 +342,9 @@ def component(value):
 def mutant_case(subset, data, cfg):
     """The deliberate mutant: the first minCount case on a literal value (pipeline.md, rule 15)."""
     literal_preds = {p for _, p, o in data if isinstance(o, Literal)}
-    for ns in sorted(subset.subjects(SH.targetClass, None), key=str):
-        for cls in sorted(subset.objects(ns, SH.targetClass), key=str):
-            for ps in sorted(subset.objects(ns, SH.property), key=str):
+    for ns, classes in applied_shapes(subset):
+        for cls in classes:
+            for ps in shape_properties(subset, ns):
                 path, mc = subset.value(ps, SH.path), subset.value(ps, SH.minCount)
                 if isinstance(path, URIRef) and path in literal_preds and mc is not None and int(mc) >= 1:
                     return _label(cls, cfg), _label(path, cfg)
@@ -481,6 +505,9 @@ def main(argv):
         cfg = build.load_config(opts["--config"])
     except (OSError, ValueError) as exc:
         print(f"ERROR {exc}", file=sys.stderr)
+        return 2
+    if cfg.rule4 == "4b":
+        print(cpr.RULE_4B_STOP.format(script="load_verify.py"), file=sys.stderr)
         return 2
     from neo4j import GraphDatabase
     driver = GraphDatabase.driver(opts["--bolt"], auth=("neo4j", password))

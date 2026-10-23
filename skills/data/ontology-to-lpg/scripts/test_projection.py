@@ -694,8 +694,9 @@ class InGraphReviewRoundOne(unittest.TestCase):
         self.assertIn("checked before the load only", reasons[(LIB + "CopyShape-barcode", str(SH.pattern))])
 
     def test_a_class_typed_node_shape_is_kept(self):
+        # rdfs:Class, the implicit target n10s reads (review round 2, #10: owl:Class alone is not one).
         g = Graph()
-        g.add((lib("Copy"), RDF.type, OWL.Class))
+        g.add((lib("Copy"), RDF.type, RDFS.Class))
         g.add((lib("Copy"), RDF.type, SH.NodeShape))
         g.add((lib("Copy"), SH.property, lib("C-p")))
         g.add((lib("C-p"), SH.path, lib("barcode")))
@@ -764,7 +765,8 @@ class Build(unittest.TestCase):
         return {"input_fingerprint": man["input_fingerprint"], "shapes_fingerprint": man["shapes_fingerprint"],
                 "shacl_violations_in_graph": 0, "in_graph_mutant_violations": 1, "roundtrip_lost": 0,
                 "roundtrip_added": 0, "determinism_hash_sorted": "h", "determinism_hash_shuffled": "h",
-                "in_graph_shape_constraints": 9, "shapes_import_rows": 9}
+                "in_graph_shape_constraints": 9, "shapes_import_rows": 9,
+                "mutant": {"focus": "x", "removed": "k", "violations": 1, "after_restore": 0}}
 
     def test_check_report(self):
         man = {"input_fingerprint": "f", "shapes_fingerprint": "s"}
@@ -1146,8 +1148,207 @@ class RoundThree(unittest.TestCase):
         self.assertTrue(any("no fail case" in f for f in build.check_report(man, rep)))
         rep["manual_cases"] = [{"kind": "nodeKind sh:Literal", "passed": False}]
         self.assertTrue(build.check_report(man, rep))
-        rep["manual_cases"] = [{"kind": "nodeKind sh:Literal", "passed": True}]
+        rep["manual_cases"] = [{"kind": "nodeKind sh:Literal", "passed": True, "focus": "x",
+                                "cypher": "MATCH (n) ... RETURN n.uri AS focus",
+                                "components": ["NodeKindConstraintComponent"]}]
         self.assertEqual(build.check_report(man, rep), [])
+
+
+class RoundFour(OneBreak, unittest.TestCase):
+    """One test per code finding of review round 2; each failed on ef4c4e3."""
+
+    # 3: a stub manual case does not clear a kind
+    def test_stub_manual_case_does_not_clear_a_kind(self):
+        man = {"input_fingerprint": "f", "shapes_fingerprint": "s"}
+        for stub in ({"kind": "closed", "passed": True},
+                     {"kind": "closed", "passed": True, "cypher": "", "focus": "x", "components": ["C"]},
+                     {"kind": "closed", "passed": True, "cypher": "MATCH", "focus": "", "components": ["C"]},
+                     {"kind": "closed", "passed": True, "cypher": "MATCH", "focus": "x", "components": []},
+                     {"kind": "closed", "passed": "yes", "cypher": "MATCH", "focus": "x", "components": ["C"]}):
+            rep = Build.good_report(None, man)
+            rep["kinds_without_case"] = ["closed"]
+            rep["manual_cases"] = [stub]
+            self.assertTrue(any("no fail case" in f for f in build.check_report(man, rep)), stub)
+
+    # 4: a report without its mutant fails
+    def test_missing_mutant_fails(self):
+        man = {"input_fingerprint": "f", "shapes_fingerprint": "s"}
+        for value in (None, "absent"):
+            rep = Build.good_report(None, man)
+            if value == "absent":
+                rep.pop("mutant")
+            else:
+                rep["mutant"] = None
+            self.assertIn("report has no mutant object (pipeline.md, rule 15)", build.check_report(man, rep))
+
+    def test_mutant_that_caught_nothing_fails(self):
+        man = {"input_fingerprint": "f", "shapes_fingerprint": "s"}
+        rep = Build.good_report(None, man)
+        rep["mutant"]["violations"] = 0
+        self.assertIn("report mutant caught no violation", build.check_report(man, rep))
+
+    # 8: dropping an sh:or list keeps a blank property shape another shape still uses
+    def test_or_list_keeps_a_shared_blank_property_shape(self):
+        g = Graph()
+        ps = BNode()
+        g.add((lib("S"), RDF.type, SH.NodeShape))
+        g.add((lib("S"), SH.targetClass, lib("Copy")))
+        g.add((lib("S"), SH.property, ps))
+        g.add((ps, SH.path, lib("barcode")))
+        g.add((ps, SH.minCount, Literal(1)))
+        head = BNode()
+        Collection(g, head, [ps])
+        g.add((lib("S"), SH["or"], head))
+        sub, dropped = igs.subset(g)
+        self.assertNotIn((lib("S"), SH["or"], None), sub)
+        self.assertIn((lib("S"), SH.property, ps), sub)
+        self.assertIn((ps, SH.minCount, Literal(1)), sub)
+        data = module()
+        data.remove((COPY, lib("barcode"), None))
+        self.assertFalse(validate(data, shacl_graph=sub)[0])
+
+    # 9: sh:node one hop from an applied shape stays, with the reached shape; sh:targetQuery stays
+    def node_hop(self):
+        g = Graph()
+        g.add((lib("S"), RDF.type, SH.NodeShape))
+        g.add((lib("S"), SH.targetClass, lib("Copy")))
+        g.add((lib("S"), SH.node, lib("Inner")))
+        g.add((lib("Inner"), RDF.type, SH.NodeShape))
+        g.add((lib("Inner"), SH.property, lib("Inner-p")))
+        g.add((lib("Inner-p"), SH.path, lib("barcode")))
+        g.add((lib("Inner-p"), SH.minCount, Literal(1)))
+        return g
+
+    def test_node_hop_from_an_applied_shape_is_kept(self):
+        sub, _ = igs.subset(self.node_hop())
+        self.assertIn((lib("S"), SH.node, lib("Inner")), sub)
+        self.assertIn((lib("Inner-p"), SH.minCount, Literal(1)), sub)
+        self.assertIn(lib("Inner-p"), lv.shape_properties(sub, lib("S")))
+
+    def test_second_node_hop_is_dropped(self):
+        g = self.node_hop()
+        g.add((lib("Inner"), SH.node, lib("Deeper")))
+        g.add((lib("Deeper"), RDF.type, SH.NodeShape))
+        g.add((lib("Deeper"), SH.property, lib("Deeper-p")))
+        g.add((lib("Deeper-p"), SH.path, lib("copyOf")))
+        g.add((lib("Deeper-p"), SH.minCount, Literal(1)))
+        sub, dropped = igs.subset(g)
+        self.assertNotIn((lib("Inner"), SH.node, lib("Deeper")), sub)
+        self.assertNotIn((lib("Deeper-p"), None, None), sub)
+        self.assertIn((lib("Inner"), SH.node), {(x, p) for x, p, _ in dropped})
+
+    def test_node_on_a_property_shape_is_dropped(self):
+        sub, dropped = igs.subset(minimal_shape(SH.node, lib("Other")))
+        self.assertNotIn((lib("S-p"), SH.node, None), sub)
+        self.assertIn((lib("S-p"), SH.node), {(x, p) for x, p, _ in dropped})
+
+    def test_target_query_shape_is_kept(self):
+        g = minimal_shape(SH.minCount, Literal(1))
+        g.remove((lib("S"), SH.targetClass, None))
+        g.add((lib("S"), igs.TARGET_QUERY, Literal("MATCH (focus:lib__Copy)")))
+        sub, _ = igs.subset(g)
+        self.assertIn((lib("S"), igs.TARGET_QUERY, None), sub)
+        self.assertIn((lib("S-p"), SH.minCount, Literal(1)), sub)
+
+    # 10: n10s applies rdfs:Class shapes, not owl:Class ones; the inventories see class shapes
+    def class_shape(self, kind):
+        g = Graph()
+        g.add((lib("Copy"), RDF.type, kind))
+        g.add((lib("Copy"), RDF.type, SH.NodeShape))
+        g.add((lib("Copy"), SH.property, lib("C-p")))
+        g.add((lib("C-p"), SH.path, lib("barcode")))
+        g.add((lib("C-p"), SH.minCount, Literal(1)))
+        return g
+
+    def test_owl_class_shape_without_target_is_not_applied(self):
+        sub, dropped = igs.subset(self.class_shape(OWL.Class))
+        self.assertNotIn((lib("C-p"), SH.minCount, Literal(1)), sub)
+        self.assertIn(lib("Copy"), {x for x, _, _ in dropped})
+
+    def test_rdfs_class_shape_is_in_every_inventory(self):
+        sub, _ = igs.subset(self.class_shape(RDFS.Class))
+        self.assertIn("minCount", lv.kept_kinds(sub, module()))
+        self.assertIn("minCount", [k for k, _, _ in lv.fail_cases(sub, module(), config())])
+        self.assertEqual(lv.mutant_case(sub, module(), config()), ("lib__Copy", "lib__barcode"))
+
+    def test_target_query_kinds_need_a_case(self):
+        g = minimal_shape(SH.minCount, Literal(1))
+        g.remove((lib("S"), SH.targetClass, None))
+        g.add((lib("S"), igs.TARGET_QUERY, Literal("MATCH (focus:lib__Copy)")))
+        sub, _ = igs.subset(g)
+        self.assertIn("minCount", lv.kept_kinds(sub, module()))
+        self.assertNotIn("minCount", [k for k, _, _ in lv.fail_cases(sub, module(), config())])
+
+    # 12: every script stops under Rule 4b
+    def config_4b(self, tmp):
+        raw = raw_config()
+        raw["rule4"] = "4b"
+        path = os.path.join(tmp, "config.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(raw, f)
+        return path
+
+    def test_validate_data_stops_under_4b(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, out = run_main(vd.main, ["--config", self.config_4b(tmp), "--shapes", SHAPES, MODULE])
+        self.assertEqual(code, 2, out)
+        self.assertIn("validate_data.py reads RDF 1.1", out)
+
+    def test_build_cypher_stops_under_4b(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, out = run_main(build.main, ["cypher", "--config", self.config_4b(tmp), "--shapes", SHAPES, MODULE])
+        self.assertEqual(code, 2, out)
+        self.assertIn("build.py cypher reads RDF 1.1", out)
+
+    def test_load_verify_stops_under_4b(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "x"}):
+            args = ["--config", self.config_4b(tmp), "--shapes", SHAPES, "--bolt", "bolt://127.0.0.1:1",
+                    "--import-dir", tmp, "--merged", MODULE, "--loadable", MODULE, "--inferred", MODULE,
+                    "--report", os.path.join(tmp, "r.json"), MODULE]
+            code, out = run_main(lv.main, args)
+        self.assertEqual(code, 2, out)
+        self.assertIn("load_verify.py reads RDF 1.1", out)
+
+    # 17: predicates inside property paths, and superproperties, need a prefix
+    def test_sequence_path_namespace_needs_a_prefix(self):
+        def change(s):
+            head = BNode()
+            Collection(s, head, [lib("copyOf"), URIRef("https://vocab.example.net/terms#holder")])
+            s.add((lib("CopyShape-path"), SH.path, head))
+            s.add((lib("CopyShape"), SH.property, lib("CopyShape-path")))
+        self.assertOnly(self.broken(mutate_shapes=change), "rule-3",
+                        "Rule 3: no fixed prefix for the namespace https://vocab.example.net/terms#")
+
+    def test_alternative_path_namespace_needs_a_prefix(self):
+        def change(s):
+            alt, head = BNode(), BNode()
+            Collection(s, head, [lib("copyOf"), URIRef("https://vocab.example.net/terms#holder")])
+            s.add((alt, SH.alternativePath, head))
+            s.add((lib("CopyShape-path"), SH.path, alt))
+            s.add((lib("CopyShape"), SH.property, lib("CopyShape-path")))
+        self.assertOnly(self.broken(mutate_shapes=change), "rule-3",
+                        "Rule 3: no fixed prefix for the namespace https://vocab.example.net/terms#")
+
+    def test_superproperty_namespace_needs_a_prefix(self):
+        self.assertOnly(self.broken(lambda g: g.add((lib("copyOf"), RDFS.subPropertyOf,
+                                                     URIRef("https://vocab.example.net/terms#related")))),
+                        "rule-3", "Rule 3: no fixed prefix for the namespace https://vocab.example.net/terms#")
+
+    def broken(self, mutate_data=None, mutate_shapes=None, cfg=None):
+        g, s = module(), shapes()
+        if mutate_data:
+            mutate_data(g)
+        if mutate_shapes:
+            mutate_shapes(s)
+        return cpr.check(g, s, cfg or config())
+
+    # 19: a pin must name a release, not a candidate
+    def test_candidate_pin_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "lending", "1.2.0-rc.1"))
+            fails = cpr.check(module(), shapes(), config(lambda r: r["packages"].update({"lending": "1.2.0-rc.1"})), tmp)
+        self.assertEqual(fails, [("inputs", "Inputs: lending is pinned at 1.2.0-rc.1, which is not a release (X.Y.Z)")])
 
 
 if __name__ == "__main__":

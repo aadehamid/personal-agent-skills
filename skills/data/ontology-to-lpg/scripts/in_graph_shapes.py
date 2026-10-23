@@ -7,8 +7,12 @@ What it drops, and why (references/pipeline.md, rule 13):
   sh:datatype outside n10s's list              n10s throws for any datatype but xsd:boolean, string,
                                                integer, float, decimal, date, dateTime, anyURI and
                                                geo:wktLiteral (rdf:langString among them)
-  sh:not, sh:languageIn, sh:node,
+  sh:not, sh:languageIn,
   sh:targetSubjectsOf, sh:targetObjectsOf      n10s does not support them
+  sh:node on a property shape                  n10s does not run value shapes. On a node shape that n10s
+                                               applies it stays: n10s reads sh:node?/sh:property, one
+                                               hop, so the reached shape's property shapes run for the
+                                               same focus nodes. A second hop is dropped.
   sh:and, sh:or, sh:xone                       n10s's shape query does not read them
   sh:target                                    SHACL-SPARQL target; n10s never runs it
   sh:sparql                                    SHACL-SPARQL constraint; the check step runs it
@@ -24,9 +28,10 @@ What it drops, and why (references/pipeline.md, rule 13):
   sh:uniqueLang, sh:qualifiedValueShape, sh:select, sh:prefixes, sh:declare and the rest): n10s
                                                ignores it, so it would report silence
   a SHACL-SPARQL constraint or target node     left with nothing but its type once its query is gone
-  a node shape that n10s does not apply        one with neither sh:targetClass nor a class type;
-                                               its property shapes go too, unless a kept node shape
-                                               still uses them
+  a node shape that n10s does not apply        one with no sh:targetClass, no sh:targetQuery and no
+                                               rdfs:Class type (n10s does not read owl:Class as one), and
+                                               not reached by a kept sh:node; its property shapes go too,
+                                               unless a kept shape still uses them
 The full shapes still run before the load; the round-trip diff carries their result into the graph.
 sh:in lists and sh:hasValue values that are IRIs stay.
 
@@ -38,12 +43,11 @@ import sys
 
 from rdflib import BNode, Graph, Literal, URIRef
 from rdflib.collection import Collection
-from rdflib.namespace import OWL, RDF, RDFS, SH, XSD
+from rdflib.namespace import RDF, RDFS, SH, XSD
 
 UNSUPPORTED = {
     SH["not"]: "n10s does not support sh:not",
     SH.languageIn: "n10s does not support sh:languageIn",
-    SH.node: "n10s does not support sh:node",
     SH.targetSubjectsOf: "n10s does not support sh:targetSubjectsOf",
     SH.targetObjectsOf: "n10s does not support sh:targetObjectsOf",
     SH["and"]: "n10s's shape query does not read sh:and",
@@ -59,20 +63,26 @@ NOT_CONSTRAINTS = {p: "not a constraint" for p in (SH.message, SH.severity, SH.n
 # SHACLValidator.getDatatypeCastExpressionSuff at tag 2025.06.1 accepts only these; others throw.
 N10S_DATATYPES = {XSD.boolean, XSD.string, XSD.integer, XSD.float, XSD.decimal, XSD.date, XSD.dateTime,
                   XSD.anyURI, URIRef("http://www.opengis.net/ont/geosparql#wktLiteral")}
-CLASS_KINDS = (OWL.Class, RDFS.Class)
+# n10s's own target extension, a Cypher query (not a SHACL term, so rdflib's SH does not list it).
+TARGET_QUERY = URIRef(str(SH) + "targetQuery")
+# n10s's implicit class target reads only rdfs:Class (PROP_CONSTRAINT_QUERY: "?targetClass sh:property
+# ?ps; a rdfs:Class"); an owl:Class shape without sh:targetClass is not applied in the graph.
+CLASS_KINDS = (RDFS.Class,)
 # The SHACL terms n10s 2025.06.1 reads (SHACLValidator.java, PROP_CONSTRAINT_QUERY and the two node
 # queries, lines 59 to 180). Every other term in the SHACL namespace is dropped.
 READ = {SH.path, SH.inversePath, SH["class"], SH.nodeKind, SH.datatype, SH.maxCount, SH.minCount,
         SH.minInclusive, SH.maxInclusive, SH.minExclusive, SH.maxExclusive, SH.minLength, SH.maxLength,
-        SH.hasValue, SH["in"], SH.disjoint, SH.targetClass, SH.property, SH.closed, SH.ignoredProperties}
+        SH.hasValue, SH["in"], SH.disjoint, SH.targetClass, TARGET_QUERY, SH.property, SH.closed,
+        SH.ignoredProperties, SH.node}
 SHAPE_TYPES = {SH.NodeShape, SH.PropertyShape, SH.Shape}
 
 
 def _remove_subject(g, node):
-    """Remove a node's triples and, recursively, those of the blank nodes it points to."""
+    """Remove a node's triples and, recursively, those of the blank nodes it points to, except a blank
+    node that something else still uses (a property shape that is also another shape's sh:property)."""
     for _, _, o in list(g.triples((node, None, None))):
         g.remove((node, None, o))
-        if isinstance(o, BNode):
+        if isinstance(o, BNode) and (None, None, o) not in g:
             _remove_subject(g, o)
 
 
@@ -87,13 +97,16 @@ def _reason(shapes, s, p, o):
         return "n10s compares a literal sh:in list as strings"
     if p == SH.hasValue and isinstance(o, Literal):
         return "n10s compares a literal sh:hasValue as a string"
+    if p == SH.node and (s, SH.path, None) in shapes:
+        return "n10s does not run sh:node on a property shape (a value shape)"
     if str(p).startswith(str(SH)) and p not in READ:
         return f"n10s's shape query does not read {p.n3(shapes.namespace_manager)}"
     return None
 
 
 def _applied(g, shape):
-    return (shape, SH.targetClass, None) in g or any((shape, RDF.type, k) in g for k in CLASS_KINDS)
+    return ((shape, SH.targetClass, None) in g or (shape, TARGET_QUERY, None) in g
+            or any((shape, RDF.type, k) in g for k in CLASS_KINDS))
 
 
 def subset(shapes):
@@ -128,15 +141,24 @@ def subset(shapes):
                 and (None, None, node) not in g:
             _remove_subject(g, node)
             dropped.append((node, RDF.type, "a SHACL-SPARQL node left without its query"))
-    node_shapes = sorted(set(g.subjects(RDF.type, SH.NodeShape)), key=str)
-    unapplied = [n for n in node_shapes if not _applied(g, n)]
+    node_shapes = sorted(set(g.subjects(RDF.type, SH.NodeShape)) | set(g.subjects(SH.node, None)), key=str)
+    applied = {n for n in node_shapes if _applied(g, n)}
+    # n10s follows sh:node one hop from an applied shape; a hop from any other shape is not read.
+    for n in sorted(set(g.subjects(SH.node, None)) - applied, key=str):
+        for o in list(g.objects(n, SH.node)):
+            g.remove((n, SH.node, o))
+            dropped.append((n, SH.node, "n10s follows sh:node one hop from an applied shape only"))
+    reached = {o for n in applied for o in g.objects(n, SH.node)}
+    node_shapes = sorted(set(g.subjects(RDF.type, SH.NodeShape)) | reached, key=str)
+    unapplied = [n for n in node_shapes if n not in applied and n not in reached]
     kept_uses = {ps for n in node_shapes if n not in unapplied for ps in g.objects(n, SH.property)}
     for shape in unapplied:
         for prop in list(g.objects(shape, SH.property)):
             if prop not in kept_uses:
                 _remove_subject(g, prop)
         _remove_subject(g, shape)
-        dropped.append((shape, RDF.type, "a node shape n10s does not apply: no sh:targetClass and not a class"))
+        dropped.append((shape, RDF.type, "a node shape n10s does not apply: no sh:targetClass or sh:targetQuery, "
+                                         "not an rdfs:Class, and not reached by a kept sh:node"))
     return g, sorted(dropped, key=lambda t: (str(t[0]), str(t[1])))
 
 

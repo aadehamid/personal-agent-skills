@@ -83,7 +83,7 @@ Each rule can be checked by a script; `scripts/check_projection_rules.py` checks
 
 ## Where the Rule 4 choice is recorded
 
-**Record the Rule 4 option and its reason in the projection policy, and copy both into the configuration's `rule4` and `rule4_reason`.** The projection policy is the project's written decision to project the ontology into a property graph. Any recorded place that holds the option and its reason counts: for an ontology built with the `ontology` skill, policy 10 (target formats) in its `templates/policies.md`; otherwise a decision record the owner approved, or the project's own method. For the library example, the policy is the template configuration's `rule4` and `rule4_reason`. *Why:* the policy is the decision, and the configuration is the copy the scripts read; `check_projection_rules.py` stops with exit 2 under `4b`, because it reads RDF 1.1 only.
+**Record the Rule 4 option and its reason in the projection policy, and copy both into the configuration's `rule4` and `rule4_reason`.** The projection policy is the project's written decision to project the ontology into a property graph. Any recorded place that holds the option and its reason counts: for an ontology built with the `ontology` skill, policy 10 (target formats) in its `templates/policies.md`; otherwise a decision record the owner approved, or the project's own method. For the library example, the policy is the template configuration's `rule4` and `rule4_reason`. *Why:* the policy is the decision, and the configuration is the copy the scripts read; every script of this skill (`check_projection_rules.py`, `validate_data.py`, `build.py cypher`, `load_verify.py`) stops with exit 2 under `4b`, because each reads RDF 1.1 only.
 
 ## OWL profile
 

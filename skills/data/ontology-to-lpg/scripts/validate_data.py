@@ -51,6 +51,9 @@ def main(argv):
     try:
         with open(config, encoding="utf-8") as f:
             cfg = cpr.Config(json.load(f))
+        if cfg.rule4 == "4b":
+            print(cpr.RULE_4B_STOP.format(script="validate_data.py"), file=sys.stderr)
+            return 2
         data_graph, shapes_graph = cpr.parse(data), cpr.parse(shapes)
     except (OSError, ValueError) as exc:
         print(f"ERROR {exc}", file=sys.stderr)

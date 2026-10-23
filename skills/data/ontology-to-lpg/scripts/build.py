@@ -170,13 +170,23 @@ def check_report(man, rep):
     failed = [c.get("kind") for c in rep.get("fail_cases") or [] if not c.get("passed")]
     if failed:
         fails.append(f"report fail cases did not fail as expected: {', '.join(map(str, failed))}")
-    by_hand = {c.get("kind") for c in rep.get("manual_cases") or [] if c.get("passed")}
+    # A manual case counts only when it records what it ran and what it saw: the Cypher change, the
+    # focus node, and at least one component validate() reported on that node.
+    by_hand = {c.get("kind") for c in rep.get("manual_cases") or []
+               if c.get("passed") is True and str(c.get("cypher") or "").strip() and str(c.get("focus") or "").strip()
+               and isinstance(c.get("components"), list) and any(str(x).strip() for x in c["components"])}
     missing = [k for k in rep.get("kinds_without_case") or [] if k not in by_hand]
     if missing:
         fails.append("report lists constraint kinds left in the graph with no fail case: "
                      + ", ".join(missing) + " (pipeline.md, rule 14)")
-    if isinstance(rep.get("mutant"), dict) and rep["mutant"].get("after_restore") != 0:
-        fails.append("report mutant was not restored to zero violations")
+    mutant = rep.get("mutant")
+    if not isinstance(mutant, dict):
+        fails.append("report has no mutant object (pipeline.md, rule 15)")
+    else:
+        if not isinstance(mutant.get("violations"), int) or mutant["violations"] < 1:
+            fails.append("report mutant caught no violation")
+        if mutant.get("after_restore") != 0:
+            fails.append("report mutant was not restored to zero violations")
     return fails
 
 
@@ -244,7 +254,11 @@ def main(argv):
             need(opts, "--config")
             if not data:
                 raise ValueError("no data files")
-            print(cypher(load_config(opts["--config"]), parse(data), parse(opts.get("--shapes", []))), end="")
+            cfg = load_config(opts["--config"])
+            if cfg.rule4 == "4b":
+                print(cpr.RULE_4B_STOP.format(script="build.py cypher"), file=sys.stderr)
+                return 2
+            print(cypher(cfg, parse(data), parse(opts.get("--shapes", []))), end="")
         elif command == "manifest":
             need(opts, "--config", "--loadable", "--inferred", "--output")
             root = os.path.dirname(os.path.abspath(opts["--output"]))

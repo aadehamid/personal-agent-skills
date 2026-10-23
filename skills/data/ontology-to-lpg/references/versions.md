@@ -38,6 +38,8 @@ From the projection of a multi-module enterprise ontology, every released packag
 - **Annotation properties need no range here.** The build behind 2.3 required a single range for every owned predicate, annotation properties included; this skill follows the `ontology` skill, where an annotation property takes neither a domain nor a range.
 - **Rule 2 checks only properties the data uses.** The build did the same; the first draft of 2.3 also checked declared but unused ones.
 
+20. **From review round 2:** `sh:node` on an applied node shape and n10s's `sh:targetQuery` stay in the in-graph subset; an `owl:Class` shape without `sh:targetClass` leaves it; dropping an `sh:or`, `sh:and` or `sh:xone` list keeps a property shape another shape still uses; every script stops under Rule 4b; predicates inside property paths and superproperties need a prefix; a pin must be `X.Y.Z`; `check-report` needs a complete manual case and a mutant object; `docker rm -f -v` removes the run's volumes.
+
 ## Migrating a project from 2.2
 
 Expect the checker to report two things a 2.2 project did not see:

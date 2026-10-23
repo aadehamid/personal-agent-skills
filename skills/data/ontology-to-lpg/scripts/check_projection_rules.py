@@ -21,7 +21,8 @@ Checks (references/design-rules.md and references/inputs.md):
              shape through sh:node, sh:and, sh:or or sh:xone. A declared property the data never
              uses loads nothing, so Rule 2 skips it; Rule 1 still checks it
   rule-3     no blank node in the data; every namespace a predicate or a class uses (in the data or
-             the shapes) has a prefix; every own namespace has a prefix; no namespace has two prefixes
+             the shapes, including predicates inside property paths and superproperties) has a prefix;
+             every own namespace has a prefix; no namespace has two prefixes
   rule-4a    every node of a registered qualified-relation class has exactly one value for each end,
              and is the object of exactly one link for each inverse end; an applied shape on the class
              gives each end (sh:path end) and each inverse end (sh:path [sh:inversePath end])
@@ -29,7 +30,8 @@ Checks (references/design-rules.md and references/inputs.md):
   rule-5     no two terms share a value of the configured lpg_name_property (when one is configured)
   refusal    no plain or xsd:string literal ends like a language tag, and every xsd:decimal survives
              as a double (references/pipeline.md, rule 3)
-  inputs     with --releases: each module's pin is its newest release folder (<folder>/<module>/<X.Y.Z>/)
+  inputs     with --releases: each module's pin is an X.Y.Z release and its newest release folder
+             (<folder>/<module>/<X.Y.Z>/)
   exceptions a rule-1, rule-2 or rule-5 failure whose exact message is a key of release_exceptions is
              allowed (a key may name terms by full IRI or by CURIE); a listed exception that no longer occurs, has an empty fix, or names a failure
              of any other check, fails
@@ -73,6 +75,11 @@ SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
 # source string cannot be told apart from a tagged one on the way back.
 LANG_TAG_SUFFIX = re.compile(r"@[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*$")
 WAIVABLE = {"rule-1", "rule-2", "rule-5"}
+# Every script of this skill reads RDF 1.1 with rdflib and implements Rule 4a only, so each stops on 4b.
+RULE_4B_STOP = ("ERROR the configuration records Rule 4b; {script} reads RDF 1.1 with rdflib and implements Rule 4a "
+                "only. Run the Rule 4b steps in Jena 6.1.0+ or RDF4J 6.0.0+ (references/pipeline.md, rule 1).")
+PATH_LISTS = (SH.alternativePath,)
+PATH_WRAPPERS = (SH.inversePath, SH.zeroOrMorePath, SH.oneOrMorePath, SH.zeroOrOnePath)
 IRI_IN_TEXT = re.compile(r"<?(https?://[^\s<>\"]+)>?")
 # Every way SHACL selects focus nodes. A shape reached from an applied shape through sh:node,
 # sh:and, sh:or or sh:xone applies to the same nodes.
@@ -272,7 +279,8 @@ def check_rule_3(data, shapes, cfg):
     terms |= {o for p in CLASS_OBJECTS for o in data.objects(None, p)}
     terms |= {s for kind in CLASS_KINDS for s in data.subjects(RDF.type, kind)}
     terms |= set(shapes.objects(None, SH.targetClass)) | set(shapes.objects(None, SH["class"]))
-    terms |= set(shapes.objects(None, SH.path)) | set(shapes.objects(None, SH.inversePath))
+    terms |= {iri for path in shapes.objects(None, SH.path) for iri in path_iris(shapes, path)}
+    terms |= set(data.objects(None, RDFS.subPropertyOf))
     terms = {t for t in terms if isinstance(t, URIRef)}
     missing = sorted({namespace(t) for t in terms} - registered)
     fails += [("rule-3", f"Rule 3: no fixed prefix for the namespace {ns}") for ns in missing]
@@ -284,6 +292,30 @@ def check_rule_3(data, shapes, cfg):
     fails += [("rule-3", f"Rule 3: the namespace {ns} has {len(ps)} prefixes: {', '.join(sorted(ps))}")
               for ns, ps in sorted(by_ns.items()) if len(ps) > 1]
     return fails
+
+
+def path_iris(shapes, path, seen=None):
+    """Every predicate IRI in a SHACL property path: a direct IRI, the members of a sequence path (an
+    RDF list), of an sh:alternativePath list, and the IRI inside an inverse or repetition path."""
+    seen = set() if seen is None else seen
+    if isinstance(path, URIRef):
+        return {path}
+    if path in seen:
+        return set()
+    seen.add(path)
+    from rdflib.collection import Collection
+    found = set()
+    if (path, RDF.first, None) in shapes:
+        for member in Collection(shapes, path):
+            found |= path_iris(shapes, member, seen)
+    for p in PATH_LISTS:
+        for head in shapes.objects(path, p):
+            for member in Collection(shapes, head):
+                found |= path_iris(shapes, member, seen)
+    for p in PATH_WRAPPERS:
+        for inner in shapes.objects(path, p):
+            found |= path_iris(shapes, inner, seen)
+    return found
 
 
 def _end_shape_is_exact(shapes, cls, matches_path):
@@ -376,7 +408,9 @@ def check_packages(releases, cfg):
             if os.path.isdir(os.path.join(releases, module, pin)):
                 fails.append(("inputs", f"Inputs: {module} is pinned at {pin} but its newest release is {version}"))
     for module, pin in sorted(cfg.packages.items()):
-        if not os.path.isdir(os.path.join(releases, module, pin)):
+        if not SEMVER.match(pin):
+            fails.append(("inputs", f"Inputs: {module} is pinned at {pin}, which is not a release (X.Y.Z)"))
+        elif not os.path.isdir(os.path.join(releases, module, pin)):
             fails.append(("inputs", f"Inputs: {module} is pinned at {pin}, which has no release folder"))
     return fails
 
@@ -444,9 +478,7 @@ def main(argv):
         print(f"ERROR cannot use {config}: {exc}", file=sys.stderr)
         return 2
     if cfg.rule4 == "4b":
-        print("ERROR the configuration records Rule 4b; this checker reads RDF 1.1 with rdflib and checks Rule 4a "
-              "only. Run the Rule 4b checks in Jena 6.1.0+ or RDF4J 6.0.0+ (references/pipeline.md, rule 1).",
-              file=sys.stderr)
+        print(RULE_4B_STOP.format(script="check_projection_rules.py"), file=sys.stderr)
         return 2
     if releases is not None and not os.path.isdir(releases):
         print(f"ERROR {releases} is not a folder", file=sys.stderr)

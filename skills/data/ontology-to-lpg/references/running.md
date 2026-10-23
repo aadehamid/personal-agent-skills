@@ -44,7 +44,7 @@ Serves the load step (rule 5, the container) and the running step. Read it befor
    | `versions`, `plugin_jars_sha256` | The configuration's versions, and each jar's SHA-256 in the plugins folder. |
    | `samples` | Up to ten lost or added triples, five violations and five failed cases. |
 
-   `build.py check-report` fails when the report's fingerprints differ from the manifest's, or when any check in it did not pass; it also fails when a fail case did not fire, when the mutant was not restored, or when `kinds_without_case` is not empty. The template, with its empty values, fails on purpose. *Why:* a projection result that outlives its inputs is a false pass, and a shape can change while the loaded triples do not.
+   `build.py check-report` fails when the report's fingerprints differ from the manifest's, or when any check in it did not pass; it also fails when a fail case did not fire, when the mutant object is missing, caught nothing or was not restored, or when a kind in `kinds_without_case` has no complete passing manual case (`pipeline.md`, rule 14). The template, with its empty values, fails on purpose. *Why:* a projection result that outlives its inputs is a false pass, and a shape can change while the loaded triples do not.
 
 4. **Commit `inferred.nt`, the manifest and the report together, after one full workstation run.** Keep `loadable.nt`, `merged.ttl` and the downloads out of the repository; they are rebuilt from the Turtle files. *Why:* the three describe one run, and CI compares them with each other.
 
@@ -74,7 +74,7 @@ Serves the load step (rule 5, the container) and the running step. Read it befor
    docker logs lpg-projection 2>&1 | grep -q 'Started.' || { echo 'Neo4j did not start in 180 seconds'; exit 1; }
    ```
 
-   Then run `load_verify.py` with `NEO4J_PASSWORD="$PASSWORD"`, `--bolt bolt://127.0.0.1:17687`, `--import-dir "$IMPORT"` and `--plugins-dir "$PLUGINS"`. After the run, `docker rm -f lpg-projection` and `unset PASSWORD`; `docker ps -a` then lists no projection container. *Why:* the load script reads `file:///import/...`; Community edition has one user database, so the determinism check empties it between loads (`pipeline.md`, rule 17); and a forgotten container with a known password is an open database on the workstation.
+   Then run `load_verify.py` with `NEO4J_PASSWORD="$PASSWORD"`, `--bolt bolt://127.0.0.1:17687`, `--import-dir "$IMPORT"` and `--plugins-dir "$PLUGINS"`. After the run, `docker rm -f -v lpg-projection` and `unset PASSWORD`; `docker ps -a` then lists no projection container. The `-v` removes the container's anonymous `/data` and `/logs` volumes; without it each run leaves them behind, and after a few runs Docker's disk fills and Neo4j fails to start ("Database name 'system' is invalid"). *Why:* the load script reads `file:///import/...`; Community edition has one user database, so the determinism check empties it between loads (`pipeline.md`, rule 17); and a forgotten container with a known password is an open database on the workstation.
 
 6. **Change only the loader as the graph grows:**
 
