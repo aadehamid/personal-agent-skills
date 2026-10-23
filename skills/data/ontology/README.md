@@ -21,6 +21,13 @@ This README is for people. Agents do not read it. They read `SKILL.md` and the f
 | `references/lpg-projection.md` | agent, Step 12 and Step 1's target formats | The design rules (Rule 4 option 4a, qualified-relation nodes) and the check, reason, serialise, load, verify pipeline, with what running it taught. |
 | `references/external-ontologies.md` | agent, Step 0 or when asked about existing ontologies | Where to look for public ontologies and code lists, how to assess them, the map, import or ignore choice, and rules for applying mappings. |
 | `references/quality.md` | agent, Step 3 onward and before any hand-off | The ten-point definition quality bar and the soundness checks on every change. |
+| `references/governance.md` | agent, before a new ontology, a decision, a delegation, setting up checks, a review, a release or publication | Intake gaps, decision records and answers files, delegation and its limits, the check script, the shared figures and search tool, generated content, review, privacy, source tiers, claims and scope statements. |
+| `templates/decision-record.md` | agent, when recording a decision | A numbered decision record with the owner's words, "What follows" and evidence. |
+| `templates/decision-package.md` | agent, when asking the owner a question | A question with context, options (recommendation first), what each changes and an answer box. |
+| `templates/answers-file.md` | agent, when saving the owner's answers | The owner's words verbatim, with the agent's questions inside comments. |
+| `templates/competency-questions.md` | agent, Step 1 and Step 11 | The question table with tested parts, status, what each waits for and the elements it needs, plus what was left out. |
+| `templates/release-checklist.md` | agent, before each release | The release gate as a checklist, each item pointing to its rule. |
+| `templates/check.sh` | agent, when setting up a repository | A check-script skeleton with the no-writes guard and a TODO per step. |
 | `SOURCES.md` | you | What the skill was built from, the versions used, and how to check for updates. |
 | `README.md` | you | This file. |
 

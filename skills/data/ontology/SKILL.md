@@ -8,6 +8,8 @@ description: >-
 
 Build the ontology in **gated** steps. Each step ends on its "Done when" gate; start the next step only when the gate is met. The user, the ontology owner, makes every decision. Your job is the evidence, the options and a recommendation. A decision is real only when the owner has recorded it in their own words, or when it falls inside a delegation the owner recorded and says so. A statement only the owner can make (who consumes the ontology) and the approvals reserved to the owner (`references/release.md`) stay with the owner even under a delegation.
 
+This skill builds and checks the ontology. It hosts no namespace, holds no event records or measure values, and makes no decision that is the owner's; where the project has its own playbook, that playbook wins.
+
 ## First, find where the build stands
 
 1. Read the project's decision log, worklog, competency questions and released packages, if they exist.
@@ -58,3 +60,5 @@ Each rule lives in the reference named; read it there.
 - **Every count reconciles:** `references/quality.md`, counts.
 - **Released packages never change:** `references/release.md`, rule 10.
 - **Before any hand-off:** `references/quality.md`, soundness checks.
+- **Governance:** read `references/governance.md` before you start a new ontology, record a decision, work under a delegation, set up checks, review a change, release or publish.
+- **Templates:** copy the decision record, decision package, answers file, competency-question table, release checklist or check-script skeleton from `templates/`.
