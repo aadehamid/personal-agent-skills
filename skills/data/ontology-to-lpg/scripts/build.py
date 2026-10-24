@@ -185,7 +185,8 @@ def _lines_and_graph(name, data, fails):
 
 
 def check_serialised(loadable_bytes, inferred_bytes):
-    """The step 4 gate: each file holds one triple per line, in byte order, without duplicates;
+    """The step 4 gate: each line is exactly one triple and nothing else (no comment), in byte order,
+    without duplicates;
     inferred.nt holds only kept inferences, none of them already asserted in loadable.nt."""
     fails = []
     graphs = {}
