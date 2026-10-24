@@ -25,7 +25,7 @@ Serves Step 10, and every module release from Step 4 on. Read it before you clas
 
 ## The release package
 
-8. **Give every module the same package, built by one script:** the module's Turtle and JSON-LD, its shapes, a DCAT record, a changelog, and a manifest with the SHA-256 of each file and the module versions it requires. *Why:* consumers validate against a package, not a working tree, and one builder keeps every package the same shape.
+8. **Give every module the same package, built by one script:** the module's Turtle and JSON-LD, its shapes, a DCAT record, a changelog, and a manifest with the SHA-256 of each file and the module versions it requires. `scripts/check_packages.py` reads this layout: `releases/<module>/<version>/` holding `<module>.ttl`, `shapes.ttl` and `manifest.json`, whose `files` maps each other file to its SHA-256 and whose `depends_on` maps each required module to its version. *Why:* consumers validate against a package, not a working tree, and one builder keeps every package the same shape.
 9. **Make the builder deterministic, and give it `--verify`, which fails unless the written package equals a fresh build.** The check script runs `--verify` for every package. *Why:* a hand edit to a package, or a drift in its sources, then fails the check.
 10. **Never change a released package; cut a new release instead.** *Why:* consumers pinned it by version and checksum.
 11. **Name each dependency's version with `dcterms:requires` on the header and an entry in the manifest; import no module.** The build fails if a named version does not exist. *Why:* an import pulls a moving target into a pinned release.

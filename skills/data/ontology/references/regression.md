@@ -13,7 +13,7 @@ The competency questions are the exam the owner approved and locked at Step 1 (`
 ## Write the queries
 
 4. **Write one SPARQL query per tested part of a question.** A question with three parts gets three queries, named after the question and part (`q21a-roles-are-dated.rq`). *Why:* a part that fails is then named by its own query, not hidden in a combined one.
-5. **Make each query either return rows or, marked "(must be none)", return none.** A must-be-none query states a rule the graph keeps ("no process with RACI lacks an accountable role"). *Why:* both directions are testable with one runner.
+5. **Make each query either return rows or, marked "(must be none)", return none.** The mark goes in the query file, on its first non-blank line, as a comment (`# Loans with no due date (must be none)`); a mark only in the questions table is not read. An `ASK` query passes when it answers true, or false when marked. A must-be-none query states a rule the graph keeps ("no process with RACI lacks an accountable role"). *Why:* both directions are testable with one runner.
 6. **Test only the part the graph supplies** where a question depends on a system outside the ontology (a catalog page, an assistant). *Why:* the regression tests the ontology, and the rest is the consumer's test.
 7. **Test the harness with mutated graphs:** remove the fact a query needs and require it to fail; add the fact a must-be-none query forbids and require it to fire. *Why:* a query that passes on an empty graph proves nothing.
 8. **Check a query's population against the whole before you trust its count:** count what the query selects, the rows it returns and the rows it leaves out, and confirm they add up. *Why:* a filter on one concept kind silently drops concepts that carry no kind.
@@ -26,11 +26,11 @@ The competency questions are the exam the owner approved and locked at Step 1 (`
     - **answerable:** all its queries run on the released packages;
     - **partial:** the graph part runs and the rest is named, with what it waits for; it closes Step 11 only by a recorded decision (rule 11);
     - **waiting:** it names the step, module or decision it waits for.
-    A module's pull request moves its questions to answerable. *Why:* the status list is the build's progress, and a question with no named wait has been forgotten.
+    A question parked by a recorded decision (rule 11) has the status **parked**. In `regression/expected.csv`, which `scripts/run_regression.py` reads, the statuses are written `drafted`, `answerable`, `partial` (with the rest in `waits_for`), `waiting:<what it waits for>` and `parked:<decision>`; only answerable and partial rows list query files. A module's pull request moves its questions to answerable. *Why:* the status list is the build's progress, and a question with no named wait has been forgotten.
 11. **Park a question, or leave it partial or waiting, only by a recorded decision that names its reason and what it waits for;** the Step 11 gate in `SKILL.md` is the rule. *Why:* a question set aside without a record has quietly left the exam the owner locked.
 12. **Pin the counts a harness test checks by hand, and expect each new query to change them.** A test that pins how many queries fail on an empty graph, or which question is the example of a waiting one, moves with every module that adds a query or answers that question. *Why:* a stale pin fails for the wrong reason, and the fix that silences it can hide a real regression.
 
 ## Run it every time
 
-13. **Run the full suite against the released packages after every module lands and on every release, from the check script.** A failing query is a regression or a recorded, deliberate change, never a surprise. *Why:* a change in one module can break a question another module answers.
+13. **Run the full suite against the released packages after every module lands and on every release, from the check script,** with `scripts/run_regression.py`, which also checks each question's status against rules 10 and 11. A failing query is a regression or a recorded, deliberate change, never a surprise. *Why:* a change in one module can break a question another module answers.
 14. **Run the whole check suite, not only the module's tests, before a review.** *Why:* a new source, value or node can break a check in another module, such as the rule that every cited source has an evidence tier.

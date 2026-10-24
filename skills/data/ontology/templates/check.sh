@@ -53,7 +53,8 @@ PY
 before="$(snapshot)"
 
 # 1. Requirements: schema and conflicts (governance rule 2). Copy the skill's check_requirements.py and
-#    check_taxonomy.py to scripts/ontology/.
+#    check_taxonomy.py to scripts/ontology/, with check_shapes.py, check_code_lists.py, check_packages.py
+#    and run_regression.py for sections 4 and 5 below.
 # TODO: uv run --no-project --with pyyaml python3 scripts/ontology/check_requirements.py requirements.yaml
 
 # 2. Taxonomy, classes and properties: the mechanical checks (identity-taxonomy.md, Step 3, rule 13), on
@@ -69,10 +70,14 @@ before="$(snapshot)"
 
 # 4. Shapes: every module's shapes, the whole-graph gate and the release-package test (shacl.md),
 #    against the pinned shape version only (governance rule 17).
-# TODO: python3 validation/validate_all.py
+# TODO: shapes=(); while IFS= read -r -d '' f; do shapes+=("$f"); done < <(find modules -name '*-shapes.ttl' -print0)
+# TODO: [ "${#shapes[@]}" -gt 0 ] || { echo "no *-shapes.ttl under modules/" >&2; exit 1; }   # an empty set must fail, not pass
+# TODO: uv run --no-project --with rdflib --with pyshacl python3 scripts/ontology/check_shapes.py --shapes "${shapes[@]}" --data "${data[@]}" --every-shapes-file-under modules
+# TODO: uv run --no-project --with rdflib --with pyshacl python3 scripts/ontology/check_code_lists.py --shapes "${shapes[@]}" --data "${data[@]}"   # add --not-code-list=<scheme IRI> for each taxonomy scheme
+# TODO: uv run --no-project --with rdflib --with pyshacl python3 scripts/ontology/check_packages.py --releases releases --expect releases/packages.txt
 
 # 5. Regression: every competency question on the released packages (regression.md, rule 13).
-# TODO: python3 regression/run.py
+# TODO: uv run --no-project --with rdflib python3 scripts/ontology/run_regression.py --expected regression/expected.csv --queries regression/queries <the newest release of each module's Turtle>
 
 # 6. Every test file (governance rule 15).
 # TODO: python3 -m pytest -q -p no:cacheprovider tests/
