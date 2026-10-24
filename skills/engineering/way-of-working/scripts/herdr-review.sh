@@ -10,15 +10,18 @@
 #   A review takes longer than a foreground tool call allows: run this as a background
 #   job the harness reports back on, with its exit status (Claude Code: run_in_background).
 # Exit 0: the report is on stdout, and nothing else is.
-# Exit 1 once the prompt was sent: no report. Stdout ends with "Prompt result: <herdr
-#   error>" (only if the prompt did not complete), the pane's recent text, then
-#   "No report at <path>: <reason>." and "Next: <command>" as the last two lines.
-# Exit 1 before the prompt (HERDR_WORKSPACE_ID unset, a herdr error, no review tab or
-#   pane, an unwritable report folder, a reviewer that did not start): the error, and for
-#   a reviewer that did not start, the pane and what to do. Then run the script again.
-#   When the reviewer's name is held by a review still working or blocked in this work
-#   tree, the last two lines are "Reviewer did not start: another review is running in
-#   <tab>; wait for it or close it." and "Next: <wait for it, then run this again>".
+# Exit 1: no report. Every exit 1 ends stdout with two lines, the reason and
+#   "Next: <command>" to run.
+#   Once the prompt was sent, stdout ends with "Prompt result: <herdr error>" (only if
+#   the prompt did not complete), the pane's recent text, then "No report at <path>:
+#   <reason>." and the Next line.
+#   Before the prompt, a reviewer that did not start prints herdr's error and the pane,
+#   then "Reviewer did not start: <reason>." and the Next line; a review still working
+#   or blocked in this work tree that holds the reviewer's name gives the reason
+#   "another review is running in <tab>; wait for it or close it". Any other failure
+#   (HERDR_WORKSPACE_ID unset, a herdr error, no review tab or pane, an unwritable
+#   report folder) prints its error on stderr, then "No review: <step> failed; the error
+#   is above." and the Next line (on_exit).
 # Exit 2: bad arguments.
 # Every outcome of the prompt (completed, stalled, blocked, timed out) goes through one
 # recovery: Enter for a Cursor prompt left pasted but unsent, a wait until the reviewer
@@ -42,13 +45,30 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$branch" ] && [ -n "$verify" ] || { echo "usage: $0 --branch <branch> --verify <text>" >&2; exit 2; }
-: "${HERDR_WORKSPACE_ID:?run inside a Herdr pane}"
 case "$kind" in
   codex) model="${model:-gpt-6.1-sol}" ;;
   kimi) model="${model:-kimi-code/k3}" ;;
   cursor) model="${model:-cursor-grok-4.6-medium}" ;;
   *) echo "--kind must be codex, kimi or cursor, got: $kind" >&2; exit 2 ;;
 esac
+
+# From here, any failure exits 1 and ends with the reason and a Next line. A path that
+# prints its own two lines sets trailer=1 first; any other failure (set -e, a herdr
+# error, a failed mktemp) gets them here, naming the step it was on.
+step="starting" trailer="" next_on_failure="$rerun"
+on_exit() {
+  local code=$?
+  [ "$code" -ne 0 ] && [ -z "$trailer" ] || return 0
+  echo "No review: $step failed; the error is above."
+  echo "Next: $next_on_failure"
+  exit 1
+}
+trap on_exit EXIT
+if [ -z "${HERDR_WORKSPACE_ID:-}" ]; then
+  echo "HERDR_WORKSPACE_ID is not set: this runs only inside a Herdr pane." >&2
+  step="checking for a Herdr pane" next_on_failure="run it from a Herdr pane: $rerun"
+  exit 1
+fi
 default_reviewer=""
 [ "$kind:$model" = "codex:gpt-6.1-sol" ] && default_reviewer=1
 # The tab label and the agent name both carry this hash, so two models never share a
@@ -77,6 +97,7 @@ print("" if value is None else value)' "$1"
 # spans every workspace, and a tab created without --workspace can open in
 # whichever one the owner is looking at.
 # Name and start from the work tree's top, so a run from a subdirectory finds the same tab.
+step="finding the review tab"
 top=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 head_sha=$(git -C "$top" rev-parse HEAD 2>/dev/null || true)   # the skill-report fallback matches this commit
 repo=$(basename "$top")
@@ -103,7 +124,8 @@ tab = sys.argv[1]
 panes = json.load(sys.stdin)["result"]["panes"]
 print(next(p["pane_id"] for p in panes if p["tab_id"] == tab))' "$review_tab")
 fi
-[ -n "$review_tab" ] && [ -n "$review_pane" ] || { echo "no review tab or pane" >&2; exit 1; }
+[ -n "$review_tab" ] && [ -n "$review_pane" ] || { echo "herdr gave no review tab or pane" >&2; exit 1; }
+step="starting the reviewer"
 
 # Start a reviewer only if the pane has none; a reused tab keeps its reviewer.
 # Different model from the writer, no approval prompts, sandboxed with network
@@ -173,6 +195,7 @@ PY
             holder_closed=1 ;;
           *)
             printf '%s\n' "$out"
+            trailer=1
             echo "Reviewer did not start: another review is running in $holder_tab; wait for it or close it."
             echo "Next: herdr agent wait $holder_pane --until idle --until done --timeout 3600000 && $rerun"
             exit 1 ;;
@@ -183,8 +206,9 @@ PY
   if [ -z "$started" ]; then
     printf '%s\n' "$out"
     herdr agent read "$review_pane" --source recent-unwrapped --lines 30 || true
-    echo "Reviewer did not start (error above). If it is blocked on a question, answer it"
-    echo "(herdr agent send-keys $review_pane <key>); if the pane stayed busy, wait. Then run this again."
+    trailer=1
+    echo "Reviewer did not start: the error is above; if it is blocked on a question, answer it (herdr agent send-keys $review_pane <key>), and if the pane stayed busy, wait."
+    echo "Next: $rerun"
     exit 1
   fi
 fi
@@ -193,6 +217,7 @@ fi
 # allows /tmp, so a Cursor reviewer gets its report path there.
 report_dir="${TMPDIR:-/tmp}"
 if [ "$kind" = cursor ]; then report_dir="${HERDR_REVIEW_DIR:-/tmp/herdr-reviews}"; mkdir -p "$report_dir"; fi
+step="creating the report file"
 report=$(mktemp "$report_dir/review-XXXXXX")   # unique; a failure stops here
 rm -f "$report"                                     # absent until the reviewer writes it
 echo "Report file: $report" >&2                     # findable even if the output is cut short
@@ -221,14 +246,19 @@ enter_if_pasted() {
 }
 
 # Print the reviewer's own file at $report and exit 0, once two reads 5 seconds apart see
-# it at the same size. Returns if it is absent or still changing after a minute.
+# it non-empty at the same size. Returns after a minute if it is still missing, empty
+# (the reviewer wrote nothing yet) or changing.
 print_if_stable() {
   local last="" size
   for _ in $(seq 1 12); do
-    [ -s "$report" ] || return 0
-    size=$(wc -c < "$report")
-    if [ "$size" = "$last" ]; then cat "$report"; exit 0; fi
-    last=$size; sleep 5
+    if [ -s "$report" ]; then
+      size=$(wc -c < "$report")
+      if [ "$size" = "$last" ]; then cat "$report"; exit 0; fi
+      last=$size
+    else
+      last=""
+    fi
+    sleep 5
   done
 }
 
@@ -262,6 +292,7 @@ PY
 # --wait returns when the reviewer is idle, done or blocked, or fails with
 # agent_prompt_stalled, agent_blocked or timeout. A completed prompt with the report
 # written is the common case; every other outcome goes to the recovery below.
+step="waiting for the review"
 prompt_ok="" prompt_out=""
 if prompt_out=$(herdr agent prompt "$review_pane" "$prompt" --wait --timeout 3600000 2>&1); then prompt_ok=1; fi
 if [ -n "$prompt_ok" ] && [ -s "$report" ]; then cat "$report"; exit 0; fi
@@ -336,10 +367,11 @@ for _ in $(seq 1 720); do
   sleep 5
 done
 
-# The reviewer's own file comes first, however the wait ended, and is never overwritten.
+# The reviewer's own file comes first, however the wait ended. A non-empty file is never
+# overwritten; a missing or empty one (the reviewer wrote nothing) gets the fallback.
 print_if_stable
-if [ -e "$report" ]; then
-  reason="$reason; the file at the report path is empty or still changing"
+if [ -s "$report" ]; then
+  reason="$reason; the file at the report path is still changing"
   next="cat '$report'"
 else
   skill_reports=$(find_skill_reports)
@@ -355,6 +387,7 @@ else
     reason="$reason; no skill report for this run"
   fi
 fi
+trailer=1
 [ -n "$prompt_ok" ] || echo "Prompt result: $prompt_out"
 pane_tail 60
 echo "No report at $report: $reason."

@@ -99,10 +99,11 @@ FAKE = textwrap.dedent(r'''
             err("agent_blocked" if "blockedpaste" in s else "agent_prompt_stalled")
         if "blockedrej" in s: err("agent_blocked")
         if "timeout" in s:
-            if "writes" in s:
-                # The reviewer wrote the report, then stopped on a question.
+            if "writes" in s or "emptyreport" in s:
+                # The reviewer wrote the report ("emptyreport": only created it), then
+                # stopped on a question.
                 report = re.search(r"exactly this path: (\S+)\. This is required", args[3]).group(1)
-                open(report, "w").write("REVIEW FINDINGS\n")
+                open(report, "w").write("" if "emptyreport" in s else "REVIEW FINDINGS\n")
             err("timeout")
         report = re.search(r"exactly this path: (\S+)\. This is required", args[3]).group(1)
         if "noreport" not in s:
@@ -664,6 +665,27 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertNotIn("tab close", calls)
         self.assertIn("did not start", r.stdout)
+
+    def test_an_empty_report_file_still_gets_this_runs_skill_report(self):
+        r, _ = self.run_case("timeout,emptyreport", git_head=True,
+                             before=lambda t, h: self.plant_skill_report(t, h, "SKILL REPORT\n", -60))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.stdout, "SKILL REPORT\n")
+
+    def test_an_empty_report_file_keeps_the_blocked_next_command(self):
+        r, _ = self.run_case("timeout,emptyreport", git_head=True)
+        self.assertEqual(r.returncode, 1)
+        lines = r.stdout.splitlines()
+        self.assertRegex(lines[-2], r"^No report at \S+: the reviewer is waiting on a question; no skill report for this run\.$")
+        self.assertRegex(lines[-1], r"^Next: answer it \(herdr agent send-keys w2:p3 <key>\), then run: "
+                                    r"herdr agent wait w2:p3 --until idle --until done --timeout 3600000 && cat '\S+'$")
+
+    def test_a_failure_before_the_prompt_ends_with_the_reason_and_next(self):
+        r, _ = self.run_case("paneerr")
+        self.assertEqual(r.returncode, 1)
+        lines = r.stdout.splitlines()
+        self.assertEqual(lines[-2], "No review: starting the reviewer failed; the error is above.")
+        self.assertRegex(lines[-1], r"^Next: \S*herdr-review\.sh --branch b --verify v $")
 
     def test_unknown_kind_is_refused(self):
         r, calls = self.run_case("ok", extra=("--kind", "gemini"))
