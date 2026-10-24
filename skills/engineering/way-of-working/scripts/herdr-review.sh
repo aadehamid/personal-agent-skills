@@ -276,9 +276,9 @@ fi
 
 # Cursor's sandbox may block the macOS temporary folder ($TMPDIR, under /var/folders) but
 # allows /tmp, so a Cursor reviewer gets its report path there.
+step="creating the report file"
 report_dir="${TMPDIR:-/tmp}"
 if [ "$kind" = cursor ]; then report_dir="${HERDR_REVIEW_DIR:-/tmp/herdr-reviews}"; mkdir -p "$report_dir"; fi
-step="creating the report file"
 report=$(mktemp "$report_dir/review-XXXXXX")   # unique; a failure stops here
 rm -f "$report"                                     # absent until the reviewer writes it
 echo "Report file: $report" >&2                     # findable even if the output is cut short

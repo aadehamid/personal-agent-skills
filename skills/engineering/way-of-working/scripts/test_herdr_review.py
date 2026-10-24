@@ -377,7 +377,7 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertNotIn("agent prompt", calls)
         lines = r.stdout.splitlines()
-        self.assertRegex(lines[-2], r"^No review: .* failed; the error is above\.$")
+        self.assertEqual(lines[-2], "No review: creating the report file failed; the error is above.")
         self.assertRegex(lines[-1], "^Next: " + re.escape(SCRIPT) + " --branch b --verify v --kind cursor $")
 
     def test_error_payload_with_exit_zero_stops_before_start(self):
