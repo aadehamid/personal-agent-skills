@@ -32,7 +32,7 @@ parameters) and its row count is recorded.
 The report is fail-closed, as load_verify.py's is: the report named by --report (and its .failed
 file) is deleted before anything else, even before the flags are checked; it is written, by a
 rename, only when every check passed. A count mismatch writes the details to <report>.failed; a
-request that fails writes nothing. --projection-report must say passed: true.
+request that fails writes nothing. --projection-report must be a report that earned its pass (build.report_earned).
 
 Exit 0 when every check passed, 1 when a check or a request failed, 2 on bad input.
 """
@@ -50,6 +50,7 @@ from rdflib.namespace import OWL, RDF
 
 import build
 import load_verify as lv
+from shell import q
 
 DEFAULT_BASE = "urn:lpg-projection:graph:"
 
@@ -162,14 +163,15 @@ def main(argv):
         if opts.get("--projection-report"):
             with open(opts["--projection-report"], encoding="utf-8") as f:
                 projection = json.load(f)
-            if projection.get("passed") is not True:
-                raise ValueError(f"{opts['--projection-report']} does not say passed: true")
+            earned = build.report_earned(projection)
+            if earned:
+                raise ValueError(f"{opts['--projection-report']} is not a verified projection report: {'; '.join(earned)}")
             export = projection.get("export_predicate_counts")
             if not isinstance(export, dict):
                 raise ValueError(f"{opts['--projection-report']} has no export_predicate_counts")
         questions = [(p, open(p, encoding="utf-8").read()) for p in opts.get("--cq", [])]
     except Exception as exc:  # bad flags, unreadable or unparsable files
-        print(f"ERROR {lv.q(exc)}", file=sys.stderr)
+        print(f"ERROR {q(exc)}", file=sys.stderr)
         return 2
     store = Store(gsp, query, env.get("SPARQL_USER"), env.get("SPARQL_PASSWORD"))
     report = {"graphs": {}, "store": {"gsp": gsp, "query": query}}
@@ -191,15 +193,15 @@ def main(argv):
             fails += compare("store against the n10s export", export, store_counts)
         report["competency_questions"] = {p: len(store.select(text, iris)) for p, text in questions}
     except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError, KeyError) as exc:
-        print(f"FAIL a store request failed: {lv.q(exc)}. No report was written.")
+        print(f"FAIL a store request failed: {q(exc)}. No report was written.")
         return 1
     report["failures"] = fails
     report["passed"] = not fails
     for line in fails:
-        print(f"FAIL {lv.q(line)}")
+        print(f"FAIL {q(line)}")
     if fails:
         lv.write_atomically(opts["--report"] + ".failed", report)
-        print(f"No report was written at {lv.q(opts['--report'])}; the details are in {lv.q(opts['--report'] + '.failed')}.")
+        print(f"No report was written at {q(opts['--report'])}; the details are in {q(opts['--report'] + '.failed')}.")
         return 1
     lv.write_atomically(opts["--report"], report)
     print(f"loaded {len(files)} named graphs; per-graph, per-predicate"

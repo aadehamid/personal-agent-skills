@@ -21,6 +21,7 @@ import sys
 from pyshacl import validate
 
 import check_projection_rules as cpr
+from shell import q
 
 USAGE = "usage: validate_data.py --config <config.json> --shapes <shapes.ttl>... <data>..."
 
@@ -56,16 +57,16 @@ def main(argv):
             return 2
         data_graph, shapes_graph = cpr.parse(data), cpr.parse(shapes)
     except (OSError, ValueError) as exc:
-        print(f"ERROR {exc}", file=sys.stderr)
+        print(f"ERROR {q(exc)}", file=sys.stderr)
         return 2
     except Exception as exc:  # rdflib raises several parser types; any of them stops the check
-        print(f"ERROR cannot read the RDF files: {exc}", file=sys.stderr)
+        print(f"ERROR cannot read the RDF files: {q(exc)}", file=sys.stderr)
         return 2
     conforms, text, refusals = run(data_graph, shapes_graph, cfg)
     if not conforms:
-        print(text)
+        print(q(text))
     for _, message in refusals:
-        print(f"FAIL refusal: {message}")
+        print(f"FAIL refusal: {q(message)}")
     if not conforms or refusals:
         return 1
     print(f"the data conforms to every shape and nothing is refused ({len(data_graph)} triples)")

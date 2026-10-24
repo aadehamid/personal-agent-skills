@@ -28,12 +28,13 @@ This script gates nothing. What n10s compiled is read back from the engine by lo
 
 Exit 0 on success, 2 when a file cannot be read or the arguments are wrong.
 """
-import shlex
 import sys
 
 from rdflib import BNode, Graph, Literal, URIRef
 from rdflib.collection import Collection
 from rdflib.namespace import SH, XSD
+
+from shell import q
 
 # n10s's own target extension, a Cypher query (not a SHACL term, so rdflib's SH does not list it).
 TARGET_QUERY = URIRef(str(SH) + "targetQuery")
@@ -79,10 +80,6 @@ LISTED_AS = {SH.nodeKind: "sh:NodeKind", SH.disjoint: "sh:hasValue"}
 def _inverse(shapes, ps):
     path = shapes.value(ps, SH.path)
     return isinstance(path, BNode) and shapes.value(path, SH.inversePath) is not None
-
-
-def q(text):
-    return shlex.quote(str(text))
 
 
 def sanitize_reason(shapes, p, o, s=None):
@@ -166,7 +163,7 @@ def main(argv):
         for path in paths:
             shapes.parse(path, format="turtle")
     except Exception as exc:  # rdflib raises several parser types; any of them stops the run
-        print(f"ERROR cannot read the shapes: {exc}", file=sys.stderr)
+        print(f"ERROR cannot read the shapes: {q(exc)}", file=sys.stderr)
         return 2
     g, dropped = subset(shapes)
     g.serialize(output, format="turtle")

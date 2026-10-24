@@ -58,7 +58,6 @@ import json
 import os
 import random
 import re
-import shlex
 import shutil
 import sys
 import tempfile
@@ -68,6 +67,7 @@ from rdflib.collection import Collection
 from rdflib.namespace import OWL, RDF, RDFS, SH, XSD
 
 import build
+from shell import q
 import check_projection_rules as cpr
 import in_graph_shapes as igs
 
@@ -477,12 +477,18 @@ def plan_cases(rows, constraints, literal_preds, cfg, manual=()):
             cypher, path, source = by_key[(row["target"], row["path"], row["param"])], None, "manual"
         case = {"target": row["target"], "path": row["path"], "param": row["param"], "value": row["value"],
                 "expected_param": param, "expected_path": path, "cypher": cypher, "source": source}
-        if row["param"] == "sh:ignoredProperties" and not any(
-                c["term"] == "sh:ignoredProperties" and c["target"] == row["target"]
-                and value_key(c["value"]) == value_key(row["value"]) for c in constraints):
-            # A compiled ignore-list the shapes file does not state would let n10s accept properties
-            # the file forbids, while the case below still fires on a property neither list names.
-            case["mismatch"] = "the compiled sh:ignoredProperties differs from every closed shape on this target"
+        if row["param"] == "sh:ignoredProperties":
+            # The compiled ignore-lists on this target must equal the file's, both ways: a compiled list
+            # the file does not state, or a file list with no equal compiled row (a wider row compiled
+            # in its place), would let n10s accept properties the file forbids, while the case below
+            # still fires on a property neither list names.
+            file_lists = {value_key(c["value"]) for c in constraints
+                          if c["term"] == "sh:ignoredProperties" and c["target"] == row["target"]}
+            compiled_lists = {value_key(r["value"]) for r in rows
+                              if r["param"] == "sh:ignoredProperties" and r["target"] == row["target"]}
+            if value_key(row["value"]) not in file_lists or file_lists - compiled_lists:
+                case["mismatch"] = ("the compiled sh:ignoredProperties on this target differ from the closed shapes' "
+                                    "lists in the shapes file")
         planned.append(case)
     return planned
 
@@ -691,13 +697,9 @@ def passed(report):
             and all(c["status"] in ("passed", "no-op") for c in report["fail_cases"]))
 
 
-def q(text):
-    return shlex.quote(str(text))
-
-
 def check_report_command(report_path):
-    """The next step, safe to paste: MANIFEST.json stands for your manifest's path."""
-    return f"build.py check-report --manifest MANIFEST.json --report {q(report_path)}"
+    """The next step, safe to paste; projection-manifest.json is the manifest's name in running.md."""
+    return f"build.py check-report --manifest projection-manifest.json --report {q(report_path)}"
 
 
 DEFAULT_CONTAINER = "lpg-projection"
@@ -733,7 +735,8 @@ def write_atomically(path, report):
 
 
 def remove_report(path):
-    """Delete the report and the details of an earlier failed run, so neither outlives this run."""
+    """Delete the report and the details of an earlier failed run, so neither outlives this run.
+    A path that exists and cannot be deleted raises OSError: the caller stops with exit 2."""
     if path:
         for name in (path, path + ".failed"):
             try:
@@ -746,8 +749,12 @@ def main(argv):
     opts = {}
     # Delete the report first, before the flags are checked: a run that stops on a bad flag must not
     # leave an earlier report standing (--report PATH and --report=PATH both name one).
-    for path in build.named_paths(argv, "--report"):
-        remove_report(path)
+    try:
+        for path in build.named_paths(argv, "--report"):
+            remove_report(path)
+    except OSError as exc:
+        print(f"ERROR cannot delete the earlier report: {q(exc)}", file=sys.stderr)
+        return 2
     try:
         opts, data = build.options(argv)
         build.need(opts, "--config", "--bolt", "--import-dir", "--merged", "--loadable", "--inferred", "--report")
@@ -759,7 +766,7 @@ def main(argv):
         cfg = build.load_config(opts["--config"])
         manual = read_manual_cases(opts.get("--manual-cases"))
     except (OSError, ValueError) as exc:
-        print(f"ERROR {exc}", file=sys.stderr)
+        print(f"ERROR {q(exc)}", file=sys.stderr)
         return 2
     if cfg.rule4 == "4b":
         print(cpr.RULE_4B_STOP.format(script="load_verify.py"), file=sys.stderr)
@@ -775,9 +782,10 @@ def main(argv):
             driver.close()
     except Exception as exc:  # Failed, a driver error or a file error: no report
         remove_report(report_path)
-        print(f"FAIL {exc}")
-        print(f"Stop: no report was written at {q(report_path)}. Remove the container ({remove_command(opts)}), "
-              "fix the cause, and rerun.")
+        print(f"FAIL {q(exc)}")
+        print(f"Stop: no report was written at {q(report_path)}. "
+              "Fix the cause and rerun this command while the container is up: it empties the database itself. "
+              f"If you stop instead, remove the container ({remove_command(opts)}).")
         return 1
     summary = {k: report[k] for k in ("shapes_import_rows", "in_graph_shape_constraints", "shacl_violations_in_graph",
                                       "in_graph_mutant_violations", "roundtrip_lost", "roundtrip_added", "nodes",
@@ -785,7 +793,7 @@ def main(argv):
     summary["fail_cases"] = {status: sum(1 for c in report["fail_cases"] if c["status"] == status)
                              for status in ("passed", "no-op", "failed", "no case")}
     summary["not_compiled"] = len(report["not_compiled"])
-    print(json.dumps(summary, indent=1))
+    print("summary: " + q(json.dumps(summary)))
     for c in report["not_compiled"]:
         # One line, quoted: a shapes literal can hold a newline or $(...).
         print("NOT COMPILED by n10s (validate_data.py checked it before the load): " + q(json.dumps(
@@ -794,8 +802,9 @@ def main(argv):
         failed_path = report_path + ".failed"
         write_atomically(failed_path, report)
         print(f"FAIL the verify step did not pass. No report was written at {q(report_path)}; the details are in "
-              f"{q(failed_path)}. A row with status 'no case' needs a case in --manual-cases. Remove the container "
-              f"({remove_command(opts)}), fix the cause, and rerun.")
+              f"{q(failed_path)}. A row with status 'no case' needs a case in --manual-cases. "
+              "Fix the cause and rerun this command while the container is up: it empties the database itself. "
+              f"If you stop instead, remove the container ({remove_command(opts)}).")
         return 1
     write_atomically(report_path, report)
     print(f"wrote {q(report_path)}: every check passed. Next: run {check_report_command(report_path)}, "

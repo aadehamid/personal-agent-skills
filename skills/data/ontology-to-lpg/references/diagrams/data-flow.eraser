@@ -56,7 +56,7 @@ Serialise > n10s load
 n10s load > Engine gate
 Engine gate > Aura copy: validated graph
 Aura copy > GRAPH TYPE
-Jena Fuseki <> Engine gate: three-way counts (files, store, Neo4j)
+Jena Fuseki <> Engine gate: three-way counts with --projection-report (files, store, Neo4j)
 Databricks Delta > Rule check: rebuild Neo4j + Aura from the store export
 Released packages > OntoBricks
 Databricks Delta > OntoBricks

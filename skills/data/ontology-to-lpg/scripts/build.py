@@ -11,8 +11,8 @@ Run with: uv run --no-project --with rdflib python3 build.py <command> ...
             The triples in the reasoner's output and not in its input, kept only when they are
             rdf:type or rdfs:subClassOf between two IRIs and the object is outside the OWL and RDFS
             namespaces. Both graphs are parsed and compared as triples, not as lines.
-  cypher    --config <config.json> --shapes <shapes.ttl>... <data.ttl>...
-            The generated load script for n10s (references/pipeline.md, rules 8 to 11).
+  cypher    --config <config.json> --shapes <shapes.ttl>... --output load.cypher <data.ttl>...
+            Writes the generated load script for n10s (references/pipeline.md, rules 8 to 11).
   manifest  --config <config.json> --shapes <shapes.ttl>... --loadable loadable.nt
             --inferred inferred.nt --output manifest.json [--verify] <data.ttl>...
             Writes the manifest, or with --verify fails when the committed one differs. File paths
@@ -21,8 +21,8 @@ Run with: uv run --no-project --with rdflib python3 build.py <command> ...
             Fails unless both files are in byte order without duplicates, and inferred.nt holds only
             rdf:type and rdfs:subClassOf triples between two IRIs whose object is outside the OWL and
             RDFS namespaces (the step 4 gate in SKILL.md).
-  graph-type --config <config.json> --shapes <shapes.ttl>... <data.ttl>...
-            Prints an ALTER CURRENT GRAPH TYPE SET statement generated from the shapes (Cypher 25,
+  graph-type --config <config.json> --shapes <shapes.ttl>... --output graph-type.cypher <data.ttl>...
+            Writes an ALTER CURRENT GRAPH TYPE SET statement generated from the shapes (Cypher 25,
             Enterprise Edition, introduced in Neo4j 2026.02), with what it leaves out as comments
             (add-ons.md, H).
   check-report --manifest manifest.json --report report.json
@@ -39,13 +39,16 @@ file cannot be read or the arguments are wrong.
 import hashlib
 import json
 import os
-import shlex
 import sys
 
 from rdflib import Graph, Literal, URIRef
 from rdflib.namespace import OWL, RDF, RDFS
 
 import check_projection_rules as cpr
+from shell import comment, q
+
+# The command list, printed when no command is given: fixed text, not input.
+USAGE = __doc__.split("\n\n")[1]
 
 KEPT_PREDICATES = (RDF.type, RDFS.subClassOf)
 BUILTIN = (str(OWL), str(RDFS))
@@ -254,17 +257,18 @@ def graph_type(cfg, shapes, data):
                         left_out.append(f"{label}.{key}: sh:{term} (no GRAPH TYPE form)")
                 if max_c is not None and int(max_c) > 1 or (min_c is not None and int(min_c) > 1):
                     left_out.append(f"{label}.{key}: a count other than 0 or 1")
-                if dt is not None and target is not None:
-                    left_out.append(f"{label}.{key}: sh:class {target} beside sh:datatype; the property is typed, "
-                                    "the relationship left out")
                 if dt is not None:
                     if str(dt) == LANG_STRING:
                         base = "STRING"
                     elif str(dt).startswith(str(XSD)) and str(dt)[len(str(XSD)):] in GRAPH_TYPE_TYPES:
                         base = GRAPH_TYPE_TYPES[str(dt)[len(str(XSD)):]]
                     else:
-                        left_out.append(f"{label}.{key}: sh:datatype {dt} has no GRAPH TYPE property type")
+                        left_out.append(f"{label}.{key}: sh:datatype {dt} has no GRAPH TYPE property type"
+                                        + (f"; its sh:class {target} is left out too" if target is not None else ""))
                         continue
+                    if target is not None:
+                        left_out.append(f"{label}.{key}: sh:class {target} beside sh:datatype; the property is typed, "
+                                        "the relationship left out")
                     listed = str(path) in multi
                     kind = f"LIST<{base} NOT NULL>" if listed else base
                     required = min_c is not None and int(min_c) >= 1
@@ -295,15 +299,27 @@ def graph_type(cfg, shapes, data):
             continue
         (source, target), = ends
         elements.append(f"  (:{_q(source)})-[:{_q(key)} =>]->(:{_q(target)})")
+    if not elements:
+        raise ValueError("the shapes give no node or relationship element type; there is no GRAPH TYPE to write")
     statement = "CYPHER 25\nALTER CURRENT GRAPH TYPE SET {\n" + ",\n".join(elements) + "\n}"
     return statement, sorted(set(left_out))
 
 
 def check_report(man, rep):
+    """report_earned(rep), plus the input and shapes fingerprints against the manifest."""
     fails = []
     for key in ("input_fingerprint", "shapes_fingerprint"):
         if rep.get(key) != man.get(key):
             fails.append(f"report {key} {rep.get(key)} does not match the manifest's {man.get(key)}: rerun load and verify")
+    return fails + report_earned(rep)
+
+
+def report_earned(rep):
+    """Every check of a projection report that needs no manifest: the numbers, the two hashes, the
+    shape counts, passed, a passing or no-op fail case for every compiled row (and compiled rows to
+    exist), and the mutant. copy_graph.py and triplestore.py call it too, so neither trusts passed
+    alone. Returns a list of failures."""
+    fails = []
     for key, ok, why in REPORT_CHECKS:
         if not ok(rep.get(key)):
             fails.append(f"report {key} {why} ({rep.get(key)!r})")
@@ -318,16 +334,16 @@ def check_report(man, rep):
     if not isinstance(cases, list) or not cases:
         fails.append("report has no fail cases (pipeline.md, rule 14)")
     compiled = rep.get("compiled")
-    if compiled is not None:
+    if not isinstance(compiled, list) or not compiled:
+        fails.append("report lists no compiled rows (pipeline.md, rule 13)")
+    else:
         def key(r):
             return (r.get("target"), r.get("path"), r.get("param"), json.dumps(r.get("value"), sort_keys=True, default=str))
-        missing = {key(r) for r in compiled} - {key(c) for c in cases or []}
-        if not compiled:
-            fails.append("report lists no compiled rows")
+        missing = {key(r) for r in compiled} - {key(c) for c in cases or [] if isinstance(c, dict)}
         if missing:
             fails.append(f"report has no fail case for {len(missing)} compiled row(s), such as {sorted(missing)[0]}")
     failed = [f"{c.get('target')} {c.get('path')} {c.get('param')}" for c in cases or []
-              if c.get("status") not in ("passed", "no-op")]
+              if not isinstance(c, dict) or c.get("status") not in ("passed", "no-op")]
     if failed:
         fails.append("report fail cases did not pass: " + "; ".join(failed))
     mutant = rep.get("mutant")
@@ -388,7 +404,7 @@ def write(path, text):
 
 def main(argv):
     if not argv:
-        print(__doc__.split("\n\n")[1], file=sys.stderr)
+        print(USAGE, file=sys.stderr)
         return 2
     command, rest = argv[0], argv[1:]
     try:
@@ -399,28 +415,30 @@ def main(argv):
                 raise ValueError("no data files")
             merged = parse(data)
             merged.serialize(opts["--output"], format="turtle")
-            print(f"wrote {shlex.quote(opts['--output'])}: {len(merged)} triples from {len(data)} file(s)")
+            print(f"wrote {q(opts['--output'])}: {len(merged)} triples from {len(data)} file(s)")
         elif command == "loadable":
             need(opts, "--output")
             if not data:
                 raise ValueError("no data files")
             text = sorted_nt(parse(data))
             write(opts["--output"], text)
-            print(f"wrote {shlex.quote(opts['--output'])}: {text.count(chr(10))} triples")
+            print(f"wrote {q(opts['--output'])}: {text.count(chr(10))} triples")
         elif command == "inferred":
             need(opts, "--input", "--reasoned", "--output")
             text = sorted_nt(inferred(parse([opts["--input"]]), parse([opts["--reasoned"]])))
             write(opts["--output"], text)
-            print(f"wrote {shlex.quote(opts['--output'])}: {text.count(chr(10))} triples")
+            print(f"wrote {q(opts['--output'])}: {text.count(chr(10))} triples")
         elif command == "cypher":
-            need(opts, "--config")
+            need(opts, "--config", "--output")
             if not data:
                 raise ValueError("no data files")
             cfg = load_config(opts["--config"])
             if cfg.rule4 == "4b":
                 print(cpr.RULE_4B_STOP.format(script="build.py cypher"), file=sys.stderr)
                 return 2
-            print(cypher(cfg, parse(data), parse(opts.get("--shapes", []))), end="")
+            text = cypher(cfg, parse(data), parse(opts.get("--shapes", [])))
+            write(opts["--output"], text)
+            print(f"wrote {q(opts['--output'])}: {text.count(chr(10))} statements")
         elif command == "manifest":
             need(opts, "--config", "--loadable", "--inferred", "--output")
             root = os.path.dirname(os.path.abspath(opts["--output"]))
@@ -429,30 +447,30 @@ def main(argv):
             if opts.get("--verify"):
                 current = open(opts["--output"], encoding="utf-8").read() if os.path.exists(opts["--output"]) else ""
                 if current != text:
-                    print(f"FAIL {opts['--output']} is not current: rerun build.py manifest and commit it")
+                    print(f"FAIL {q(opts['--output'])} is not current: rerun build.py manifest and commit it")
                     return 1
-                print(f"{opts['--output']} is current")
+                print(f"{q(opts['--output'])} is current")
             else:
                 write(opts["--output"], text)
-                print(f"wrote {shlex.quote(opts['--output'])}")
+                print(f"wrote {q(opts['--output'])}")
         elif command == "check-serialised":
             need(opts, "--loadable", "--inferred")
             fails = check_serialised(read_bytes(opts["--loadable"]), read_bytes(opts["--inferred"]))
             for message in fails:
-                print(f"FAIL {message}")
+                print(f"FAIL {q(message)}")
             if fails:
                 return 1
             print("loadable.nt and inferred.nt are in byte order, and inferred.nt holds only kept inferences")
         elif command == "graph-type":
-            need(opts, "--config")
+            need(opts, "--config", "--output")
             if not data:
                 raise ValueError("give the data files: the property types follow the load's multivalued list")
             statement, left_out = graph_type(load_config(opts["--config"]), parse(opts.get("--shapes", [])),
                                              parse(data))
-            print(statement)
-            for line in left_out:
-                # One line each, escaped: a shapes term cannot break out of the Cypher comment.
-                print("// left out: " + json.dumps(line, ensure_ascii=False)[1:-1])
+            # The statement goes to a file, never to the terminal; each left-out line is one quoted
+            # Cypher comment, so a shapes term cannot break out of it.
+            write(opts["--output"], statement + "\n" + "".join(comment("left out: " + line) + "\n" for line in left_out))
+            print(f"wrote {q(opts['--output'])}: {statement.count(' =>')} element types, {len(left_out)} left out")
         elif command == "check-report":
             need(opts, "--manifest", "--report")
             with open(opts["--manifest"], encoding="utf-8") as f:
@@ -461,17 +479,17 @@ def main(argv):
                 rep = json.load(f)
             fails = check_report(man, rep)
             for message in fails:
-                print(f"FAIL {message}")
+                print(f"FAIL {q(message)}")
             if fails:
                 return 1
             print("the report is current and passed")
         else:
             raise ValueError(f"unknown command {command!r}")
     except (OSError, ValueError) as exc:
-        print(f"ERROR {exc}", file=sys.stderr)
+        print(f"ERROR {q(exc)}", file=sys.stderr)
         return 2
     except Exception as exc:  # rdflib raises several parser types; any of them stops the run
-        print(f"ERROR cannot read the RDF files: {exc}", file=sys.stderr)
+        print(f"ERROR cannot read the RDF files: {q(exc)}", file=sys.stderr)
         return 2
     return 0
 

@@ -269,7 +269,8 @@ class Cases(unittest.TestCase):
     def test_no_case_fails_the_run(self):
         report = {"shacl_violations_in_graph": 0, "in_graph_mutant_violations": 1, "mutant": {"after_restore": 0},
                   "roundtrip_lost": 0, "roundtrip_added": 0, "determinism_hash_sorted": "h",
-                  "determinism_hash_shuffled": "h", "fail_cases": [{"status": "passed"}, {"status": "no-op"}]}
+                  "determinism_hash_shuffled": "h", "compiled": [ROW],
+               "fail_cases": [dict(ROW, status="passed"), {"status": "no-op"}]}
         self.assertTrue(lv.passed(report))
         report["fail_cases"].append({"status": "no case"})
         self.assertFalse(lv.passed(report))
@@ -346,7 +347,7 @@ class FailClosedReport(unittest.TestCase):
                "in_graph_mutant_violations": 1, "roundtrip_lost": 0, "roundtrip_added": 0,
                "determinism_hash_sorted": "h", "determinism_hash_shuffled": "h", "in_graph_shape_constraints": 1,
                "shapes_import_rows": 1, "mutant": {"violations": 1, "after_restore": 0},
-               "fail_cases": [{"status": "passed"}], "passed": True}
+               "compiled": [ROW], "fail_cases": [dict(ROW, status="passed")], "passed": True}
         self.assertEqual(build.check_report(man, rep), [])
         self.assertTrue(build.check_report(man, dict(rep, passed=False)))
         self.assertTrue(build.check_report(man, dict(rep, fail_cases=[])))
@@ -373,9 +374,21 @@ class GraphType(unittest.TestCase):
         self.assertTrue(any("non-predicate path" in line for line in left))
 
 
+ROW = {"target": "lib__Copy", "path": "lib__barcode", "param": "sh:minCount", "value": 1}
+
+
+def earned_report(**change):
+    """A projection report that earns its pass (build.report_earned is empty), changed by **change."""
+    return dict({"shacl_violations_in_graph": 0, "in_graph_mutant_violations": 1, "roundtrip_lost": 0,
+                 "roundtrip_added": 0, "determinism_hash_sorted": "h", "determinism_hash_shuffled": "h",
+                 "in_graph_shape_constraints": 1, "shapes_import_rows": 1, "compiled": [ROW],
+                 "fail_cases": [dict(ROW, status="passed")], "mutant": {"violations": 1, "after_restore": 0},
+                 "passed": True}, **change)
+
+
 def passing_report(case, **change):
-    """A temporary projection report that passed, with hash h, changed by **change."""
-    rep = dict({"passed": True, "determinism_hash_sorted": "h", "determinism_hash_shuffled": "h"}, **change)
+    """A temporary projection report that earns its pass, with hash h, changed by **change."""
+    rep = earned_report(**change)
     f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
     json.dump(rep, f)
     f.close()
@@ -517,7 +530,8 @@ class DockerPins(unittest.TestCase):
 GOOD_REPORT = {"shacl_violations_in_graph": 0, "in_graph_mutant_violations": 1,
                "mutant": {"focus": "u", "removed": "k", "violations": 1, "after_restore": 0},
                "roundtrip_lost": 0, "roundtrip_added": 0, "determinism_hash_sorted": "h",
-               "determinism_hash_shuffled": "h", "fail_cases": [{"status": "passed"}, {"status": "no-op"}]}
+               "determinism_hash_shuffled": "h", "compiled": [ROW],
+               "fail_cases": [dict(ROW, status="passed"), {"status": "no-op"}]}
 # One failing value per clause of the gate: (name, change).
 GATE_BREAKS = [
     ("a failed case", {"fail_cases": [{"status": "failed"}]}),
@@ -555,6 +569,7 @@ class GateClauses(unittest.TestCase):
             ("no mutant", {"mutant": None}),
             ("a compiled row without a case", {"compiled": [{"target": "T", "path": "p", "param": "sh:minCount", "value": 1}]}),
             ("no compiled rows", {"compiled": []}),
+            ("no compiled key", {"compiled": None}),
         ]
         for name, change in breaks:
             with self.subTest(name):
@@ -742,10 +757,21 @@ class RoundEight(unittest.TestCase):
             {"NEO4J_URI": "bolt://h;rm -rf x", "NEO4J_USERNAME": "n", "NEO4J_PASSWORD": "p"}))
 
     def test_graph_type_left_out_lines_cannot_break_the_comment(self):
-        with mock.patch.object(build, "graph_type", return_value=("CYPHER 25", ["a\nMATCH (n) DETACH DELETE n"])):
-            code, out = run_main(build.main, ["graph-type", "--config", CONFIG, "--shapes", SHAPES, MODULE])
+        # Review 9, #1: the statement goes to a file; each comment is one quoted word on one line.
+        out_path = os.path.join(self.tmp(), "gt.cypher")
+        bad = "a\n`MATCH (n) DETACH DELETE n` $(touch x) <y>"
+        with mock.patch.object(build, "graph_type", return_value=("CYPHER 25", [bad])):
+            code, out = run_main(build.main, ["graph-type", "--config", CONFIG, "--shapes", SHAPES,
+                                              "--output", out_path, MODULE])
         self.assertEqual(code, 0, out)
-        self.assertTrue(all(x.startswith("// left out:") for x in out.splitlines()[1:]), out)
+        self.assertEqual(len(out.splitlines()), 1)                 # only the quoted "wrote" line
+        with open(out_path) as f:
+            lines = f.read().splitlines()
+        self.assertEqual(lines[0], "CYPHER 25")
+        self.assertEqual(len(lines), 2)
+        word = lines[1][len("// "):]
+        self.assertEqual(len(shlex.split(word)), 1)
+        self.assertIn("$(touch x)", shlex.split(word)[0])
 
     # 9: every exit 2 that names a report path deletes it
     def test_report_named_with_equals_or_last_is_deleted(self):
@@ -802,9 +828,15 @@ class RoundEight(unittest.TestCase):
             self.assertTrue(json.load(f)["passed"])
 
     def test_store_refuses_a_projection_report_that_did_not_pass(self):
-        code, out, path = self.store_main(self.tmp(), projection=passing_report(self, passed=False))
+        # Review 9, #12: export counts present and equal, so only the passed check can reject it.
+        export = ts.predicate_counts([Graph().parse(MODULE)])
+        code, out, path = self.store_main(self.tmp(), projection=passing_report(self, passed=False,
+                                                                             export_predicate_counts=export))
         self.assertEqual(code, 2, out)
+        self.assertIn("does not say passed: true", out)
         self.assertFalse(os.path.exists(path))
+        code, out, _ = self.store_main(self.tmp(), projection=passing_report(self, export_predicate_counts=export))
+        self.assertEqual(code, 0, out)
 
     # 3: copy only a verified graph, and never touch the target otherwise
     def copy_main(self, report_args, source_hash="h", present=5):
@@ -902,6 +934,191 @@ class RoundEight(unittest.TestCase):
         self.assertIn("lib__Copy.lib__note: sh:pattern (no GRAPH TYPE form)", left)
         self.assertTrue(any("beside sh:datatype" in x for x in left), left)
         self.assertNotIn("lib__copyOf =>", text)
+
+
+class PrintedValues(unittest.TestCase):
+    """Review 9: every value any script prints goes through shell.q (or a helper built on it). This
+    reads the syntax tree of every script in scripts/ and fails on a print, or a write to stdout or
+    stderr, that interpolates anything else."""
+
+    # Helpers whose result is already quoted (each tested to quote its values), and counts.
+    SAFE_CALLS = {"q", "comment", "len", "sum", "count", "remove_command", "check_report_command", "describe_target"}
+
+    def safe(self, node):
+        import ast
+        if isinstance(node, ast.Constant):
+            return True
+        if isinstance(node, ast.JoinedStr):
+            return all(isinstance(v, ast.Constant) or self.safe(v.value) for v in node.values)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            return self.safe(node.left) and self.safe(node.right)
+        if isinstance(node, ast.IfExp):
+            return self.safe(node.body) and self.safe(node.orelse)
+        if isinstance(node, ast.Name):
+            return node.id.isupper()                       # a fixed text constant such as USAGE
+        if isinstance(node, ast.Attribute):
+            return node.attr.isupper()
+        if isinstance(node, ast.Call):
+            f = node.func
+            if isinstance(f, ast.Attribute) and f.attr == "format" and self.safe(f.value):
+                return all(isinstance(k.value, ast.Constant) for k in node.keywords) and not node.args
+            name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else None
+            return name in self.SAFE_CALLS
+        return False
+
+    def test_every_printed_value_goes_through_the_helper(self):
+        import ast
+        import glob
+        bad = []
+        for path in sorted(glob.glob(os.path.join(HERE, "*.py"))):
+            if os.path.basename(path).startswith("test_"):
+                continue
+            with open(path, encoding="utf-8") as f:
+                tree = ast.parse(f.read())
+            for n in ast.walk(tree):
+                if not isinstance(n, ast.Call):
+                    continue
+                is_print = isinstance(n.func, ast.Name) and n.func.id == "print"
+                is_write = (isinstance(n.func, ast.Attribute) and n.func.attr == "write"
+                            and isinstance(n.func.value, ast.Attribute) and n.func.value.attr in ("stdout", "stderr"))
+                if is_print or is_write:
+                    bad += [f"{os.path.basename(path)}:{n.lineno}: {ast.unparse(a)[:90]}"
+                            for a in n.args if not self.safe(a)]
+        self.assertEqual(bad, [])
+
+    def test_the_quoting_helpers_quote(self):
+        import shell
+        self.assertEqual(shell.q("a b"), "'a b'")
+        self.assertEqual(len(shlex.split(shell.comment("x\n`y` $(z) <w>")[3:])), 1)
+        self.assertIn("'p q'", lv.remove_command({"--compose-project": "p q"}))
+        self.assertIn("'a b.json'", lv.check_report_command("a b.json"))
+
+
+class RoundNine(unittest.TestCase):
+    """Review 9 of 8648028 and cb6c005: one test per behaviour change; each fails on cb6c005."""
+
+    def tmp(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(d))
+        return d
+
+    # 3: a report with no compiled key fails check-report
+    def test_missing_compiled_fails(self):
+        rep = earned_report()
+        self.assertEqual(build.report_earned(rep), [])
+        del rep["compiled"]
+        self.assertIn("report lists no compiled rows (pipeline.md, rule 13)", build.report_earned(rep))
+
+    # 4: copy and the store recompute the gate rather than trust passed
+    def test_copy_refuses_a_passed_report_with_a_failed_case(self):
+        report = passing_report(self, fail_cases=[dict(ROW, status="failed")])
+        code, out, empty, copy = RoundEight.copy_main(self, ["--report", report])
+        self.assertEqual(code, 2, out)
+        self.assertIn("not a verified projection report", out)
+        empty.assert_not_called()
+        copy.assert_not_called()
+
+    def test_store_refuses_a_passed_report_without_compiled_rows(self):
+        export = ts.predicate_counts([Graph().parse(MODULE)])
+        code, out, path = RoundEight.store_main(self, self.tmp(), projection=passing_report(
+            self, compiled=[], export_predicate_counts=export))
+        self.assertEqual(code, 2, out)
+        self.assertIn("lists no compiled rows", out)
+
+    def test_copy_refuses_old_flags_and_the_source_as_target(self):
+        code, out, _, _ = RoundEight.copy_main(self, ["--report", passing_report(self), "--expect-hash", "h"])
+        self.assertEqual(code, 2, out)
+        self.assertIn("--expect-hash", out)
+        env = tempfile.NamedTemporaryFile("w", suffix=".env", delete=False)
+        env.write("NEO4J_URI=bolt://x\nNEO4J_USERNAME=neo4j\nNEO4J_PASSWORD=p\n")
+        env.close()
+        self.addCleanup(os.remove, env.name)
+        with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "local"}):
+            code, out = run_main(cg.main, ["--source", "bolt://x", "--target-env", env.name,
+                                           "--report", passing_report(self)])
+        self.assertEqual(code, 2, out)
+        self.assertIn("the target is the source", out)
+
+    # 5: a wider compiled ignore-list beside a stricter file list fails, whichever matches
+    def test_a_stricter_closed_shape_with_no_equal_row_fails_the_case(self):
+        g = shape_graph((lib("S"), SH.closed, Literal(True)))
+        wide, strict = BNode(), BNode()
+        Collection(g, wide, [RDF.type, lib("extra")])
+        g.add((lib("S"), SH.ignoredProperties, wide))
+        g.add((lib("T"), RDF.type, SH.NodeShape))
+        g.add((lib("T"), SH.targetClass, lib("Copy")))
+        g.add((lib("T"), SH.closed, Literal(True)))
+        Collection(g, strict, [RDF.type])
+        g.add((lib("T"), SH.ignoredProperties, strict))
+        cons = lv.file_constraints(g, cfg())
+        rows = [row("lib__Copy", None, "sh:ignoredProperties", ["lib__extra", "rdf__type"])]
+        self.assertIn("mismatch", lv.plan_cases(rows, cons, set(), cfg())[0])
+        both = rows + [row("lib__Copy", None, "sh:ignoredProperties", ["rdf__type"])]
+        self.assertTrue(all("mismatch" not in c for c in lv.plan_cases(both, cons, set(), cfg())))
+
+    # 10: an unmappable datatype beside sh:class says both are left out, never "typed"
+    def test_unmappable_datatype_beside_a_class_is_recorded_truthfully(self):
+        g = shape_graph((lib("S-p"), SH.datatype, XSD.gYear), (lib("S-p"), SH["class"], lib("Work")),
+                        (lib("S"), SH.property, lib("S-q")), (lib("S-q"), SH.path, lib("name")),
+                        (lib("S-q"), SH.datatype, XSD.string))
+        _, left = build.graph_type(cfg(), g, Graph())
+        self.assertFalse(any("the property is typed" in x for x in left), left)
+        self.assertTrue(any("gYear" in x and "its sh:class" in x for x in left), left)
+
+    def test_a_statement_with_no_element_is_refused(self):
+        g = shape_graph((lib("S-p"), SH.datatype, XSD.gYear))
+        with self.assertRaises(ValueError):
+            build.graph_type(cfg(), g, Graph())
+
+    # 11: the mutant walks to the next candidate, and stops when none has a holder
+    def test_the_mutant_takes_the_next_candidate(self):
+        wiring = RunWiring()
+        wiring.setUp = RunWiring.setUp.__get__(wiring)
+        wiring.addCleanup = self.addCleanup
+        wiring.setUp()
+        safe, _ = igs.subset(Graph().parse(SHAPES))
+        literal = {p for _, p, o in Graph().parse(MODULE) if isinstance(o, Literal)}
+        targets = lv.mutant_targets(wiring.rows, lv.file_constraints(safe, cfg()), literal, cfg())
+        self.assertGreater(len(targets), 1)
+
+        class Picky(FakeEngine):
+            def __init__(self, empty_keys, *a, **kw):
+                super().__init__(*a, **kw)
+                self.empty_keys = empty_keys
+
+            def run(self, query, **kw):
+                if "RETURN n.uri AS uri, n.`" in query and any(f"n.`{k}` IS NOT NULL" in query for k in self.empty_keys):
+                    return FakeResult([])
+                return super().run(query, **kw)
+        report = wiring.run_with(Picky({targets[0][1]}, wiring.rows, wiring.export))
+        self.assertEqual(report["mutant"]["removed"], targets[1][1])
+        with self.assertRaises(lv.Failed):
+            wiring.run_with(Picky({k for _, k in targets}, wiring.rows, wiring.export))
+        self.assertIsNone(lv.mutant(FakeResultSession(), "T", "k"))
+
+    # tests the review listed as gaps
+    def test_an_http_exception_leaves_no_store_report(self):
+        import http.client
+        code, out, path = RoundEight.store_main(self, self.tmp(), put=http.client.IncompleteRead(b""))
+        self.assertEqual(code, 1, out)
+        self.assertFalse(os.path.exists(path))
+
+    def test_a_report_path_that_cannot_be_deleted_stops(self):
+        d = self.tmp()
+        path = os.path.join(d, "r.json")
+        os.mkdir(path)
+        code, out = run_main(lv.main, ["--report", path])
+        self.assertEqual(code, 2, out)
+        self.assertIn("cannot delete the earlier report", out)
+
+    # W5: the printed next step names the skill's manifest file
+    def test_next_step_names_the_manifest(self):
+        self.assertIn("--manifest projection-manifest.json", lv.check_report_command("r.json"))
+
+
+class FakeResultSession:
+    def run(self, *a, **kw):
+        return FakeResult([])
 
 
 if __name__ == "__main__":

@@ -97,7 +97,7 @@ n1 = box(1510, 180, 380, 80, "n10s load (SHORTEN, fixed order)", GREEN, 15)
 n2 = box(1510, 310, 380, 170, "Gate: n10s listShapes() readback,\none fail case per compiled\nconstraint, round trip,\ndeterminism hash", GREEN, 15)
 arrow(s3, n1, side=("r", "l"))
 arrow(n1, n2, side=("b", "t"))
-arrow(jena, n2, "three-way counts:\nfiles, store, Neo4j", side=("r", "t"), dashed=True)
+arrow(jena, n2, "three-way counts\n(--projection-report):\nfiles, store, Neo4j", side=("r", "t"), dashed=True)
 
 group(1490, 590, 420, 260, "Neo4j Aura", "#2f9e44")
 a1 = box(1510, 640, 380, 80, "Copy over the driver;\nhash must match the local graph", GREEN, 15)

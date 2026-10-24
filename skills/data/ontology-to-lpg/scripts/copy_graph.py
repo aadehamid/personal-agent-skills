@@ -20,8 +20,10 @@ _n10sValidatorConfig), which have no Resource label. It creates the n10s uniquen
 dynamic labels and types (Cypher 5.26 and later; Aura runs current versions).
 
 --report is required: the projection report load_verify.py wrote. The script reads it before it
-touches either database and stops (exit 2) unless it says passed: true with equal sorted and
-shuffled hashes. It then hashes the source and stops (exit 1), before writing or deleting anything on
+touches either database and stops (exit 2) unless the report earns its pass: passed alone is not
+trusted, and build.report_earned rechecks every field check-report checks except the fingerprints
+(the numbers, equal hashes, a passing case for every compiled row, the mutant). It also stops on an
+unknown flag, such as the old --expect-hash, and when the target URI is the source. It then hashes the source and stops (exit 1), before writing or deleting anything on
 the target, unless that hash equals the report's determinism_hash_sorted: only the verified graph is
 copied. It refuses a target that holds any node unless --replace is given, which deletes everything
 on the target first (in batches). After the copy it hashes the target exactly as load_verify.py
@@ -33,6 +35,7 @@ import os
 import sys
 
 import build
+from shell import q
 import load_verify as lv
 
 CONFIG_LABELS = ("_GraphConfig", "_NsPrefDef", "_n10sValidatorConfig")
@@ -65,21 +68,21 @@ def read_env_file(path):
 
 def describe_target(values):
     """The target as it may be printed: never the password, every value shell-quoted."""
-    return f"{lv.q(values['NEO4J_URI'])} as {lv.q(values['NEO4J_USERNAME'])}" + (
-        f" (database {lv.q(values['NEO4J_DATABASE'])})" if values.get("NEO4J_DATABASE") else "")
+    return f"{q(values['NEO4J_URI'])} as {q(values['NEO4J_USERNAME'])}" + (
+        f" (database {q(values['NEO4J_DATABASE'])})" if values.get("NEO4J_DATABASE") else "")
 
 
 def verified_hash(report_path):
-    """The determinism_hash_sorted of a report that passed, or ValueError."""
+    """The determinism_hash_sorted of a report that earned its pass, or ValueError. passed alone is
+    not trusted: build.report_earned recomputes every check that needs no manifest (the numbers,
+    equal hashes, a passing case for every compiled row, the mutant)."""
     import json
     with open(report_path, encoding="utf-8") as f:
         rep = json.load(f)
-    if rep.get("passed") is not True:
-        raise ValueError(f"{report_path} does not say passed: true; copy only a verified graph")
-    h = rep.get("determinism_hash_sorted")
-    if not h or h != rep.get("determinism_hash_shuffled"):
-        raise ValueError(f"{report_path} has no pair of equal determinism hashes")
-    return h
+    fails = build.report_earned(rep)
+    if fails:
+        raise ValueError(f"{report_path} is not a verified projection report: {'; '.join(fails)}")
+    return rep["determinism_hash_sorted"]
 
 
 def batches(session, query, size):
@@ -120,16 +123,19 @@ def main(argv):
     try:
         opts, rest = build.options(argv, flags=("--replace",))
         build.need(opts, "--source", "--target-env", "--report")
-        if rest:
-            raise ValueError(f"unexpected arguments: {' '.join(rest)}")
+        unknown = sorted(set(opts) - {"--source", "--target-env", "--report", "--replace", "--batch"})
+        if rest or unknown:
+            raise ValueError(f"unexpected arguments: {' '.join(rest + unknown)}")
         size = int(opts.get("--batch", 1000))
         password = os.environ.get("NEO4J_PASSWORD")
         if not password:
             raise ValueError("set NEO4J_PASSWORD to the local (source) password")
         target_values = read_env_file(opts["--target-env"])
         expected = verified_hash(opts["--report"])
+        if target_values["NEO4J_URI"].rstrip("/") == opts["--source"].rstrip("/"):
+            raise ValueError("the target is the source; --replace would delete the verified graph")
     except (OSError, ValueError) as exc:
-        print(f"ERROR {lv.q(exc)}", file=sys.stderr)
+        print(f"ERROR {q(exc)}", file=sys.stderr)
         return 2
     from neo4j import GraphDatabase
     try:
@@ -140,12 +146,12 @@ def main(argv):
             with src_driver.session() as source, dst_driver.session(database=database) as target:
                 source_hash = graph_hash(source)
                 if source_hash != expected:
-                    print(f"FAIL the source graph hash {source_hash} is not the report's {expected}; "
+                    print(f"FAIL the source graph hash {q(source_hash)} is not the report's {q(expected)}; "
                           "nothing was written to the target")
                     return 1
                 present = count_nodes(target)
                 if present and not opts.get("--replace"):
-                    print(f"FAIL the target {describe_target(target_values)} holds {present} nodes; "
+                    print(f"FAIL the target {describe_target(target_values)} holds {q(present)} nodes; "
                           "pass --replace to delete them first")
                     return 1
                 if present:
@@ -153,13 +159,14 @@ def main(argv):
                 copied = copy(source, target, size)
                 target_hash = graph_hash(target)
     except Exception as exc:  # a driver, network or Cypher error
-        print(f"FAIL {lv.q(exc)}; the target may hold a partial copy")
+        print(f"FAIL {q(exc)}; the target may hold a partial copy")
         return 1
-    print(f"copied {copied['nodes']} nodes and {copied['relationships']} relationships to {describe_target(target_values)}")
+    print(f"copied {q(copied['nodes'])} nodes and {q(copied['relationships'])} relationships to "
+          f"{describe_target(target_values)}")
     if target_hash != source_hash:
-        print(f"FAIL the target hash {target_hash} differs from the source hash {source_hash}")
+        print(f"FAIL the target hash {q(target_hash)} differs from the source hash {q(source_hash)}")
         return 1
-    print(f"the target hash equals the source hash: {source_hash}")
+    print(f"the target hash equals the source hash: {q(source_hash)}")
     return 0
 
 

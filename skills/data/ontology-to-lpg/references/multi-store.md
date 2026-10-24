@@ -27,7 +27,7 @@ The diagram is `diagrams/data-flow.png` (source `diagrams/data-flow.eraser`; the
 - "load, export back, compare" into "Apache Jena Fuseki, Graph Store Protocol, one named graph per package": `triplestore.py` (add-on J) replaces each named graph with `PUT`; the check is the per-graph and per-predicate counts against the files, then the export diff of hop 3. Counts built; the export diff planned.
 - "triple for triple" into "Databricks: Delta triple table in Unity Catalog (planned)": add-on K, with the two boxes under it, "Free Edition: transfers run from your machine" and "Enterprise: your machine, or a job in the workspace", whose arrows point at the table because both modes write the same table (see "Databricks: two modes" below). Planned.
 
-**Skolemize → ontology-to-lpg skill** (orange): "Check: design rules, data shapes, refusals" → "Reason: ROBOT + ELK, once, upstream" → "Serialise: loadable.nt + inferred.nt (check-serialised)". These are SKILL.md steps 2 to 4, checks V1 to V5 below. Built.
+**Skolemize → ontology-to-lpg skill** (orange): "Check: design rules, data shapes, refusals" → "Reason: ROBOT + ELK, once, upstream" → "Serialise: loadable.nt + inferred.nt (check-serialised)". What crosses: the released data files, skolemized once hop 2 exists; until then the skill reads the released files as they are (hop 1), so this arrow is planned and the boxes it reaches are built. They are SKILL.md steps 2 to 4, checks V1 to V5 below.
 
 **Serialise → Neo4j, local (Docker + n10s)** (green): "n10s load (SHORTEN, fixed order)" → "Gate: n10s listShapes() readback, one fail case per compiled constraint, round trip, determinism hash". What crosses: `loadable.nt`, `inferred.nt`, `merged.ttl` and the import-safe shapes, copied into the import folder by `load_verify.py`. The checks are V6 to V12 below. Built.
 
@@ -41,17 +41,17 @@ The diagram is `diagrams/data-flow.png` (source `diagrams/data-flow.eraser`; the
 
 ## The validation path, V1 to V14, and GRAPH TYPE, G1 to G4
 
-The diagram is `diagrams/validation-path.png` (source `diagrams/validation-path.eraser`; `diagrams/validation-path.excalidraw` from `diagrams/make_validation_path.py`). Each check must pass before the next runs. The rules named here hold the detail; this section is the map. "Stops" means the command exits 1 (2 on bad input) and you go no further; from V6 to V12 it also means no report: `load_verify.py` writes `projection-report.json` only when every check passed (V12).
+The diagram is `diagrams/validation-path.png` (source `diagrams/validation-path.eraser`; `diagrams/validation-path.excalidraw` from `diagrams/make_validation_path.py`). Each check must pass before the next runs, in the order of the tables (the order SKILL.md steps 2 to 6 run them). The rules named here hold the detail; this section is the map. "Stops" means the command exits 1 (2 on bad input) and you go no further; from V6 to V12 it also means no report: `load_verify.py` writes `projection-report.json` only when every check passed (V12).
 
 **Before the load (on the files)**
 
 | # | Checks | Without it | Command, record | Rule |
 |---|---|---|---|---|
 | V1 | Design rules: one kind and one range per predicate (Rule 1), a cardinality shape (Rule 2), one fixed prefix per namespace, pins, rule-gap exceptions | an unmappable predicate loads as a guess, an unknown namespace gets an invented `ns0` prefix | `check_projection_rules.py`; stops | `design-rules.md`, rules 1 to 3; `inputs.md`, rules 1 to 6; `pipeline.md`, rule 1 |
-| V2 | Full SHACL with pySHACL and SHACL-AF: the data, then asserted plus inferred together, 0 violations; values that cannot round-trip are refused | the graph would hold data the shapes reject, and the in-graph check (V8) runs only part of the shapes | `validate_data.py`; stops | `pipeline.md`, rules 1 to 3 |
+| V2 | Full SHACL with pySHACL and SHACL-AF over the released (asserted) data, before reasoning: 0 violations; values that cannot round-trip are refused | the graph would hold data the shapes reject, and the in-graph check (V8) runs only part of the shapes | `validate_data.py <data>...`; stops | `pipeline.md`, rules 1 and 3 |
 | V3 | Reason once with ROBOT and ELK; keep only real inferences (IRI-to-IRI `rdf:type` and `rdfs:subClassOf`, no OWL API declarations) | Neo4j does no reasoning, so inferences would be missing, or declarations would load as facts | `robot reason`, `build.py inferred` | `pipeline.md`, rules 4 and 6 |
-| V4 | `check-serialised`: one triple per line and nothing else, byte order, no repeats, nothing in `inferred.nt` already asserted | an unsorted or commented file breaks the fingerprint and the diffs | `build.py check-serialised`; stops | `pipeline.md`, rule 5 |
-| V5 | Manifest: SHA-256 of every input and shape file, the input and shapes fingerprints | a report could outlive the inputs it checked | `build.py manifest [--verify]`; `projection-manifest.json` | `running.md`, rule 3 |
+| V4 | After serialising: `check-serialised` (one triple per line and nothing else, byte order, no repeats, nothing in `inferred.nt` already asserted), then full SHACL again over `loadable.nt` and `inferred.nt` together, 0 violations | an unsorted or commented file breaks the fingerprint and the diffs; an inference can break a shape | `build.py check-serialised`, then `validate_data.py loadable.nt inferred.nt`; stops | `pipeline.md`, rules 2 and 5 |
+| V5 | Manifest, written after V4 passed (SKILL.md step 4): SHA-256 of every input and shape file, the input and shapes fingerprints | a report could outlive the inputs it checked | `build.py manifest [--verify]`; `projection-manifest.json` | `running.md`, rule 3 |
 
 **In the local Neo4j (Docker + n10s)**, all in one `load_verify.py` run:
 
@@ -69,19 +69,19 @@ The diagram is `diagrams/validation-path.png` (source `diagrams/validation-path.
 
 | # | Checks | Without it | Command, record | Rule |
 |---|---|---|---|---|
-| V13 | Aura copy: the Aura hash equals the local hash and the report's `determinism_hash_sorted` | a copy that dropped or changed anything would go unseen | `copy_graph.py --report`; stops before touching the target unless the report passed and its hash matches the source; prints both hashes | `add-ons.md`, I |
-| V14 | Triple store: counts per graph, per predicate, and three-way (files, store, the report's export) | a store that lost triples would go unseen | `triplestore.py`; its report, written only when every count matched (else `<report>.failed`, exit 1) | `add-ons.md`, J |
+| V13 | Aura copy: the Aura hash equals the local hash and the report's `determinism_hash_sorted` | a copy that dropped or changed anything would go unseen | `copy_graph.py --report <projection-report.json>`; stops before touching the target unless the report earns its pass (it rechecks every field `check-report` checks except the fingerprints) and its hash matches the source; prints both hashes | `add-ons.md`, I |
+| V14 | Triple store: counts per graph and per predicate (files against store); the three-way check (files, store, the report's export) runs only with `--projection-report <projection-report.json>` | a store that lost triples would go unseen | `triplestore.py --projection-report <projection-report.json>`; its report, written only when every count matched (else `<report>.failed`, exit 1) | `add-ons.md`, J |
 
 **GRAPH TYPE on Aura** (Enterprise or Aura; Community refuses it)
 
 | # | What | Rule |
 |---|---|---|
-| G1 | `build.py graph-type` prints one `ALTER CURRENT GRAPH TYPE SET` statement from the `sh:targetClass` shapes and the data (list types follow the load's multivalued list; no empty node type), with what it leaves out as `// left out:` comments | `add-ons.md`, H |
-| G2 | Apply it after V13, on the copied graph, and confirm with `SHOW CURRENT GRAPH TYPE`; the data already passed V6 to V13, so it is accepted | `add-ons.md`, H |
-| G3 | Probe: a write that breaks the type must fail with `Neo.ClientError.Schema.ConstraintValidationFailed`; roll it back | `add-ons.md`, H |
+| G1 | `build.py graph-type --output graph-type.cypher` writes one `CYPHER 25 ALTER CURRENT GRAPH TYPE SET` statement from the `sh:targetClass` shapes and the data (list types follow the load's multivalued list; no empty node type), with what it leaves out as quoted `// left out:` comments | `add-ons.md`, H |
+| G2 | Apply it after V13, on the copied graph, and confirm with `SHOW CURRENT GRAPH TYPE`. The data passed V6 to V13, so a refusal means the statement is wrong, not the data (two such defects were found this way) | `add-ons.md`, H, "Applying it" |
+| G3 | Probe: a write that breaks the type must fail with `Neo.ClientError.Schema.ConstraintValidationFailed`; run it in a transaction you roll back | `add-ons.md`, H, "Applying it" |
 | G4 | From then on the database rejects bad writes from applications, where n10s cannot run | `add-ons.md`, H |
 
-It covers labels, property types, `NOT NULL` (from `sh:minCount 1` with `sh:maxCount 1`), lists and relationship endpoints. It leaves out relationship counts, `sh:in`, `sh:pattern`, ranges and lengths, which have no `GRAPH TYPE` form. Coverage depends on `sh:targetClass` shapes: a shape that targets by node or by SHACL-SPARQL gives no element type (on one multi-module test ontology, 35 node and 46 relationship element types). It guards later writes; the n10s gate (V6 to V12) stays the proof that the projection is right.
+It covers labels, property types, `NOT NULL` (when `sh:minCount` is at least 1, list or scalar), lists (exactly the load's multivalued properties) and relationship endpoints. It leaves out relationship counts, `sh:in`, `sh:pattern`, ranges and lengths, which have no `GRAPH TYPE` form. Coverage depends on `sh:targetClass` shapes: a shape that targets by node or by SHACL-SPARQL gives no element type (on one multi-module test ontology, 35 node and 46 relationship element types). It guards later writes; the n10s gate (V6 to V12) stays the proof that the projection is right.
 
 ## Why each step is there
 

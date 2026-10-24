@@ -320,7 +320,7 @@ class CommandLine(unittest.TestCase):
                 json.dump(raw, f)
             code, out = run_main(cpr.main, ["--config", path, "--shapes", SHAPES, MODULE])
         self.assertEqual(code, 1, out)
-        self.assertIn("FAIL exceptions: listed release exception no longer occurs", out)
+        self.assertIn("FAIL exceptions: 'listed release exception no longer occurs", out)
 
     def test_bad_arguments_are_2(self):
         self.assertEqual(run_main(cpr.main, [MODULE])[0], 2)
@@ -1028,7 +1028,8 @@ class RoundFour(OneBreak, unittest.TestCase):
 
     def test_build_cypher_stops_under_4b(self):
         with tempfile.TemporaryDirectory() as tmp:
-            code, out = run_main(build.main, ["cypher", "--config", self.config_4b(tmp), "--shapes", SHAPES, MODULE])
+            code, out = run_main(build.main, ["cypher", "--config", self.config_4b(tmp), "--shapes", SHAPES,
+                                               "--output", os.path.join(tmp, "load.cypher"), MODULE])
         self.assertEqual(code, 2, out)
         self.assertIn("build.py cypher reads RDF 1.1", out)
 

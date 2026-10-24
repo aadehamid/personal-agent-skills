@@ -66,16 +66,16 @@ def row(x0, y, labels, bg):
     return out
 
 text(0, -110, 2200, 40, "Ontology to stores: validation path and GRAPH TYPE", 32, align="left", valign="top")
-text(0, -66, 2200, 26, "Each check must pass before the next runs. Any failure stops the run, and no report is written.", 18, align="left", valign="top", color="#495057")
+text(0, -66, 2200, 26, "Each check must pass before the next runs (V7 only reports). From V6 to V12 any failure writes no report.", 18, align="left", valign="top", color="#495057")
 
 rel = box(-300, 40, 230, 110, "Released packages\n+ data", BLUE, 18)
 
 group(-20, -10, 5 * (W + GAP) + 10, 230, "Before the load (on the files)", "#e8590c")
 pre = row(0, 40, [
     "V1 Design rules:\none kind + one range per\npredicate (Rule 1);\ncardinality shape (Rule 2)",
-    "V2 Full SHACL\n(pySHACL + SHACL-AF)\nover asserted + inferred:\n0 violations",
+    "V2 Full SHACL\n(pySHACL + SHACL-AF)\nover the asserted data,\nbefore reasoning: 0",
     "V3 Reason once\n(ROBOT + ELK);\nkeep only real\ninferences",
-    "V4 check-serialised:\none triple per line, sorted,\nno repeats, nothing\nasserted in inferred.nt",
+    "V4 check-serialised,\nthen full SHACL over\nasserted + inferred:\n0 violations",
     "V5 Manifest:\nSHA-256 of every\ninput and shape file"], ORANGE)
 arrow(rel, pre[0])
 
@@ -87,25 +87,25 @@ neo = row(0, 320, [
     "V9 One fail case per\ncompiled constraint: right\nnode, path, component;\na mutant is caught",
     "V10 Round trip:\nexport back to RDF,\n0 lost, 0 added",
     "V11 Determinism:\nsorted and shuffled\nloads give one hash",
-    "V12 Report written only\nwhen all pass;\ncheck-report: passed,\nfingerprints current"], GREEN)
+    "V12 Report written only\nwhen all pass;\ncheck-report: every\ncheck, fingerprints"], GREEN)
 arrow(pre[-1], neo[0], side=("b", "t"))
 
 group(-20, 550, 2 * (W + GAP) + 10, 230, "Delivery", "#6741d9")
 dl = [box(W + GAP, 600, W, H, "V13 Aura copy:\nAura hash = local hash\n= report hash", PURPLE),
-      box(0, 600, W, H, "V14 Triple store:\ncounts per graph, per\npredicate, three-way\n(files, store, Neo4j)", PURPLE)]
+      box(0, 600, W, H, "V14 Triple store: counts\nper graph, per predicate;\nthree-way with\n--projection-report", PURPLE)]
 arrow(neo[-1], dl[0], side=("b", "t"))
 arrow(neo[-1], dl[1], side=("b", "t"))
 
 gx = 2 * (W + GAP) + 40
 group(gx - 20, 550, 4 * (W + GAP) + 10, 380, "GRAPH TYPE on Aura (Enterprise or Aura; Community refuses it)", "#c92a2a")
 gt = row(gx, 600, [
-    "G1 build.py graph-type:\none statement from the\nsh:targetClass shapes;\nleft-out list as comments",
+    "G1 build.py graph-type:\none statement, to a file,\nfrom sh:targetClass shapes;\nleft out as comments",
     "G2 Apply after V13:\nALTER CURRENT GRAPH\nTYPE SET; confirm with\nSHOW CURRENT GRAPH TYPE",
     "G3 Probe: a write that\nbreaks the type must\nfail (ConstraintValidation\nFailed)",
     "G4 From then on Aura\nrejects bad writes from\napps; n10s cannot run\nthere"], RED)
 arrow(dl[0], gt[0])
 box(gx, 780, 4 * (W + GAP) - GAP, 120,
-    "Covers: labels, property types, NOT NULL (minCount 1 + maxCount 1), lists, relationship endpoints.\n"
+    "Covers: labels, property types, NOT NULL (sh:minCount at least 1, list or scalar), lists, relationship endpoints.\n"
     "Leaves out: counts on relationships, sh:in, sh:pattern, ranges, lengths (no GRAPH TYPE form).\n"
     "Coverage depends on sh:targetClass shapes: shapes targeted by node or SPARQL give no element type.\n"
     "It adds a guard for later writes; the n10s gate (V6-V12) stays the proof.", "#fff5f5", 15)

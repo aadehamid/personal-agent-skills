@@ -58,6 +58,8 @@ from decimal import Decimal, InvalidOperation
 from rdflib import BNode, Graph, Literal, URIRef
 from rdflib.namespace import OWL, RDF, RDFS, SH, XSD
 
+from shell import q
+
 KINDS = (OWL.ObjectProperty, OWL.DatatypeProperty, OWL.AnnotationProperty)
 DECLARED = KINDS + (RDF.Property,)
 VAGUE_RANGES = (RDFS.Literal, RDFS.Resource)
@@ -121,14 +123,14 @@ class Config:
             raise ConfigError('"own_namespaces" must be a non-empty list')
         self.own = tuple(str(n) for n in own)
         self.qualified = []
-        for q in raw.get("qualified_relations", []):
-            if not isinstance(q, dict) or "class" not in q:
+        for rel in raw.get("qualified_relations", []):
+            if not isinstance(rel, dict) or "class" not in rel:
                 raise ConfigError('each "qualified_relations" entry needs a "class"')
-            ends = [self.expand(e) for e in q.get("ends", [])]
-            inverse = [self.expand(e) for e in q.get("inverse_ends", [])]
+            ends = [self.expand(e) for e in rel.get("ends", [])]
+            inverse = [self.expand(e) for e in rel.get("inverse_ends", [])]
             if not ends and not inverse:
-                raise ConfigError(f'qualified relation {q["class"]} names no ends')
-            self.qualified.append((self.expand(q["class"]), ends, inverse))
+                raise ConfigError(f'qualified relation {rel["class"]} names no ends')
+            self.qualified.append((self.expand(rel["class"]), ends, inverse))
         name_property = raw.get("lpg_name_property")
         self.name_property = self.expand(name_property) if name_property else None
         packages = raw.get("packages", {})
@@ -477,22 +479,22 @@ def main(argv):
         with open(config, encoding="utf-8") as f:
             cfg = Config(json.load(f))
     except (OSError, ValueError) as exc:
-        print(f"ERROR cannot use {config}: {exc}", file=sys.stderr)
+        print(f"ERROR cannot use {q(config)}: {q(exc)}", file=sys.stderr)
         return 2
     if cfg.rule4 == "4b":
         print(RULE_4B_STOP.format(script="check_projection_rules.py"), file=sys.stderr)
         return 2
     if releases is not None and not os.path.isdir(releases):
-        print(f"ERROR {releases} is not a folder", file=sys.stderr)
+        print(f"ERROR {q(releases)} is not a folder", file=sys.stderr)
         return 2
     try:
         data_graph, shapes_graph = parse(data), parse(shapes)
     except Exception as exc:  # rdflib raises several parser types; any of them stops the check
-        print(f"ERROR cannot read the RDF files: {exc}", file=sys.stderr)
+        print(f"ERROR cannot read the RDF files: {q(exc)}", file=sys.stderr)
         return 2
     fails = check(data_graph, shapes_graph, cfg, releases)
     for name, message in fails:
-        print(f"FAIL {name}: {message}")
+        print(f"FAIL {q(name)}: {q(message)}")
     if fails:
         print(f"{len(fails)} check(s) failed", file=sys.stderr)
         return 1
