@@ -2,35 +2,42 @@
 """Step 9: every code-list property is shaped against its own list, and each such shape can fail
 (references/shacl.md, rules 4 and 8).
 
-Run: uv run --with rdflib --with pyshacl python3 check_code_lists.py --shapes <s.ttl>... --data <d.ttl>...
+Run: uv run --no-project --with rdflib --with pyshacl python3 check_code_lists.py --shapes <s.ttl>... --data <d.ttl>...
      [--not-code-list=<scheme IRI>]...
 
 A code list is a skos:ConceptScheme in the data. A code-list property is any property outside the RDF,
-RDFS, OWL and SKOS namespaces whose value, somewhere in the data, is a concept skos:inScheme a code list.
---not-code-list leaves out a scheme whose concepts are things, not coded values (a process hierarchy,
-say), so properties that link those concepts are not code-list properties.
+RDFS, OWL and SKOS namespaces whose value, somewhere in the data, is a concept (an IRI or a blank node)
+skos:inScheme a code list. --not-code-list leaves out a scheme whose concepts are things rather than coded
+values (a taxonomy, a process hierarchy, an ontology header that is also a scheme), so properties that
+link those concepts are not code-list properties.
 
-A membership shape for property P and list L is either
-  a node shape with sh:targetObjectsOf P and a property shape sh:path skos:inScheme, sh:hasValue L; or
-  a property shape sh:path P whose sh:node has a property shape sh:path skos:inScheme, sh:hasValue L.
-sh:class skos:Concept is not one: it lets a value from the wrong list through.
+A membership constraint on property P is one of
+  scheme   a node shape with sh:targetObjectsOf P and a property shape sh:path skos:inScheme,
+           sh:hasValue L; or a property shape sh:path P whose sh:node has that property shape;
+  members  a property shape sh:path P with sh:in (a list of the allowed values).
+sh:class skos:Concept is not one: it lets a value from the wrong list through. Two constraints on one
+property both apply, as they do in SHACL.
 
 Checks:
-  covered     every code-list property has a membership shape
-  same-list   every value of the property is in the list its shape names
-  bites       moving one value of the property to a concept of another code list adds a SHACL result
-              (needs a second code list; with one, the check says it cannot run)
+  covered     every code-list property has at least one membership constraint
+  same-list   every value of the property (literals and blank nodes too) meets every constraint on it
+  bites       for each constraint, moving one value to a concept that sits in a code list but meets none
+              of the property's constraints makes that constraint's own shape report a result (its
+              sh:sourceShape, so another shape firing proves nothing); with no such concept in the data,
+              the check fails, because the shape cannot be shown to fail
 
 Prints one FAIL line per failure. Exit 0 when nothing fails, 1 when anything fails, 2 when a file cannot
-be read or parsed, or the arguments are wrong.
+be read or parsed, a shape is not valid SHACL, or the arguments are wrong.
 """
 import argparse
 import sys
 
-from rdflib import Graph, URIRef
+from pyshacl import validate
+from rdflib import Graph, Literal, URIRef
+from rdflib.collection import Collection
 from rdflib.namespace import OWL, RDF, RDFS, SH, SKOS
 
-from check_shapes import results
+from check_shapes import rule_nodes
 
 SKIP_NAMESPACES = (str(RDF), str(RDFS), str(OWL), str(SKOS))
 
@@ -42,8 +49,8 @@ def code_lists(data, excluded):
 def coded_properties(data, lists):
     """{property: set of lists its values sit in}."""
     out = {}
-    for s, p, o in data:
-        if str(p).startswith(SKIP_NAMESPACES) or not isinstance(o, URIRef):
+    for _, p, o in data:
+        if str(p).startswith(SKIP_NAMESPACES) or isinstance(o, Literal):
             continue
         in_lists = set(data.objects(o, SKOS.inScheme)) & lists
         if in_lists:
@@ -51,58 +58,87 @@ def coded_properties(data, lists):
     return out
 
 
-def membership_lists(shapes, node):
-    """The lists a node shape pins skos:inScheme to."""
-    return {shapes.value(ps, SH.hasValue) for ps in shapes.objects(node, SH.property)
-            if shapes.value(ps, SH.path) == SKOS.inScheme and shapes.value(ps, SH.hasValue) is not None}
+def scheme_pins(shapes, node):
+    """(list, property shape) for each skos:inScheme sh:hasValue pin on a node shape."""
+    return [(shapes.value(ps, SH.hasValue), ps) for ps in shapes.objects(node, SH.property)
+            if shapes.value(ps, SH.path) == SKOS.inScheme and shapes.value(ps, SH.hasValue) is not None]
 
 
-def membership_shapes(shapes):
-    """{property: set of lists} over both shape forms in the docstring."""
+def constraints(shapes):
+    """{property: [(kind, allowed, source shapes)]}: kind "scheme" with a list IRI, or "members" with a set
+    of values; source shapes are the shape nodes whose results show the constraint firing."""
     out = {}
     for node in set(shapes.subjects(SH.targetObjectsOf, None)):
         for prop in shapes.objects(node, SH.targetObjectsOf):
-            out.setdefault(prop, set()).update(membership_lists(shapes, node))
+            for scheme, ps in scheme_pins(shapes, node):
+                out.setdefault(prop, []).append(("scheme", scheme, {ps}))
     for ps in set(shapes.subjects(SH.path, None)):
         prop = shapes.value(ps, SH.path)
+        if not isinstance(prop, URIRef) or prop == SKOS.inScheme:
+            continue
         for node in shapes.objects(ps, SH.node):
-            if isinstance(prop, URIRef):
-                out.setdefault(prop, set()).update(membership_lists(shapes, node))
-    return {p: lists for p, lists in out.items() if lists}
+            for scheme, inner in scheme_pins(shapes, node):
+                out.setdefault(prop, []).append(("scheme", scheme, {ps, inner}))
+        for head in shapes.objects(ps, SH["in"]):
+            out.setdefault(prop, []).append(("members", frozenset(Collection(shapes, head)), {ps}))
+    return out
+
+
+def meets(data, value, constraint):
+    kind, allowed, _ = constraint
+    if kind == "scheme":
+        return (value, SKOS.inScheme, allowed) in data
+    return value in allowed
+
+
+def label(constraint):
+    kind, allowed, _ = constraint
+    return str(allowed) if kind == "scheme" else "sh:in (" + " ".join(sorted(map(str, allowed))) + ")"
+
+
+def fired(data, shapes):
+    """The source shape of every validation result."""
+    _, report, _ = validate(data, shacl_graph=shapes, advanced=True)
+    return {report.value(r, SH.sourceShape) for r in report.subjects(RDF.type, SH.ValidationResult)}
 
 
 def check(data, shapes, excluded=frozenset()):
     """Return failures as (check name, message)."""
+    if rule_nodes(shapes):
+        return [("bites", "the shapes hold a sh:rule, which changes the data before validation; remove it")]
     lists = code_lists(data, set(excluded))
     coded = coded_properties(data, lists)
-    shaped = membership_shapes(shapes)
+    shaped = constraints(shapes)
     fails = []
-    baseline = None
     for prop in sorted(coded, key=str):
-        named = shaped.get(prop)
-        if not named:
+        cons = shaped.get(prop)
+        if not cons:
             fails.append(("covered", f"{prop} takes values from {sorted(map(str, coded[prop]))} and no shape pins its list"))
             continue
-        for s, o in data.subject_objects(prop):
-            schemes = set(data.objects(o, SKOS.inScheme))
-            if isinstance(o, URIRef) and not schemes & named:
-                fails.append(("same-list", f"{prop} on {s} is {o}, which is not in {sorted(map(str, named))}"))
-        others = [c for c, sch in data.subject_objects(SKOS.inScheme) if sch in lists - named]
-        if not others:
-            fails.append(("bites", f"{prop}: no concept of another code list to test the shape with"))
+        good = []
+        for s, o in sorted(data.subject_objects(prop), key=str):
+            broken = [c for c in cons if not meets(data, o, c)]
+            if broken:
+                fails.append(("same-list", f"{prop} on {s} is {o}, which is not in {', '.join(label(c) for c in broken)}"))
+            else:
+                good.append((s, o))
+        witnesses = sorted((c for c, sch in data.subject_objects(SKOS.inScheme)
+                            if sch in lists and not isinstance(c, Literal) and not any(meets(data, c, k) for k in cons)),
+                           key=str)
+        if not witnesses:
+            fails.append(("bites", f"{prop}: no concept of another code list to test its shapes with"))
             continue
-        use = next(((s, o) for s, o in data.subject_objects(prop) if set(data.objects(o, SKOS.inScheme)) & named), None)
-        if use is None:
-            continue  # every value is already in the wrong list; same-list has failed for each
-        s, o = use
+        if not good:
+            continue  # every value already fails same-list
+        s, o = good[0]
         mutated = Graph()
         mutated += data
         mutated.remove((s, prop, o))
-        mutated.add((s, prop, sorted(others, key=str)[0]))
-        if baseline is None:
-            baseline = set(results(data, shapes))
-        if not set(results(mutated, shapes)) - baseline:
-            fails.append(("bites", f"{prop}: a value from another list on {s} adds no SHACL result"))
+        mutated.add((s, prop, witnesses[0]))
+        after = fired(mutated, shapes)
+        for c in cons:
+            if not c[2] & after:
+                fails.append(("bites", f"{prop}: moving {s}'s value to {witnesses[0]} does not fire the shape for {label(c)}"))
     return fails
 
 
@@ -116,21 +152,23 @@ def main(argv):
     except SystemExit:
         return 2
     shapes, data = Graph(), Graph()
+    excluded = {URIRef(s) for s in args.not_code_list}
     try:
         for path in args.shapes:
             shapes.parse(path)
         for path in args.data:
             data.parse(path)
-    except Exception as exc:
-        print(f"ERROR cannot read input: {exc}", file=sys.stderr)
+        fails = check(data, shapes, excluded)
+    except Exception as exc:  # a parser error, or pySHACL rejecting a malformed shape
+        print(f"ERROR cannot read or apply the input: {exc}", file=sys.stderr)
         return 2
-    fails = check(data, shapes, {URIRef(s) for s in args.not_code_list})
     for name, message in fails:
         print(f"FAIL {name}: {message}")
     if fails:
         print(f"{len(fails)} check(s) failed", file=sys.stderr)
         return 1
-    print(f"every code-list property is shaped against its list ({len(coded_properties(data, code_lists(data, {URIRef(s) for s in args.not_code_list})))} properties)")
+    print(f"every code-list property is shaped against its list "
+          f"({len(coded_properties(data, code_lists(data, excluded)))} properties)")
     return 0
 
 

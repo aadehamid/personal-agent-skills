@@ -40,11 +40,11 @@ Keep the order, except Step 8, which runs right after Step 0. Before you work on
 8. **Scope review.** Read `references/foundations.md`; record in `templates/scope-review.md`.
    Done when: every candidate area has an in or out call and a reason, and every out call has a boundary note and a revival trigger.
 9. **SHACL.** Read `references/shacl.md`.
-   Done when: every module's shapes, the whole-graph gate and the release-package test meet the pass condition in `references/shacl.md`, rule 7, and each guard has a negative test that asserts its violation.
+   Done when: every module's shapes, the whole-graph gate and the release-package test meet the pass condition in `references/shacl.md`, rule 7, and each guard has a negative test that asserts its violation. `scripts/check_shapes.py`, `scripts/check_code_lists.py` and `scripts/check_packages.py` run those gates.
 10. **Release and publication.** Read `references/release.md`.
     Done when: every released module is a package that passes `--verify`, the combined catalog lists every release and passes `--verify`, and each release is retrievable at its tag. Before the first module release, every row on the source-correction backlog has a fresh verdict (`references/promotion.md`, the first-release gate). "The catalog resolves" waits for the owner's hosting decision.
 11. **Regression.** Read `references/regression.md`.
-    Done when: every competency question passes on the released packages, or is partial, parked or waiting by a recorded decision that names what it waits for.
+    Done when: every competency question passes on the released packages, or is partial, parked or waiting by a recorded decision that names what it waits for; `scripts/run_regression.py` runs the questions and checks each status.
 12. **Property-graph projection (optional).** Read `references/lpg-projection.md`, then load the `ontology-to-lpg` skill, which holds the method; its design rules apply from Step 1. To hold the release in triple stores and Neo4j or Aura with proof that nothing is lost, follow its `references/multi-store.md`.
     Done when: every "Done when" gate of `ontology-to-lpg` steps 2 to 6 is met, in that skill's words, over the newest release of every module: its step 2 (`check_projection_rules.py --releases`) proves each module is pinned at its newest version, its step 4 passes `build.py check-serialised`, then `validate_data.py` over `loadable.nt` and `inferred.nt` together, then records the manifest, and its step 6 ends with `build.py check-report` passing and the clean-up line `load_verify.py` printed.
 

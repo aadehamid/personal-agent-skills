@@ -2,24 +2,28 @@
 """Step 9 and 10: every written release package is intact and conforms to its own shapes over its released
 closure (references/shacl.md, rule 9; references/release.md, rules 8, 10 and 12).
 
-Run: uv run --with rdflib --with pyshacl python3 check_packages.py --releases <dir> --expect <packages.txt>
+Run: uv run --no-project --with rdflib --with pyshacl python3 check_packages.py --releases <dir> --expect <packages.txt>
 
-Layout: <dir>/<module>/<version>/ holds <module>.ttl, shapes.ttl and manifest.json. The manifest is JSON
-with "depends_on" ({"<module>": "<version>"}, the versions the package requires) and "files"
-({"<file name>": "<sha-256>"}, every file of the package but the manifest). <packages.txt> pins the
-packages by hand, one "<module> <version>" per line ("#" starts a comment).
+Layout (release.md, rule 8): <dir>/<module>/<version>/ holds <module>.ttl, shapes.ttl and manifest.json,
+and may hold other files the manifest lists. <version> is X.Y.Z with an optional pre-release (1.0.0-rc.1);
+other folder names are not packages. The manifest is a JSON object with "files" ({"<file name>":
+"<sha-256>"}, every file of the package but the manifest) and "depends_on" ({"<module>": "<version>"},
+the releases the package requires; absent means none). <packages.txt> pins the packages by hand, one
+"<module> <version>" per line ("#" starts a comment).
 
 For each package:
   listed      its folder is in <packages.txt>, and every line of <packages.txt> has a folder
   intact      the files in the folder are exactly the manifest's "files" plus manifest.json, and each
               hash matches (a released package never changes)
-  closure     each version it requires exists; what a dependency requires is read from that release's
-              own manifest, and where two paths reach different releases of one module, only the
-              highest is loaded
-  conforms    the package, with its closure loaded, gives no SHACL result at any severity
+  closure     the releases it requires, and theirs, read from each chosen release's own manifest; where
+              two paths reach different releases of one module, only the highest is loaded (semantic
+              versioning precedence, so 1.0.0-rc.2 < 1.0.0-rc.10 < 1.0.0), and only the chosen releases'
+              requirements count
+  conforms    the package, with its closure loaded, gives no SHACL result at any severity (and holds no
+              sh:rule; see check_shapes.py)
 
 Prints one FAIL line per failure. Exit 0 when nothing fails, 1 when anything fails, 2 when the arguments
-are wrong or <packages.txt> cannot be read.
+are wrong, <dir> is not a directory or <packages.txt> cannot be read.
 """
 import argparse
 import hashlib
@@ -30,32 +34,52 @@ import sys
 
 from rdflib import Graph
 
-from check_shapes import results
+from check_shapes import describe, results
+
+VERSION = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$")
 
 
 def version_key(version):
-    """1.10.0 after 1.9.0; a release candidate (1.0.0-rc.1) before its release."""
+    """Semantic versioning precedence (semver.org, item 11): numbers first; a release above its
+    pre-releases; pre-release identifiers compared one by one, numeric ones as numbers and below
+    alphanumeric ones, and a longer list above its own prefix."""
     core, _, pre = version.partition("-")
     nums = tuple(int(n) for n in core.split("."))
-    return nums, (0, pre) if pre else (1, "")
+    if not pre:
+        return nums, 1, ()
+    ids = tuple((0, int(i), "") if i.isdigit() else (1, 0, i) for i in pre.split("."))
+    return nums, 0, ids
 
 
 def read_manifest(releases, module, version):
+    """The manifest as a dict; raises ValueError when it is not the documented shape."""
     with open(os.path.join(releases, module, version, "manifest.json"), encoding="utf-8") as f:
-        return json.load(f)
+        manifest = json.load(f)
+    if not isinstance(manifest, dict):
+        raise ValueError("manifest is not a JSON object")
+    for key in ("files", "depends_on"):
+        if not isinstance(manifest.get(key, {}), dict):
+            raise ValueError(f'manifest "{key}" is not an object')
+    return manifest
 
 
 def closure(releases, depends_on):
-    """The released packages a package loads: {module: version}. Raises FileNotFoundError for a missing one."""
-    found = {}
-    todo = list(depends_on.items())
-    while todo:
-        module, version = todo.pop()
-        if module in found and version_key(found[module]) >= version_key(version):
-            continue
-        found[module] = version
-        todo += list((read_manifest(releases, module, version).get("depends_on") or {}).items())
-    return found
+    """The releases a package loads, {module: version}: settle on the highest release of each module
+    reachable from the package's own requirements through the chosen releases' requirements. A release
+    that loses to a higher one contributes nothing. Raises OSError or ValueError for a chosen release
+    whose manifest is missing or malformed."""
+    chosen = {}
+    for _ in range(1000):
+        want = {}
+        sources = [dict(depends_on)] + [read_manifest(releases, m, v).get("depends_on") or {} for m, v in chosen.items()]
+        for deps in sources:
+            for module, version in deps.items():
+                if module not in want or version_key(version) > version_key(want[module]):
+                    want[module] = version
+        if want == chosen:
+            return chosen
+        chosen = want
+    raise ValueError("the dependency closure does not settle")
 
 
 def package_graph(releases, module, version):
@@ -89,17 +113,16 @@ def check_package(releases, module, version):
     if fails:
         return fails
     try:
-        deps = closure(releases, manifest.get("depends_on") or {})
         data = package_graph(releases, module, version)
-        for dep, dep_version in sorted(deps.items()):
+        for dep, dep_version in sorted(closure(releases, manifest.get("depends_on") or {}).items()):
             data += package_graph(releases, dep, dep_version)
         shapes = Graph().parse(os.path.join(folder, "shapes.ttl"))
+        found = results(data, shapes)
     except (OSError, ValueError) as exc:
         return [f"{where}: cannot load the package or its closure: {exc}"]
-    except Exception as exc:  # an rdflib parser error
-        return [f"{where}: cannot parse the package or its closure: {exc}"]
-    return [f"{where}: {sev} on {focus}" + (f" path {path}" if path else "") + f": {msg}"
-            for sev, focus, path, msg in results(data, shapes)]
+    except Exception as exc:  # an rdflib parser error, or pySHACL rejecting a malformed shape
+        return [f"{where}: cannot parse or apply the package or its closure: {exc}"]
+    return [f"{where}: {describe(r)}" for r in found]
 
 
 def read_expected(path):
@@ -110,7 +133,7 @@ def read_expected(path):
             if not line:
                 continue
             parts = line.split()
-            if len(parts) != 2:
+            if len(parts) != 2 or not VERSION.match(parts[1]):
                 raise ValueError(f"{path}: expected '<module> <version>', got {line!r}")
             pins.add(tuple(parts))
     return pins
@@ -119,7 +142,7 @@ def read_expected(path):
 def on_disk(releases):
     return {(m, v) for m in os.listdir(releases) if os.path.isdir(os.path.join(releases, m))
             for v in os.listdir(os.path.join(releases, m))
-            if os.path.isdir(os.path.join(releases, m, v)) and re.match(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$", v)}
+            if os.path.isdir(os.path.join(releases, m, v)) and VERSION.match(v)}
 
 
 def main(argv):
@@ -128,6 +151,8 @@ def main(argv):
     p.add_argument("--expect", required=True)
     try:
         args = p.parse_args(argv)
+        if not os.path.isdir(args.releases):
+            raise ValueError(f"not a directory: {args.releases}")
         pins = read_expected(args.expect)
     except SystemExit:
         return 2
@@ -135,6 +160,9 @@ def main(argv):
         print(f"ERROR {exc}", file=sys.stderr)
         return 2
     found = on_disk(args.releases)
+    if not found:
+        print(f"FAIL no release package under {args.releases}")
+        return 1
     fails = [f"{m} {v}: package folder not pinned in {args.expect}" for m, v in sorted(found - pins)]
     fails += [f"{m} {v}: pinned but no package folder" for m, v in sorted(pins - found)]
     for module, version in sorted(found & pins):
@@ -143,9 +171,6 @@ def main(argv):
         print("FAIL", line)
     if fails:
         print(f"{len(fails)} failure(s)", file=sys.stderr)
-        return 1
-    if not found:
-        print(f"FAIL no release package under {args.releases}")
         return 1
     print(f"{len(found)} release packages are intact and conform over their closures")
     return 0

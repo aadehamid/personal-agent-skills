@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Step 11: run the competency-question queries against the released packages (references/regression.md).
 
-Run: uv run --with rdflib python3 run_regression.py --expected <expected.csv> --queries <dir> <file.ttl>...
+Run: uv run --no-project --with rdflib python3 run_regression.py --expected <expected.csv> --queries <dir> <file.ttl>...
 
 <file.ttl>... are the released packages the questions run on (each module's Turtle; the closure, not a
 working tree). <expected.csv> has the columns question, status, queries, waits_for; one row per locked
@@ -12,8 +12,9 @@ and 11) is one of:
   waiting:<what>      no query yet; <what> names the step, module or decision it waits for
   parked:<decision>   parked by a recorded decision, which counts as passing; no query
   drafted             written but not yet locked or run; no query
-A query whose first line is a comment containing "(must be none)" must return no rows (rule 5); every
-other query must return at least one row.
+The marker sits in the query file itself: a query whose first non-blank line is a comment containing
+"(must be none)" must return no rows (rule 5); every other query must return at least one row. An ASK
+query counts as one row when it answers true and none when it answers false.
 
 Prints one line of coverage, then one FAIL line per failure. Exit 0 when nothing fails, 1 when anything
 fails, 2 when a file cannot be read or parsed, or the arguments are wrong.
@@ -66,7 +67,8 @@ def check(graph, rows, queries_dir):
             try:
                 with open(path, encoding="utf-8") as f:
                     text = f.read()
-                n = len(list(graph.query(text)))
+                result = graph.query(text)
+                n = (1 if result.askAnswer else 0) if result.type == "ASK" else len(list(result))
             except Exception as exc:  # a missing file or a SPARQL syntax error fails the question
                 failures.append(f"Q{q} {name}: cannot run: {exc}")
                 continue
