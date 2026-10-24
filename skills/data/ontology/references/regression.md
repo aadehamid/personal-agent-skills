@@ -26,7 +26,7 @@ The competency questions are the exam the owner approved and locked at Step 1 (`
     - **answerable:** all its queries run on the released packages;
     - **partial:** the graph part runs and the rest is named, with what it waits for; it closes Step 11 only by a recorded decision (rule 11);
     - **waiting:** it names the step, module or decision it waits for.
-    A module's pull request moves its questions to answerable. *Why:* the status list is the build's progress, and a question with no named wait has been forgotten.
+    A question parked by a recorded decision (rule 11) has the status **parked**. In `regression/expected.csv`, which `scripts/run_regression.py` reads, the statuses are written `drafted`, `answerable`, `partial` (with the rest in `waits_for`), `waiting:<what it waits for>` and `parked:<decision>`; only answerable and partial rows list query files. A module's pull request moves its questions to answerable. *Why:* the status list is the build's progress, and a question with no named wait has been forgotten.
 11. **Park a question, or leave it partial or waiting, only by a recorded decision that names its reason and what it waits for;** the Step 11 gate in `SKILL.md` is the rule. *Why:* a question set aside without a record has quietly left the exam the owner locked.
 12. **Pin the counts a harness test checks by hand, and expect each new query to change them.** A test that pins how many queries fail on an empty graph, or which question is the example of a waiting one, moves with every module that adds a query or answers that question. *Why:* a stale pin fails for the wrong reason, and the fix that silences it can hide a real regression.
 

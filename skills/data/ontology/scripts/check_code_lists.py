@@ -23,7 +23,8 @@ Checks:
   same-list   every value of the property (literals and blank nodes too) meets every constraint on it
   bites       for each constraint, moving one value to a concept that sits in a code list but meets none
               of the property's constraints makes that constraint's own shape report a result (its
-              sh:sourceShape, so another shape firing proves nothing); with no such concept in the data,
+              sh:sourceShape and sh:sourceConstraintComponent, so another shape firing, or another
+              constraint on the same shape, proves nothing); with no such concept in the data,
               the check fails, because the shape cannot be shown to fail
 
 Prints one FAIL line per failure. Exit 0 when nothing fails, 1 when anything fails, 2 when a file cannot
@@ -65,22 +66,26 @@ def scheme_pins(shapes, node):
 
 
 def constraints(shapes):
-    """{property: [(kind, allowed, source shapes)]}: kind "scheme" with a list IRI, or "members" with a set
-    of values; source shapes are the shape nodes whose results show the constraint firing."""
+    """{property: [(kind, allowed, sources)]}: kind "scheme" with a list IRI, or "members" with a set of
+    values. sources holds the (shape, constraint component) pairs whose result shows this constraint
+    firing: the pin's own skos:inScheme property shape with sh:HasValueConstraintComponent, or the sh:in
+    property shape with sh:InConstraintComponent. Another constraint on the same shape (sh:class,
+    sh:minCount, an outer sh:node) is a different pair, so its result proves nothing about the pin."""
     out = {}
     for node in set(shapes.subjects(SH.targetObjectsOf, None)):
         for prop in shapes.objects(node, SH.targetObjectsOf):
             for scheme, ps in scheme_pins(shapes, node):
-                out.setdefault(prop, []).append(("scheme", scheme, {ps}))
+                out.setdefault(prop, []).append(("scheme", scheme, {(ps, SH.HasValueConstraintComponent)}))
     for ps in set(shapes.subjects(SH.path, None)):
         prop = shapes.value(ps, SH.path)
         if not isinstance(prop, URIRef) or prop == SKOS.inScheme:
             continue
         for node in shapes.objects(ps, SH.node):
             for scheme, inner in scheme_pins(shapes, node):
-                out.setdefault(prop, []).append(("scheme", scheme, {ps, inner}))
+                out.setdefault(prop, []).append(("scheme", scheme, {(inner, SH.HasValueConstraintComponent)}))
         for head in shapes.objects(ps, SH["in"]):
-            out.setdefault(prop, []).append(("members", frozenset(Collection(shapes, head)), {ps}))
+            out.setdefault(prop, []).append(("members", frozenset(Collection(shapes, head)),
+                                             {(ps, SH.InConstraintComponent)}))
     return out
 
 
@@ -97,9 +102,10 @@ def label(constraint):
 
 
 def fired(data, shapes):
-    """The source shape of every validation result."""
+    """(source shape, source constraint component) of every validation result, nested ones included."""
     _, report, _ = validate(data, shacl_graph=shapes, advanced=True)
-    return {report.value(r, SH.sourceShape) for r in report.subjects(RDF.type, SH.ValidationResult)}
+    return {(report.value(r, SH.sourceShape), report.value(r, SH.sourceConstraintComponent))
+            for r in report.subjects(RDF.type, SH.ValidationResult)}
 
 
 def check(data, shapes, excluded=frozenset()):

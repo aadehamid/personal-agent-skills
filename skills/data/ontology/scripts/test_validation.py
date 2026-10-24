@@ -124,6 +124,7 @@ class Regression(Files):
         template = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates", "regression-expected.csv")
         code, out = run_main(run_regression.main, ["--expected", template, "--queries", self.queries, self.data])
         self.assertEqual(code, 0, out)
+        self.assertIn("2 questions; answerable 0, partial 0, waiting 0, parked 0, drafted 2", out)
 
     def test_wrong_columns_or_no_questions_is_a_usage_error(self):
         bad = self.write("bad.csv", "question,status\n1,answerable\n", False)
@@ -422,6 +423,29 @@ class Packages(Files):
         self.assertEqual(code, 1)
         self.assertIn("loans 1.0.0: cannot parse or apply the package or its closure", out)
 
+    def test_a_rule_in_package_shapes_fails(self):
+        rule = LOAN_SHAPES + ("lib:Fix a sh:NodeShape ; sh:targetClass lib:Loan ;\n"
+                              "    sh:rule [ a sh:TripleRule ; sh:subject sh:this ; sh:predicate lib:item ; sh:object lib:dune ] .\n")
+        self.package("loans", "1.0.0", LOANS, rule, {"catalog": "1.0.0"})
+        code, out = self.check(self.pins)
+        self.assertEqual(code, 1)
+        self.assertIn("loans 1.0.0: Rule on https://id.example.org/library/Fix: sh:rule is not allowed", out)
+
+    def test_an_empty_releases_folder_fails(self):
+        empty = os.path.join(self.dir, "empty")
+        os.makedirs(empty)
+        code, out = run_main(check_packages.main, ["--releases", empty, "--expect", self.write("p.txt", "", False)])
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL no release package under", out)
+
+    def test_a_closure_that_never_settles_fails(self):
+        # a 1.0.0 needs b 1.0.0, which needs a 2.0.0; a 2.0.0 needs nothing, so b drops and a 1.0.0 returns.
+        self.package("a", "1.0.0", "", depends_on={"b": "1.0.0"})
+        self.package("b", "1.0.0", "", depends_on={"a": "2.0.0"})
+        self.package("a", "2.0.0", "")
+        with self.assertRaisesRegex(ValueError, "does not settle"):
+            check_packages.closure(os.path.join(self.dir, "releases"), {"a": "1.0.0"})
+
     def test_bad_arguments_are_usage_errors(self):
         self.assertEqual(run_main(check_packages.main, ["--releases", os.path.join(self.dir, "nope"),
                                                         "--expect", self.write("p.txt", "", False)])[0], 2)
@@ -538,6 +562,22 @@ class CodeLists(Files):
         self.assertEqual(code, 1)
         self.assertIn("does not fire the shape for https://id.example.org/library/Genre", out)
 
+    def test_another_constraint_on_the_carrier_is_not_a_bite(self):
+        # The nested pin is deactivated; sh:class on the same property shape fires on the moved value instead.
+        carrier = FORMAT_SHAPE.replace("sh:node lib:InFormat ]", "sh:node lib:InFormat ; sh:class lib:FormatTerm ]") \
+            .replace("lib:InFormat a sh:NodeShape ;", "lib:InFormat a sh:NodeShape ; sh:deactivated true ;")
+        data = CODED + "lib:hardback a lib:FormatTerm .\n"
+        code, out = self.check(data, GENRE_SHAPE + carrier)
+        self.assertEqual(code, 1)
+        self.assertIn("does not fire the shape for https://id.example.org/library/Format", out)
+
+    def test_a_rule_in_the_shapes_fails(self):
+        rule = ("lib:Fix a sh:NodeShape ; sh:targetClass lib:Book ;\n"
+                "    sh:rule [ a sh:TripleRule ; sh:subject sh:this ; sh:predicate lib:genre ; sh:object lib:fiction ] .\n")
+        code, out = self.check(CODED, GENRE_SHAPE + FORMAT_SHAPE + rule)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL bites: the shapes hold a sh:rule", out)
+
     def test_an_in_list_is_a_membership_constraint(self):
         in_list = ("lib:BookGenre a sh:NodeShape ; sh:targetClass lib:Book ;\n"
                    "    sh:property [ sh:path lib:genre ; sh:in ( lib:fiction lib:poetry ) ] .\n")
@@ -554,11 +594,17 @@ class CodeLists(Files):
         self.assertNotIn("FAIL bites", out)
 
     def test_the_skill_skeletons_pass(self):
+        # A loan with a state from the skeleton's loan-state list, so the sh:in shape is exercised, and a
+        # second code list, so the bite check has a concept from another list to move the state to.
         templates = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates")
+        loan = self.write("loan.ttl", "lib:loan1 a lib:Loan ; lib:loanState lib:on-loan .\n"
+                                      "lib:Format a skos:ConceptScheme .\n"
+                                      "lib:hardback a skos:Concept ; skos:inScheme lib:Format .\n")
         code, out = run_main(check_code_lists.main, ["--shapes", os.path.join(templates, "shapes-skeleton.ttl"),
-                                                      "--data", os.path.join(templates, "ontology-skeleton.ttl"),
+                                                      "--data", os.path.join(templates, "ontology-skeleton.ttl"), loan,
                                                       "--not-code-list=https://id.example.org/library/lending"])
         self.assertEqual(code, 0, out)
+        self.assertIn("(1 properties)", out)
 
     def test_an_unreadable_file_is_a_usage_error(self):
         self.assertEqual(run_main(check_code_lists.main, ["--shapes", self.write("s.ttl", GENRE_SHAPE),
