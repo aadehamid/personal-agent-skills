@@ -68,7 +68,7 @@ FAKE = textwrap.dedent(r'''
     # "stalled" and "blockedpaste" leave the prompt unsent; the reviewer works only after
     # an Enter. "pasted" (implied by "blockedpaste") shows the unsent prompt in the pane.
     held = "stalled" in s or "blockedpaste" in s
-    pasted = "pasted" in s or "blockedpaste" in s
+    pasted = "pasted" in s or "blockedpaste" in s or "latepaste" in s
     if cmd == "agent prompt":
         if held and os.path.exists(rp):
             # The script asks an idle reviewer once more for the report at its path.
@@ -128,8 +128,12 @@ FAKE = textwrap.dedent(r'''
         out({"result": {}})
     if cmd == "agent read":
         if "readfail" in s: err("agent_not_found")
-        if pasted and not os.path.exists(entered):
-            print("> [Pasted text #1 +1 lines]"); sys.exit(0)
+        reads = os.path.join(state, "reads")
+        n = int(open(reads).read()) + 1 if os.path.exists(reads) else 1
+        open(reads, "w").write(str(n))
+        # "latepaste": the pasted prompt shows only from the second look, as on 2026-10-23.
+        if pasted and not os.path.exists(entered) and ("latepaste" not in s or n >= 2):
+            print("  \u2192 [Pasted text #1 +1 lines]"); sys.exit(0)
         print("pane text"); sys.exit(0)
     err("unexpected " + cmd)
 ''').lstrip()
@@ -466,6 +470,13 @@ class HerdrReview(unittest.TestCase):
         r, calls = self.run_case("newtab,fresh,blockedpaste", extra=("--kind", "cursor"))
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("agent send-keys", calls)
+        self.assertEqual(r.stdout, "REVIEW FINDINGS\n")
+
+    # The live rerun of 2026-10-23: stalled, status idle, pasted text drawn after the first look.
+    def test_idle_reviewer_with_a_late_pasted_prompt_gets_an_enter_and_recovers(self):
+        r, calls = self.run_case("newtab,fresh,stalled,latepaste", extra=("--kind", "cursor"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(calls.count("agent send-keys"), 1)
         self.assertEqual(r.stdout, "REVIEW FINDINGS\n")
 
     def test_idle_without_report_is_asked_once_then_this_runs_skill_report_is_copied(self):

@@ -157,10 +157,18 @@ prompt="Read AGENTS.md and the repository's review standards file (for example R
 
 pane_tail() { herdr agent read "$review_pane" --source recent-unwrapped --lines "$1" 2>/dev/null || true; }
 # The Cursor agent shows a long prompt as "[Pasted text #1 +1 lines]" and waits for one
-# more Enter; herdr then reports the prompt stalled or the reviewer blocked.
+# more Enter. Herdr then reports the prompt stalled or the reviewer blocked, and the
+# status can read idle; the text can also appear only after the first look. So this
+# runs on every poll until the reviewer has worked. It reads the screen as it is now,
+# since scrollback keeps the text after the Enter, and sends at most three Enters.
+enters=0
 enter_if_pasted() {
-  if pane_tail 15 | grep -q '\[Pasted text'; then
+  [ "$enters" -lt 3 ] || return 0
+  local screen
+  screen=$(herdr agent read "$review_pane" --source visible --lines 40 2>/dev/null || true)
+  if [[ "$screen" == *"[Pasted text"* ]]; then
     herdr agent send-keys "$review_pane" Enter >/dev/null || true
+    enters=$((enters + 1))
     echo "The prompt sat pasted but unsent; sent Enter." >&2
   fi
 }
@@ -203,19 +211,21 @@ prompt_ok="" prompt_out=""
 if prompt_out=$(herdr agent prompt "$review_pane" "$prompt" --wait --timeout 3600000 2>&1); then prompt_ok=1; fi
 if [ -n "$prompt_ok" ] && [ -s "$report" ]; then cat "$report"; exit 0; fi
 [ -n "$prompt_ok" ] || echo "Prompt did not complete; recovering: $prompt_out" >&2
-enter_if_pasted
 
 # Poll every 5 seconds, within 60 minutes of the start. The report counts once the
 # reviewer is idle and two idle polls in a row see it at the same size, so a file still
 # being written is not printed early. Idle counts only after the reviewer has worked
 # since its last prompt, because it stays idle for a moment after each prompt arrives;
 # a completed prompt has already worked. A reviewer idle without the report is asked
-# once for it. Each counter below ends the wait with its reason.
+# once for it. Each counter below ends the wait with its reason. The "never started"
+# stop counts 12 idle polls after an Enter (sent for a pasted prompt or with the request
+# for the report), and 60 when no Enter was sent.
 worked=$prompt_ok asked="" last_size="" idle_unworked=0 blocked=0 unread=0
 reason="no report within 60 minutes; the review may still be running"
 next="herdr agent wait $review_pane --until idle --until done --timeout 3600000 && cat '$report'"
 for _ in $(seq 1 720); do
   [ "$SECONDS" -lt 3600 ] || break
+  [ -n "$worked" ] || enter_if_pasted
   status=$(herdr agent get "$review_pane" | jget result.agent.agent_status || true)
   case "$status" in
     idle|done)
@@ -226,7 +236,8 @@ for _ in $(seq 1 720); do
         last_size=$size
       elif [ -z "$worked" ]; then
         idle_unworked=$((idle_unworked + 1))
-        if [ "$idle_unworked" -ge 12 ]; then
+        limit=60; [ "$enters" -eq 0 ] || limit=12
+        if [ "$idle_unworked" -ge "$limit" ]; then
           if [ -n "$asked" ]; then
             reason="the reviewer did not act on the request to write the report"
           else
@@ -237,7 +248,7 @@ for _ in $(seq 1 720); do
       elif [ -z "$asked" ]; then
         herdr agent prompt "$review_pane" "Write your final review report as Markdown to exactly this path: $report. Then reply with that path." >/dev/null 2>&1 || true
         herdr agent send-keys "$review_pane" Enter >/dev/null || true
-        asked=1 worked="" idle_unworked=0
+        asked=1 worked="" idle_unworked=0 enters=$((enters + 1))
       else
         reason="the reviewer finished without writing the report, even when asked"
         next="$rerun"; break
@@ -245,7 +256,6 @@ for _ in $(seq 1 720); do
       ;;
     blocked)
       unread=0 blocked=$((blocked + 1))
-      enter_if_pasted
       if [ "$blocked" -ge 24 ]; then
         reason="the reviewer is waiting on a question (answer it: herdr agent send-keys $review_pane <key>)"
         break
