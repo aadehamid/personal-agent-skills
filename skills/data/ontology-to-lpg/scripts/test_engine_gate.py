@@ -445,5 +445,34 @@ class TripleStore(unittest.TestCase):
         self.assertNotIn("s3cret", out)
 
 
+class DockerPins(unittest.TestCase):
+    """docker/compose.yaml and docker/fuseki/Dockerfile use the pins the references give."""
+
+    def read(self, *parts):
+        with open(os.path.join(HERE, "..", *parts), encoding="utf-8") as f:
+            return f.read()
+
+    def test_neo4j_and_n10s_pins_match_running_md(self):
+        import re
+        running, compose = self.read("references", "running.md"), self.read("docker", "compose.yaml")
+        digest = re.search(r"it was `(sha256:[0-9a-f]{64})`", running).group(1)
+        self.assertIn(f"neo4j:2025.06.2@{digest}", compose)
+        row = next(line for line in running.splitlines() if line.startswith("   | n10s 2025.06.1 |"))
+        url, sha = re.findall(r"(https://\S+\.jar)", row)[0], re.findall(r"`([0-9a-f]{64})`", row)[0]
+        self.assertIn(f"N10S_URL: {url}", compose)
+        self.assertIn(f"N10S_SHA256: {sha}", compose)
+
+    def test_fuseki_pin_matches_add_on_j(self):
+        import re
+        sha = re.search(r"SHA-256 `([0-9a-f]{64})`", self.read("references", "add-ons.md")).group(1)
+        self.assertIn(f"PACKAGE_SHA256={sha}", self.read("docker", "fuseki", "Dockerfile"))
+
+    def test_ports_are_local_and_no_password_is_written(self):
+        compose = self.read("docker", "compose.yaml")
+        ports = [line.strip() for line in compose.splitlines() if line.strip().startswith('- "') and ":" in line]
+        self.assertTrue(ports and all(p.startswith('- "127.0.0.1:') for p in ports))
+        self.assertIn("NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-}", compose)
+
+
 if __name__ == "__main__":
     unittest.main()

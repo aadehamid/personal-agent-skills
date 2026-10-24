@@ -53,6 +53,16 @@ Serves the load step (rule 5, the container) and the running step. Read it befor
 
 5. **Run Neo4j in a container bound to localhost, with the pinned plugins, and remove it once `check-report` has passed, or when you stop.** Use the `neo4j:2025.06.2` image (Community edition), mount a plugins folder holding the checked n10s jar at `/plugins` and the import folder at `/import`, let the image install APOC, allow both procedure namespaces, and bind Bolt to `127.0.0.1` on a non-default port, with a password made for this run.
 
+   **The default way to start it is the skill's compose file**, `docker/compose.yaml`, which pins the image by digest, fetches the n10s jar into the plugins folder and checks its SHA-256 before Neo4j starts, binds Bolt to `127.0.0.1`, and takes the password from `NEO4J_PASSWORD` (never written in the file). It needs the same run folder as below (`LPG_RUN`, holding `plugins/` and `import/`). From the `docker/` folder, with the run folder made as below:
+
+   ```bash
+   . "<run folder>/run.env"
+   LPG_RUN="$RUN" NEO4J_PASSWORD="$PASSWORD" LPG_BOLT_PORT="$PORT" \
+     docker compose -p "$CONTAINER" --profile neo4j up -d          # add --profile fuseki for add-on J
+   ```
+
+   Wait for the start with `docker compose -p "$CONTAINER" logs neo4j` showing `Started.`, run steps 1 to 3 below, then remove everything with `docker compose -p "$CONTAINER" --profile neo4j --profile fuseki down -v`, which removes the containers and their anonymous `/data` and `/logs` volumes, as `docker rm -f -v` does. Pass `--container "$CONTAINER"` to `load_verify.py` all the same; its printed `docker rm` line names a container the project prefixes, so use the `down -v` line instead. The manual recipe that follows is the reference for what the compose file does.
+
    The plugins folder must be writable: the image changes its owner and writes `apoc.jar` into it, so a read-only mount (`:ro`) stops the container. Make new folders for each run, and copy the checked n10s jar into the plugins folder, so the image never writes into the folder that holds your downloads.
 
    Agent tools often start a fresh shell for every command, so keep the run's settings in a file, not in shell variables: a mode-600 `run.env` in a new run folder, read at the start of each later command and deleted with the folder after removal. Pick a container name and a free host port for this run; the examples use `lpg-projection` and 17687.
@@ -91,7 +101,7 @@ Serves the load step (rule 5, the container) and the running step. Read it befor
    1. run `load_verify.py` as its docstring shows, with `NEO4J_PASSWORD="$PASSWORD"`, `--bolt "bolt://127.0.0.1:$PORT"`, `--import-dir "$RUN/import"`, `--plugins-dir "$RUN/plugins"`, `--container "$CONTAINER"` and the configuration, shape, data, `merged.ttl`, `loadable.nt`, `inferred.nt` and `--report` arguments. It prints its next step with that container name;
    2. if it exits 1 or 2, stop here, do not run `check-report`, and go to step 4. No report exists then; on exit 1 after the database checks, `<report>.failed` holds the values. A case with status `no case` needs a manual case: write one in a `--manual-cases` file (`pipeline.md`, rule 14) and rerun from step 1. Every rerun runs every case again;
    3. run `build.py check-report --manifest projection-manifest.json --report projection-report.json`, as in rule 1; if you copy the graph to another Neo4j, such as Aura (`add-ons.md`, add-on I), do it now, while the container is up;
-   4. only then `docker rm -f -v "$CONTAINER"`, then delete the run folder with its `run.env`. If you stop before `check-report` passes, do the same anyway; `docker ps -a` then lists no projection container. The `-v` removes the container's anonymous `/data` and `/logs` volumes; without it each run leaves them behind, and after a few runs Docker's disk fills and Neo4j fails to start ("Database name 'system' is invalid"). *Why:* the load script reads `file:///import/...`; Community edition has one user database, so the determinism check empties it between loads (`pipeline.md`, rule 17); and a forgotten container with a known password is an open database on the workstation.
+   4. only then `docker rm -f -v "$CONTAINER"` (with the compose file, `docker compose -p "$CONTAINER" --profile neo4j --profile fuseki down -v`), then delete the run folder with its `run.env`. If you stop before `check-report` passes, do the same anyway; `docker ps -a` then lists no projection container. The `-v` removes the container's anonymous `/data` and `/logs` volumes; without it each run leaves them behind, and after a few runs Docker's disk fills and Neo4j fails to start ("Database name 'system' is invalid"). *Why:* the load script reads `file:///import/...`; Community edition has one user database, so the determinism check empties it between loads (`pipeline.md`, rule 17); and a forgotten container with a known password is an open database on the workstation.
 
 6. **Change only the loader as the graph grows:**
 

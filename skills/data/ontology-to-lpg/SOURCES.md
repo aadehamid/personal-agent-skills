@@ -110,7 +110,7 @@ Last full review: 2026-10-23. Check the sources below every three months, and wh
 |---|---|---|---|
 | SPARQL 1.1 Graph Store HTTP Protocol, https://www.w3.org/TR/sparql11-http-rdf-update/ | W3C Recommendation, 21 March 2013 | `add-ons.md`, add-on J; `scripts/triplestore.py` | `PUT` replaces a named graph, identified indirectly with `?graph=<IRI>`. |
 | SPARQL 1.1 Protocol, https://www.w3.org/TR/sparql11-protocol/ | W3C Recommendation, 21 March 2013 | `scripts/triplestore.py` | Queries by `POST`; `default-graph-uri` parameters make the default graph the merge of the named graphs. |
-| Fuseki Docker tools, https://jena.apache.org/documentation/fuseki2/fuseki-docker.html, and `jena-fuseki-docker` 6.2.0 on Maven Central | read 2026-10-23; 6.2.0 published 2026-07-31 | `add-ons.md`, add-on J | Jena publishes the Dockerfile, not an image; the test image was built from it (checksums and image ID in add-on J). Fuseki 6.2.0 refused a `urn:x-` graph name as relative. |
+| Fuseki Docker tools, https://jena.apache.org/documentation/fuseki2/fuseki-docker.html, and `jena-fuseki-docker` 6.2.0 on Maven Central | read 2026-10-23; 6.2.0 published 2026-07-31 | `add-ons.md`, add-on J | Jena publishes the Dockerfile, not an image; `docker/fuseki/Dockerfile` fetches the package, checks its SHA-256 (in add-on J) and builds as Jena's Dockerfile does, on `alpine:3.21.2` pinned by digest. Fuseki 6.2.0 refused a `urn:x-` graph name as relative. |
 
 **How to check for updates:** `curl -s https://repo1.maven.org/maven2/org/apache/jena/jena-fuseki-docker/maven-metadata.xml | grep release`.
 
