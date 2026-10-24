@@ -110,11 +110,15 @@ tabs = json.load(sys.stdin)["result"]["tabs"]
 print(next((t["tab_id"] for t in tabs if t["label"] == label), ""))' "$label")
 # The caller needs the tab, and whether this run created it, to close it after
 # merge, so it is printed as soon as it is known, before any later step can fail.
-if [ -z "$review_tab" ]; then
+create_review_tab() {
+  local created_json
   created_json=$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$top" --label "$label" --no-focus)
   review_tab=$(printf '%s' "$created_json" | jget result.tab.tab_id)
   echo "Review tab: $review_tab (created)" >&2
   review_pane=$(printf '%s' "$created_json" | jget result.root_pane.pane_id)
+}
+if [ -z "$review_tab" ]; then
+  create_review_tab
 else
   echo "Review tab: $review_tab (reused)" >&2
   # `herdr tab get` returns no pane; find it in the pane list.
@@ -165,14 +169,16 @@ if [ -z "$pane_agent" ]; then
   # "candidates: ... pane_id=<pane> ... tab_id=<tab> cwd=<dir> status=<status>". A holder
   # in this work tree is an earlier review left open: one that is idle or done has its
   # tab closed and the start is tried once more; one still working or blocked is another
-  # review running, and the script stops rather than close it.
+  # review running, and the script stops rather than close it. The holder can be the
+  # reused review tab itself (its pane reads as having no agent while herdr still holds
+  # the name); then that tab is closed and a fresh one created for the retry.
   name_holder() {
-    python3 - "$top" "$review_tab" "$1" <<'PY'
+    python3 - "$top" "$1" <<'PY'
 import os, re, sys
-top, own_tab, text = os.path.realpath(sys.argv[1]), sys.argv[2], sys.argv[3]
+top, text = os.path.realpath(sys.argv[1]), sys.argv[2]
 for m in re.finditer(r"pane_id=([^\s,;]+).*?tab_id=([^\s,;]+).*?cwd=(.*?)[,;]?\s+status=(\w+)", text):
     pane, tab, cwd, status = m.groups()
-    if os.path.realpath(cwd) == top and tab != own_tab:
+    if os.path.realpath(cwd) == top:
         print(tab, pane, status.lower())
         break
 PY
@@ -192,7 +198,8 @@ PY
           idle|done)
             herdr tab close "$holder_tab" >/dev/null
             echo "Closed $holder_tab, a finished review that held the name $name; starting again." >&2
-            holder_closed=1 ;;
+            holder_closed=1
+            [ "$holder_tab" != "$review_tab" ] || create_review_tab ;;
           *)
             printf '%s\n' "$out"
             trailer=1

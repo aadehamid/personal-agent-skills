@@ -62,13 +62,16 @@ FAKE = textwrap.dedent(r'''
         # "taken<status>": an earlier review in this work tree (cwd, possibly with spaces)
         # holds the name in tab w2:tEH until that tab is closed; "takenelsewhere": the
         # holder is in another directory.
+        # "takenown<status>": the holder is the reused review tab w2:t3 itself.
         taken = [x[5:] for x in s if x.startswith("taken")]
-        closed = os.path.exists(os.path.join(state, "closed-w2:tEH"))
+        own = bool(taken) and taken[0].startswith("own")
+        htab, hpane = ("w2:t3", "w2:p3") if own else ("w2:tEH", "w2:pJB")
+        closed = os.path.exists(os.path.join(state, "closed-" + htab))
         if taken and not closed:
             cwd = "/elsewhere" if taken[0] == "elsewhere" else os.getcwd()
-            status = "Working" if taken[0] == "elsewhere" else taken[0].capitalize()
+            status = "Working" if taken[0] == "elsewhere" else taken[0][3 if own else 0:].capitalize()
             err("agent_name_taken", "agent name %s is already used; candidates: name=%s kind=cursor "
-                "pane_id=w2:pJB tab_id=w2:tEH cwd=%s status=%s" % (args[2], args[2], cwd, status))
+                "pane_id=%s tab_id=%s cwd=%s status=%s" % (args[2], args[2], hpane, htab, cwd, status))
         n_path = os.path.join(state, "starts")
         n = int(open(n_path).read()) + 1 if os.path.exists(n_path) else 1
         open(n_path, "w").write(str(n))
@@ -659,6 +662,24 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(lines[-2], "Reviewer did not start: another review is running in w2:tEH; wait for it or close it.")
         self.assertRegex(lines[-1], r"^Next: herdr agent wait w2:pJB --until idle --until done --timeout 3600000 && "
                                     r"\S*herdr-review\.sh --branch b --verify v $")
+
+    def test_a_finished_reviewer_in_the_reused_tab_holding_the_name_gets_a_fresh_tab(self):
+        r, calls = self.run_case("fresh,takenowndone")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("Review tab: w2:t3 (reused)", r.stderr)
+        self.assertEqual([a for a in self.argv if a[:2] == ["tab", "close"]], [["tab", "close", "w2:t3"]])
+        self.assertEqual(calls.count("tab create"), 1)
+        self.assertIn("Review tab: w2:t3 (created)", r.stderr)
+        self.assertEqual(calls.count("agent start"), 2)
+        self.assertEqual(r.stdout, "REVIEW FINDINGS\n")
+
+    def test_a_working_reviewer_in_the_reused_tab_holding_the_name_is_left_alone(self):
+        r, calls = self.run_case("fresh,takenownworking")
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("tab close", calls)
+        lines = r.stdout.splitlines()
+        self.assertEqual(lines[-2], "Reviewer did not start: another review is running in w2:t3; wait for it or close it.")
+        self.assertRegex(lines[-1], r"^Next: herdr agent wait w2:p3 --until idle --until done --timeout 3600000 && ")
 
     def test_a_name_holder_in_another_directory_is_left_alone(self):
         r, calls = self.run_case("newtab,fresh,takenelsewhere")
