@@ -36,7 +36,8 @@ The `ontology` skill builds the ontology and hands over to this one at its Step 
 | `references/pipeline.md` | agent, steps 3 to 6 | Check, reason, serialise (with the 4b flatten), load with n10s, the shapes that run in the graph, and verify. |
 | `references/running.md` | agent, step 7 | Where each step runs, pins and checksums, the manifest and the report, clean-up, and scale. |
 | `references/add-ons.md` | agent, when a consumer asks for more, or in review | Add-ons A to K (H: a `GRAPH TYPE`; I: the copy to Aura or another Neo4j; J: a SPARQL 1.1 triple store; K: Databricks, planned) and the anti-patterns. |
-| `references/multi-store.md` | agent, when one release must live in several stores | The multi-store plan: skolemize, load triple stores, project, copy to Aura, rebuild from a store, with the check at each hop and what is built or planned. |
+| `references/multi-store.md` | agent, when one release must live in several stores, or to read the diagrams | The multi-store plan hop by hop, the data-flow diagram box by box, and the validation map V1 to V14 and G1 to G4, each pointing to its rule. |
+| `references/diagrams/` | you | The two diagrams: `.eraser` sources, `.excalidraw` scenes written by `make_data_flow.py` and `make_validation_path.py`, and PNGs from `excalidraw render`. |
 | `references/learning-path.md` | agent, when you ask what to learn | Thirteen W3C, Neo4j and research topics in priority order, with an exercise each. |
 | `references/versions.md` | agent, when a project pins an older version | What versions 2, 2.1, 2.2 and 2.3 changed. |
 | `templates/projection-config.json` | agent, step 2 | The configuration `check_projection_rules.py`, `validate_data.py` and `build.py` read: the Rule 4 option and its reason, own namespaces, prefixes, qualified relations, package pins, release exceptions, tool versions. |

@@ -20,6 +20,8 @@ Read it when a consumer asks for something the core pipeline does not give (supe
 
 ## H. A `GRAPH TYPE` from the shapes
 
+In the validation map (`multi-store.md`) this is G1 to G4.
+
 `build.py graph-type --config <config> --shapes <shapes>...` prints one `CYPHER 25 ALTER CURRENT GRAPH TYPE SET { ... }` statement. The Cypher manual marks the statement "Cypher 25 only", Enterprise Edition, introduced in Neo4j 2026.02 (https://neo4j.com/docs/cypher-manual/current/schema/graph-types/set-graph-types/; the element syntax is at https://neo4j.com/docs/cypher-manual/current/schema/syntax/). It emits:
 
 - one node element type per `sh:targetClass`, `(:Label => {prop :: TYPE ...})`, with a typed property for each property shape on a value whose `sh:datatype` maps to a Cypher type (`design-rules.md`, the XSD table); `NOT NULL` when `sh:minCount` is at least 1 and `sh:maxCount` is 1; `LIST<TYPE NOT NULL>` when there is no `sh:maxCount 1`;

@@ -1,0 +1,64 @@
+title Ontology to stores: end-to-end data flow
+direction right
+
+Sources [icon: file-text, color: gray] {
+  Source documents [icon: file-text]
+  Industry and peer sources [icon: file-text]
+  Reference process model [icon: git-branch]
+}
+
+Ontology build [icon: book-open, color: blue] {
+  Steps 1 to 11 [icon: layers, label: "Steps 1-11: W3C stack (RDF, OWL, SKOS, SHACL, PROV, DCAT)"]
+  Checks [icon: check-circle, label: "check.sh, pySHACL, competency questions"]
+  Released packages [icon: package, label: "Released packages + DCAT catalog (tagged)"]
+}
+
+Skolemize [icon: hash, label: "Skolemize blank nodes (stable IRIs)"]
+
+Triple stores [icon: database, color: purple] {
+  Jena Fuseki [icon: database, label: "Apache Jena Fuseki (Graph Store Protocol, one named graph per package)"]
+  Databricks Delta [icon: databricks, label: "Databricks: Delta triple table in Unity Catalog (planned)"]
+  Databricks Free [icon: laptop, label: "Free Edition: transfers run from your machine (SQL connector)"]
+  Databricks Enterprise [icon: server, label: "Enterprise: from your machine, or a job in the workspace"]
+}
+
+ontology-to-lpg skill [icon: tool, color: orange] {
+  Rule check [icon: check-square, label: "Check: design rules, data shapes, refusals"]
+  Reason [icon: cpu, label: "Reason: ROBOT + ELK, once upstream"]
+  Serialise [icon: file, label: "Serialise: loadable.nt + inferred.nt (check-serialised)"]
+}
+
+Neo4j local [icon: neo4j, color: green] {
+  n10s load [icon: download, label: "n10s load (SHORTEN, fixed order)"]
+  Engine gate [icon: shield, label: "Gate: listShapes readback, fail case per constraint, round trip, determinism hash"]
+}
+
+Neo4j Aura [icon: cloud, color: green] {
+  Aura copy [icon: upload, label: "Driver copy, hash must match"]
+  GRAPH TYPE [icon: lock, label: "GRAPH TYPE (schema enforced by the database)"]
+}
+
+Later [icon: clock, color: gray] {
+  OntoBricks [icon: databricks, label: "OntoBricks: link Unity Catalog tables + metric views (KPIs) to processes"]
+}
+
+Source documents > Steps 1 to 11
+Industry and peer sources > Steps 1 to 11
+Reference process model > Steps 1 to 11
+Steps 1 to 11 > Checks
+Checks > Released packages
+Released packages > Skolemize
+Skolemize > Jena Fuseki: load + export back, counts per predicate
+Skolemize > Databricks Delta: load + export back, triple-for-triple
+Skolemize > Rule check
+Rule check > Reason > Serialise
+Serialise > n10s load
+n10s load > Engine gate
+Engine gate > Aura copy: validated graph
+Aura copy > GRAPH TYPE
+Jena Fuseki <> Engine gate: three-way counts (files, store, Neo4j)
+Databricks Delta > Rule check: rebuild Neo4j + Aura from the store export
+Released packages > OntoBricks
+Databricks Delta > OntoBricks
+Databricks Free > Databricks Delta
+Databricks Enterprise > Databricks Delta

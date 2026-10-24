@@ -1,0 +1,48 @@
+title Ontology to stores: validation path and GRAPH TYPE
+direction right
+colorMode bold
+styleMode shadow
+
+Release [shape: oval, icon: package, color: blue, label: "Released packages + data"]
+
+Before the load (files) [color: orange] {
+  V1 [icon: check-square, label: "V1 Design rules: one kind + one range per predicate (Rule 1); cardinality shape (Rule 2); prefixes"]
+  V2 [icon: shield, label: "V2 Full SHACL with pySHACL + SHACL-AF, over asserted + inferred: 0 violations"]
+  V3 [icon: cpu, label: "V3 Reason once (ROBOT + ELK); keep only real inferences"]
+  V4 [icon: file, label: "V4 check-serialised: one triple per line, sorted, no repeats, nothing asserted in inferred.nt"]
+  V5 [icon: hash, label: "V5 Manifest: SHA-256 of every input and shape file"]
+}
+
+In the local Neo4j (n10s) [color: green] {
+  V6 [icon: download, label: "V6 Load in fixed order; every import returns OK"]
+  V7 [icon: eye, label: "V7 Engine readback: listShapes() vs the shapes file; every constraint n10s did not compile is listed (V2 already checked it)"]
+  V8 [icon: shield, label: "V8 n10s SHACL validate(): 0 violations"]
+  V9 [icon: zap, label: "V9 One fail case per compiled constraint: must name the right node, path and component; a committed mutant is caught, then restored"]
+  V10 [icon: refresh-cw, label: "V10 Round trip: export back to RDF, 0 triples lost, 0 added"]
+  V11 [icon: repeat, label: "V11 Determinism: sorted and shuffled loads give one hash"]
+  V12 [icon: lock, label: "V12 Report written only when all pass; check-report: passed + fingerprints current"]
+}
+
+Delivery [color: purple] {
+  V13 [icon: cloud, label: "V13 Aura copy: Aura hash = local hash = report hash"]
+  V14 [icon: database, label: "V14 Triple store: counts per graph, per predicate, three-way (files, store, Neo4j)"]
+}
+
+GRAPH TYPE on Aura [color: red] {
+  G1 [icon: code, label: "G1 build.py graph-type: one statement from the sh:targetClass shapes; left-out list as comments (coverage depends on sh:targetClass shapes)"]
+  G2 [icon: upload, label: "G2 Apply after V13: ALTER CURRENT GRAPH TYPE SET; confirm with SHOW CURRENT GRAPH TYPE"]
+  G3 [icon: x-octagon, label: "G3 Probe: a write that breaks the type must fail (ConstraintValidationFailed)"]
+  G4 [icon: users, label: "G4 From then on Aura rejects bad writes from apps; n10s cannot run there"]
+}
+
+Fail [shape: oval, icon: alert-triangle, color: red, label: "Any failure stops the run; no report"]
+
+Release > V1 > V2 > V3 > V4 > V5
+V5 > V6 > V7 > V8 > V9 > V10 > V11 > V12
+V12 > V13
+V12 > V14
+V13 > G1 > G2 > G3 > G4
+V2 --> Fail
+V9 --> Fail
+V10 --> Fail
+V13 --> Fail

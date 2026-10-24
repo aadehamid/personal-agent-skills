@@ -17,6 +17,8 @@ Serves the pipeline steps. Read it before writing or changing the projection's c
 | Load | n10s |
 | Diff | rdflib `compare`, or Jena `rdfcompare` |
 
+The checks of these rules, numbered V1 to V12 in the order they run, are mapped in `multi-store.md`, "The validation path, V1 to V14, and GRAPH TYPE, G1 to G4".
+
 ## Check (SKILL.md step 3)
 
 1. **Check the design rules over the ontology, then validate the data with every shape, and stop the build on any failure.** Run `check_projection_rules.py --config <config> --shapes <every shape file> --releases <folder> <every released data file>`, then `validate_data.py --config <config> --shapes <every shape file> <every released data file>`, which runs pySHACL with SHACL-AF on (`advanced=True`, so SPARQL targets and constraints run) and the refusals of rule 3. Under Rule 4b every script of this skill stops with exit 2 (`check_projection_rules.py`, `validate_data.py`, `build.py cypher` and `load_verify.py`; rdflib cannot read triple terms): run the same checks in Jena SHACL or RDF4J, or stop and ask the owner which tool to use. *Why:* this is the full check; the graph later runs only a subset of the shapes (rule 13), so a constraint skipped here is never checked.
