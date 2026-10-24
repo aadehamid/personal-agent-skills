@@ -363,9 +363,22 @@ class HerdrReview(unittest.TestCase):
         self.assertNotIn("agent get", calls)
 
     def test_unwritable_tmpdir_stops_before_the_prompt(self):
+        # No private copy can be made, so the script runs in place and still ends with its two lines.
         r, calls = self.run_case("ok", tmpdir="/nonexistent-dir-for-test")
-        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(r.returncode, 1)
         self.assertNotIn("agent prompt", calls)
+        lines = r.stdout.splitlines()
+        self.assertRegex(lines[-2], r"^No review: .* failed; the error is above\.$")
+        self.assertRegex(lines[-1], "^Next: " + re.escape(SCRIPT) + " --branch b --verify v $")
+
+    def test_unwritable_report_folder_stops_before_the_prompt(self):
+        # TMPDIR is writable, so the script runs from its copy; the Cursor report folder cannot be made.
+        r, calls = self.run_case("ok", extra=("--kind", "cursor"), env_extra={"HERDR_REVIEW_DIR": "/dev/null/reviews"})
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("agent prompt", calls)
+        lines = r.stdout.splitlines()
+        self.assertRegex(lines[-2], r"^No review: .* failed; the error is above\.$")
+        self.assertRegex(lines[-1], "^Next: " + re.escape(SCRIPT) + " --branch b --verify v --kind cursor $")
 
     def test_error_payload_with_exit_zero_stops_before_start(self):
         r, calls = self.run_case("errpayload0,fresh")
