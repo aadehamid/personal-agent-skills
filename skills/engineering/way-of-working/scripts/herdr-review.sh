@@ -9,13 +9,19 @@
 #   Run from the repository under review, inside a Herdr pane (HERDR_WORKSPACE_ID set).
 #   A review takes longer than a foreground tool call allows: run this as a background
 #   job the harness reports back on, with its exit status (Claude Code: run_in_background).
-# Exit 0: the report is on stdout, and nothing else is. Exit 1: no report; stdout ends with
-#   the pane's recent text, one line "No report at <path>: <reason>." and one line
-#   "Next: <command>" to run. Exit 2: bad arguments.
+# Exit 0: the report is on stdout, and nothing else is.
+# Exit 1 once the prompt was sent: no report. Stdout ends with "Prompt result: <herdr
+#   error>" (only if the prompt did not complete), the pane's recent text, then
+#   "No report at <path>: <reason>." and "Next: <command>" as the last two lines.
+# Exit 1 before the prompt (HERDR_WORKSPACE_ID unset, a herdr error, no review tab or
+#   pane, an unwritable report folder, a reviewer that did not start): the error, and for
+#   a reviewer that did not start, the pane and what to do. Then run the script again.
+# Exit 2: bad arguments.
 # Every outcome of the prompt (completed, stalled, blocked, timed out) goes through one
-# recovery: Enter for a prompt left pasted but unsent, a wait until the reviewer has
-# worked and gone idle, one request for the report, then the review skill's own
-# report.md from this run (see find_skill_report) copied to the report path.
+# recovery: Enter for a Cursor prompt left pasted but unsent, a wait until the reviewer
+# has worked and gone idle, one request for the report, then the reviewer's own file at
+# the report path, or failing that the review skill's report.md from this run, copied
+# there (see find_skill_reports for which one counts).
 # Tests: test_herdr_review.py, run by the repository's scripts/check.sh.
 set -euo pipefail
 
@@ -69,6 +75,7 @@ print("" if value is None else value)' "$1"
 # whichever one the owner is looking at.
 # Name and start from the work tree's top, so a run from a subdirectory finds the same tab.
 top=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+head_sha=$(git -C "$top" rev-parse HEAD 2>/dev/null || true)   # the skill-report fallback matches this commit
 repo=$(basename "$top")
 label="review-$repo"
 [ -n "$default_reviewer" ] || label="review-$repo-$kind-$reviewer_hash"
@@ -156,51 +163,62 @@ prompt="Read AGENTS.md and the repository's review standards file (for example R
 
 
 pane_tail() { herdr agent read "$review_pane" --source recent-unwrapped --lines "$1" 2>/dev/null || true; }
-# The Cursor agent shows a long prompt as "[Pasted text #1 +1 lines]" and waits for one
-# more Enter. Herdr then reports the prompt stalled or the reviewer blocked, and the
-# status can read idle; the text can also appear only after the first look. So this
-# runs on every poll until the reviewer has worked. It reads the screen as it is now,
-# since scrollback keeps the text after the Enter, and sends at most three Enters.
+# The Cursor agent shows a long prompt on its input line as "→ [Pasted text #1 +1 lines]"
+# and waits for one more Enter. Herdr then reports the prompt stalled or the reviewer
+# blocked, and the status can read idle; the text can also appear only after the first
+# look. So this runs on every poll until the reviewer has worked, whatever the status.
+# It reads the screen as it is now, since scrollback keeps the text after the Enter, and
+# acts only for Cursor and only on the input line, never on the marker quoted elsewhere
+# (a diff under review can hold it). It sends at most three Enters, and each one restarts
+# the "never started" count.
 enters=0
 enter_if_pasted() {
-  [ "$enters" -lt 3 ] || return 0
+  [ "$kind" = cursor ] && [ "$enters" -lt 3 ] || return 0
   local screen
   screen=$(herdr agent read "$review_pane" --source visible --lines 40 2>/dev/null || true)
-  if [[ "$screen" == *"[Pasted text"* ]]; then
+  if printf '%s\n' "$screen" | grep -Eq '^[[:space:]]*→[[:space:]]*\[Pasted text'; then
     herdr agent send-keys "$review_pane" Enter >/dev/null || true
-    enters=$((enters + 1))
+    enters=$((enters + 1)) idle_unworked=0
     echo "The prompt sat pasted but unsent; sent Enter." >&2
   fi
 }
 
-# The newest report.md that ce-code-review saved since this run started, under
-# <root>/compound-engineering-<uid>/ce-code-review/<run>/, where root is /tmp or $TMPDIR
+# Print the reviewer's own file at $report and exit 0, once two reads 5 seconds apart see
+# it at the same size. Returns if it is absent or still changing after a minute.
+print_if_stable() {
+  local last="" size
+  for _ in $(seq 1 12); do
+    [ -s "$report" ] || return 0
+    size=$(wc -c < "$report")
+    if [ "$size" = "$last" ]; then cat "$report"; exit 0; fi
+    last=$size; sleep 5
+  done
+}
+
+# The fallback when the reviewer wrote no file at $report (decided 2026-10-23 by the
+# coordinator under the owner's delegation; SOURCES.md 1j). A ce-code-review report.md,
+# under <root>/compound-engineering-<uid>/ce-code-review/<run>/ with root /tmp or $TMPDIR
 # (the skill's scratch roots; HERDR_REVIEW_ARTIFACT_ROOTS, colon-separated, overrides
-# them). A run whose metadata.json names another branch is skipped. Prints nothing if none.
-find_skill_report() {
-  python3 - "$started_at" "$branch" "$(id -u)" "${HERDR_REVIEW_ARTIFACT_ROOTS:-/tmp:${TMPDIR:-/tmp}}" <<'PY'
+# them), counts only when all of these hold: it was written after this script started;
+# its metadata.json names this branch; and that metadata.json records head_sha equal to
+# the HEAD this script started on (no head_sha, no match). Exactly one match is copied;
+# zero or several end in exit 1. Prints one matching path per line.
+find_skill_reports() {
+  python3 - "$started_at" "$branch" "$head_sha" "$(id -u)" "${HERDR_REVIEW_ARTIFACT_ROOTS:-/tmp:${TMPDIR:-/tmp}}" <<'PY'
 import glob, json, os, sys
-start, branch, uid, roots = sys.argv[1:]
-best = None
+start, branch, head, uid, roots = sys.argv[1:]
 for root in dict.fromkeys(r for r in roots.split(":") if r):
     pattern = os.path.join(root, "compound-engineering-" + uid, "ce-code-review", "*", "report.md")
-    for path in glob.glob(pattern):
+    for path in sorted(glob.glob(pattern)):
         try:
-            mtime = os.path.getmtime(path)
-            if mtime <= float(start) or os.path.getsize(path) == 0:
+            if os.path.getmtime(path) <= float(start) or os.path.getsize(path) == 0:
                 continue
-        except OSError:
-            continue
-        try:
             with open(os.path.join(os.path.dirname(path), "metadata.json")) as f:
-                other = json.load(f).get("branch")
-        except (OSError, ValueError, AttributeError):
-            other = None
-        if other and other != branch:
+                meta = json.load(f)
+        except (OSError, ValueError):
             continue
-        if best is None or mtime > best[0]:
-            best = (mtime, path)
-print(best[1] if best else "")
+        if isinstance(meta, dict) and head and meta.get("branch") == branch and meta.get("head_sha") == head:
+            print(path)
 PY
 }
 
@@ -211,16 +229,19 @@ prompt_ok="" prompt_out=""
 if prompt_out=$(herdr agent prompt "$review_pane" "$prompt" --wait --timeout 3600000 2>&1); then prompt_ok=1; fi
 if [ -n "$prompt_ok" ] && [ -s "$report" ]; then cat "$report"; exit 0; fi
 [ -n "$prompt_ok" ] || echo "Prompt did not complete; recovering: $prompt_out" >&2
+# A completed or timed-out prompt was sent and worked on; a stalled or rejected one was not.
+worked=1
+case "$prompt_ok:$prompt_out" in :*agent_prompt_stalled*|:*agent_blocked*) worked="" ;; esac
 
 # Poll every 5 seconds, within 60 minutes of the start. The report counts once the
 # reviewer is idle and two idle polls in a row see it at the same size, so a file still
 # being written is not printed early. Idle counts only after the reviewer has worked
 # since its last prompt, because it stays idle for a moment after each prompt arrives;
-# a completed prompt has already worked. A reviewer idle without the report is asked
+# a completed or timed-out prompt has already worked. A reviewer idle without the report is asked
 # once for it. Each counter below ends the wait with its reason. The "never started"
-# stop counts 12 idle polls after an Enter (sent for a pasted prompt or with the request
-# for the report), and 60 when no Enter was sent.
-worked=$prompt_ok asked="" last_size="" idle_unworked=0 blocked=0 unread=0
+# stop counts 12 idle polls after the last Enter or the request for the report, and 60
+# when neither happened.
+asked="" last_size="" idle_unworked=0 blocked=0 unread=0
 reason="no report within 60 minutes; the review may still be running"
 next="herdr agent wait $review_pane --until idle --until done --timeout 3600000 && cat '$report'"
 for _ in $(seq 1 720); do
@@ -236,7 +257,7 @@ for _ in $(seq 1 720); do
         last_size=$size
       elif [ -z "$worked" ]; then
         idle_unworked=$((idle_unworked + 1))
-        limit=60; [ "$enters" -eq 0 ] || limit=12
+        limit=60; [ "$enters" -eq 0 ] && [ -z "$asked" ] || limit=12
         if [ "$idle_unworked" -ge "$limit" ]; then
           if [ -n "$asked" ]; then
             reason="the reviewer did not act on the request to write the report"
@@ -247,8 +268,7 @@ for _ in $(seq 1 720); do
         fi
       elif [ -z "$asked" ]; then
         herdr agent prompt "$review_pane" "Write your final review report as Markdown to exactly this path: $report. Then reply with that path." >/dev/null 2>&1 || true
-        herdr agent send-keys "$review_pane" Enter >/dev/null || true
-        asked=1 worked="" idle_unworked=0 enters=$((enters + 1))
+        asked=1 worked="" idle_unworked=0
       else
         reason="the reviewer finished without writing the report, even when asked"
         next="$rerun"; break
@@ -257,7 +277,14 @@ for _ in $(seq 1 720); do
     blocked)
       unread=0 blocked=$((blocked + 1))
       if [ "$blocked" -ge 24 ]; then
-        reason="the reviewer is waiting on a question (answer it: herdr agent send-keys $review_pane <key>)"
+        reason="the reviewer is waiting on a question"
+        # A reviewer that never worked never got the prompt (herdr rejects a prompt to a
+        # blocked agent before sending it), so after the answer the script runs again.
+        if [ -n "$worked" ]; then
+          next="answer it (herdr agent send-keys $review_pane <key>), then run: $next"
+        else
+          next="answer it (herdr agent send-keys $review_pane <key>), then run: $rerun"
+        fi
         break
       fi
       ;;
@@ -272,11 +299,24 @@ for _ in $(seq 1 720); do
   sleep 5
 done
 
-skill_report=$(find_skill_report)
-if [ -n "$skill_report" ]; then
-  cp "$skill_report" "$report"
-  echo "The reviewer did not write $report; copied the review skill's report from this run: $skill_report" >&2
-  cat "$report"; exit 0
+# The reviewer's own file comes first, however the wait ended, and is never overwritten.
+print_if_stable
+if [ -e "$report" ]; then
+  reason="$reason; the file at the report path is empty or still changing"
+  next="cat '$report'"
+else
+  skill_reports=$(find_skill_reports)
+  matches=$(printf '%s' "$skill_reports" | grep -c . || true)
+  if [ "$matches" = 1 ]; then
+    cp "$skill_reports" "$report"
+    echo "The reviewer did not write $report; copied the review skill's report from this run: $skill_reports" >&2
+    cat "$report"; exit 0
+  elif [ "$matches" -gt 1 ]; then
+    reason="$reason; several skill reports match this run; read them and pick: $(printf '%s' "$skill_reports" | tr '\n' ' ')"
+    next="cp <the chosen report.md> '$report' && cat '$report'"
+  else
+    reason="$reason; no skill report for this run"
+  fi
 fi
 [ -n "$prompt_ok" ] || echo "Prompt result: $prompt_out"
 pane_tail 60

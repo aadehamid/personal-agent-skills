@@ -66,9 +66,14 @@ FAKE = textwrap.dedent(r'''
     rp = os.path.join(state, "report_path")
     entered = os.path.join(state, "entered")
     # "stalled" and "blockedpaste" leave the prompt unsent; the reviewer works only after
-    # an Enter. "pasted" (implied by "blockedpaste") shows the unsent prompt in the pane.
+    # an Enter. "pasted" (implied by "blockedpaste") shows the unsent prompt on the input
+    # line. "latepaste" draws it from the 2nd look ("latepaste13": the 13th), and the
+    # reviewer acts on an Enter only once a look has shown it. "quotedpaste" shows the
+    # marker in a quoted line, never on the input line.
     held = "stalled" in s or "blockedpaste" in s
-    pasted = "pasted" in s or "blockedpaste" in s or "latepaste" in s
+    late = 13 if "latepaste13" in s else 2 if "latepaste" in s else 1
+    pasted = "pasted" in s or "blockedpaste" in s or late > 1
+    seen = os.path.join(state, "marker_seen")
     if cmd == "agent prompt":
         if held and os.path.exists(rp):
             # The script asks an idle reviewer once more for the report at its path.
@@ -80,7 +85,12 @@ FAKE = textwrap.dedent(r'''
             open(os.path.join(state, "report_path"), "w").write(report)
             err("agent_blocked" if "blockedpaste" in s else "agent_prompt_stalled")
         if "blockedrej" in s: err("agent_blocked")
-        if "timeout" in s: err("timeout")
+        if "timeout" in s:
+            if "writes" in s:
+                # The reviewer wrote the report, then stopped on a question.
+                report = re.search(r"exactly this path: (\S+)\. This is required", args[3]).group(1)
+                open(report, "w").write("REVIEW FINDINGS\n")
+            err("timeout")
         report = re.search(r"exactly this path: (\S+)\. This is required", args[3]).group(1)
         if "noreport" not in s:
             open(report, "w").write("REVIEW FINDINGS\n")
@@ -88,6 +98,11 @@ FAKE = textwrap.dedent(r'''
     if cmd == "agent get":
         if "getfail" in s: err("agent_not_found")
         if held:
+            # "latepaste13": the poll right after the Enter still reads idle.
+            lag = os.path.join(state, "lag")
+            if os.path.exists(lag):
+                os.remove(lag)
+                out({"result": {"agent": {"agent_status": "idle"}}})
             # Work the last keystroke or prompt started finishes during one "working" poll.
             if not os.path.exists(pending):
                 g = os.path.join(state, "idle_gets")
@@ -106,15 +121,26 @@ FAKE = textwrap.dedent(r'''
             out({"result": {"agent": {"agent_status": "working"}}})
         out({"result": {"agent": {"agent_status": "blocked"}}})
     if cmd == "agent send-keys":
+        if late > 1 and not os.path.exists(seen):
+            out({"result": {}})   # an Enter before the paste is drawn does nothing
         if held and os.path.exists(rp) and not os.path.exists(entered):
             open(entered, "w").write("")
+            if late == 13:
+                open(os.path.join(state, "lag"), "w").write("")
             if "skillreport" in s:
-                # The reviewer saves only the review skill's own report, then goes idle.
-                d = os.path.join(os.environ["TMPDIR"], "compound-engineering-%d" % os.getuid(),
-                                 "ce-code-review", "20261023-010203-abc")
-                os.makedirs(d, exist_ok=True)
-                open(os.path.join(d, "report.md"), "w").write("SKILL REPORT\n")
-                open(os.path.join(d, "metadata.json"), "w").write(json.dumps({"branch": "b"}))
+                # The reviewer saves only the review skill's own report(s), then goes idle.
+                # FAKE_SKILL lists each run's metadata.json (null: no file); "HEAD" is the
+                # test repo's commit.
+                metas = json.loads(os.environ.get("FAKE_SKILL") or '[{"branch": "b", "head_sha": "HEAD"}]')
+                for i, meta in enumerate(metas):
+                    d = os.path.join(os.environ["TMPDIR"], "compound-engineering-%d" % os.getuid(),
+                                     "ce-code-review", "20261023-01020%d-abc" % i)
+                    os.makedirs(d, exist_ok=True)
+                    open(os.path.join(d, "report.md"), "w").write("SKILL REPORT\n")
+                    if meta is not None:
+                        if meta.get("head_sha") == "HEAD":
+                            meta["head_sha"] = os.environ.get("FAKE_HEAD", "")
+                        open(os.path.join(d, "metadata.json"), "w").write(json.dumps(meta))
                 open(pending, "w").write("none")
             elif "silent" in s:
                 # The reviewer works, writes no report anywhere, and goes idle.
@@ -131,9 +157,11 @@ FAKE = textwrap.dedent(r'''
         reads = os.path.join(state, "reads")
         n = int(open(reads).read()) + 1 if os.path.exists(reads) else 1
         open(reads, "w").write(str(n))
-        # "latepaste": the pasted prompt shows only from the second look, as on 2026-10-23.
-        if pasted and not os.path.exists(entered) and ("latepaste" not in s or n >= 2):
-            print("  \u2192 [Pasted text #1 +1 lines]"); sys.exit(0)
+        if "quotedpaste" in s:
+            print("+    marker = '[Pasted text #1'\n  \u2192 "); sys.exit(0)
+        if pasted and not os.path.exists(entered) and n >= late:
+            open(seen, "w").write("")
+            print("  \u2192 [Pasted text #1 +1 lines]\n\n  Auto"); sys.exit(0)
         print("pane text"); sys.exit(0)
     err("unexpected " + cmd)
 ''').lstrip()
@@ -145,7 +173,8 @@ def reviewer_hash(kind_model):
 
 
 class HerdrReview(unittest.TestCase):
-    def run_case(self, scenario, tmpdir=None, extra=(), repo_name="repo", home=None, subdir=False):
+    def run_case(self, scenario, tmpdir=None, extra=(), repo_name="repo", home=None, subdir=False,
+                 git_head=False, skill=None, before=None):
         state = tempfile.mkdtemp()
         bindir = tempfile.mkdtemp()
         fake = os.path.join(bindir, "herdr")
@@ -168,6 +197,18 @@ class HerdrReview(unittest.TestCase):
                    TMPDIR=tmpdir, HERDR_REVIEW_ARTIFACT_ROOTS=tmpdir)
         if home:
             env["HOME"] = home
+        if skill is not None:
+            env["FAKE_SKILL"] = json.dumps(skill)
+        if git_head:
+            # A work tree with one commit, so the skill-report fallback has a HEAD to match.
+            genv = {k: v for k, v in env.items() if not k.startswith("GIT_")}
+            subprocess.run(["git", "init", "-q", repo], check=True, env=genv)
+            subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q",
+                            "--allow-empty", "-m", "c"], check=True, env=genv)
+            env["FAKE_HEAD"] = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"], check=True, env=genv,
+                                              capture_output=True, text=True).stdout.strip()
+        if before:
+            before(tmpdir, env.get("FAKE_HEAD", ""))
         start = repo
         if subdir:
             # A git work tree, started from deep inside it.
@@ -177,7 +218,7 @@ class HerdrReview(unittest.TestCase):
             os.makedirs(start)
         self.repo = os.path.realpath(repo)
         r = subprocess.run(["bash", SCRIPT, "--branch", "b", "--verify", "v", *extra],
-                           cwd=start, env={k: v for k, v in env.items() if not k.startswith("GIT_")} if subdir else env,
+                           cwd=start, env={k: v for k, v in env.items() if not k.startswith("GIT_")} if subdir or git_head else env,
                            capture_output=True, text=True)
         calls_path = os.path.join(state, "calls")
         calls = []
@@ -480,7 +521,7 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(r.stdout, "REVIEW FINDINGS\n")
 
     def test_idle_without_report_is_asked_once_then_this_runs_skill_report_is_copied(self):
-        r, calls = self.run_case("newtab,fresh,stalled,pasted,skillreport", extra=("--kind", "cursor"))
+        r, calls = self.run_case("newtab,fresh,stalled,pasted,skillreport", extra=("--kind", "cursor"), git_head=True)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(calls.count("agent prompt"), 2)
         self.assertEqual(r.stdout, "SKILL REPORT\n")
@@ -489,33 +530,95 @@ class HerdrReview(unittest.TestCase):
         with open(path) as f:
             self.assertEqual(f.read(), "SKILL REPORT\n")
 
-    def skill_report_before_the_run(self, tmpdir, branch="b"):
-        d = os.path.join(tmpdir, "compound-engineering-%d" % os.getuid(), "ce-code-review", "old-run")
+    @staticmethod
+    def plant_skill_report(tmpdir, head, text, age):
+        # A ce-code-review run for branch b at this HEAD; age < 0 dates it after the start.
+        d = os.path.join(tmpdir, "compound-engineering-%d" % os.getuid(), "ce-code-review", "planted")
         os.makedirs(d)
         path = os.path.join(d, "report.md")
         with open(path, "w") as f:
-            f.write("OLD REPORT\n")
+            f.write(text)
         with open(os.path.join(d, "metadata.json"), "w") as f:
-            json.dump({"branch": branch}, f)
-        old = time.time() - 3600
-        os.utime(path, (old, old))
+            json.dump({"branch": "b", "head_sha": head}, f)
+        when = time.time() - age
+        os.utime(path, (when, when))
 
     def test_a_skill_report_older_than_the_run_is_ignored(self):
-        tmpdir = tempfile.mkdtemp()
-        self.skill_report_before_the_run(tmpdir)
-        r, calls = self.run_case("newtab,fresh,blockedpaste,silent", tmpdir=tmpdir, extra=("--kind", "cursor"))
+        r, calls = self.run_case("newtab,fresh,blockedpaste,silent", extra=("--kind", "cursor"), git_head=True,
+                                 before=lambda t, h: self.plant_skill_report(t, h, "OLD REPORT\n", 3600))
         self.assertEqual(r.returncode, 1)
         self.assertEqual(calls.count("agent prompt"), 2)
         self.assertNotIn("OLD REPORT", r.stdout + r.stderr)
-        self.assertIn("finished without writing the report, even when asked", r.stdout)
+        self.assertIn("finished without writing the report, even when asked; no skill report for this run", r.stdout)
+
+    def assert_skill_report_refused(self, skill, reason):
+        r, _ = self.run_case("newtab,fresh,stalled,pasted,skillreport", extra=("--kind", "cursor"),
+                             git_head=True, skill=skill)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertNotIn("SKILL REPORT", r.stdout)
+        self.assertIn(reason, r.stdout.splitlines()[-2])
+        return r
+
+    def test_a_skill_report_without_metadata_is_refused(self):
+        self.assert_skill_report_refused([None], "no skill report for this run")
+
+    def test_a_skill_report_whose_metadata_has_no_head_sha_is_refused(self):
+        self.assert_skill_report_refused([{"branch": "b"}], "no skill report for this run")
+
+    def test_a_skill_report_of_another_commit_on_this_branch_is_refused(self):
+        self.assert_skill_report_refused([{"branch": "b", "head_sha": "0" * 40}], "no skill report for this run")
+
+    def test_a_skill_report_of_another_branch_at_this_commit_is_refused(self):
+        self.assert_skill_report_refused([{"branch": "other", "head_sha": "HEAD"}], "no skill report for this run")
+
+    def test_two_skill_reports_matching_this_run_are_both_refused(self):
+        r = self.assert_skill_report_refused([{"branch": "b", "head_sha": "HEAD"}, {"branch": "b", "head_sha": "HEAD"}],
+                                             "several skill reports match this run; read them and pick")
+        self.assertEqual(r.stdout.count("/report.md"), 2)
+        self.assertRegex(r.stdout.splitlines()[-1], r"^Next: cp <the chosen report.md> '\S+' && cat '\S+'$")
+
+    # A late paste gets its Enter before the "never started" stop is checked (review #2).
+    def test_a_paste_drawn_after_a_minute_of_idle_still_gets_its_enter(self):
+        r, calls = self.run_case("newtab,fresh,stalled,latepaste13", extra=("--kind", "cursor"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(calls.count("agent send-keys"), 1)
+        self.assertEqual(r.stdout, "REVIEW FINDINGS\n")
+
+    def test_the_paste_marker_on_a_codex_pane_gets_no_enter(self):
+        r, calls = self.run_case("newtab,fresh,stalled,pasted")
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("agent send-keys", calls)
+
+    def test_the_paste_marker_off_the_input_line_gets_no_enter(self):
+        r, calls = self.run_case("newtab,fresh,stalled,quotedpaste", extra=("--kind", "cursor"))
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("agent send-keys", calls)
+
+    def test_a_paste_still_shown_gets_at_most_three_enters(self):
+        # "blockedrej" never lets the Enter land, so the marker stays on the input line.
+        r, calls = self.run_case("newtab,fresh,blockedrej,pasted", extra=("--kind", "cursor"))
+        self.assertEqual(calls.count("agent send-keys"), 3)
+
+    def test_a_prompt_rejected_as_blocked_says_answer_then_run_again(self):
+        r, _ = self.run_case("blockedrej")
+        self.assertEqual(r.returncode, 1)
+        self.assertRegex(r.stdout.splitlines()[-1],
+                         r"^Next: answer it \(herdr agent send-keys w2:p3 <key>\), then run: \S*herdr-review\.sh --branch b --verify v $")
+
+    def test_the_reviewers_own_file_wins_however_the_wait_ends(self):
+        # The reviewer wrote the report, then blocked; a matching skill report is also there.
+        r, _ = self.run_case("timeout,writes", git_head=True,
+                             before=lambda t, h: self.plant_skill_report(t, h, "SKILL REPORT\n", -60))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.stdout, "REVIEW FINDINGS\n")
 
     def test_no_report_anywhere_exits_1_with_the_reason_and_next_command(self):
-        r, calls = self.run_case("newtab,fresh,stalled,pasted,silent")
+        r, calls = self.run_case("newtab,fresh,stalled,pasted,silent", extra=("--kind", "cursor"))
         self.assertEqual(r.returncode, 1)
         self.assertEqual(calls.count("agent prompt"), 2)
         lines = r.stdout.splitlines()
-        self.assertRegex(lines[-2], r"^No report at \S+: the reviewer finished without writing the report, even when asked\.$")
-        self.assertRegex(lines[-1], r"^Next: \S*herdr-review\.sh --branch b --verify v $")
+        self.assertRegex(lines[-2], r"^No report at \S+: the reviewer finished without writing the report, even when asked; no skill report for this run\.$")
+        self.assertRegex(lines[-1], r"^Next: \S*herdr-review\.sh --branch b --verify v --kind cursor $")
 
     def test_cursor_report_path_is_under_tmp(self):
         # The tests put Cursor reports in a temporary folder, so the default is read from the script.
