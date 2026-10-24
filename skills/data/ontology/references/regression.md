@@ -32,5 +32,5 @@ The competency questions are the exam the owner approved and locked at Step 1 (`
 
 ## Run it every time
 
-13. **Run the full suite against the released packages after every module lands and on every release, from the check script.** A failing query is a regression or a recorded, deliberate change, never a surprise. *Why:* a change in one module can break a question another module answers.
+13. **Run the full suite against the released packages after every module lands and on every release, from the check script,** with `scripts/run_regression.py`, which also checks each question's status against rules 10 and 11. A failing query is a regression or a recorded, deliberate change, never a surprise. *Why:* a change in one module can break a question another module answers.
 14. **Run the whole check suite, not only the module's tests, before a review.** *Why:* a new source, value or node can break a check in another module, such as the rule that every cited source has an evidence tier.
