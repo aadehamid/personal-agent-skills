@@ -11,6 +11,7 @@ import stat
 import subprocess
 import tempfile
 import textwrap
+import time
 import unittest
 
 SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "herdr-review.sh")
@@ -63,16 +64,21 @@ FAKE = textwrap.dedent(r'''
         out({"result": {"agent": {"name": args[2]}}})
     pending = os.path.join(state, "pending")
     rp = os.path.join(state, "report_path")
+    entered = os.path.join(state, "entered")
+    # "stalled" and "blockedpaste" leave the prompt unsent; the reviewer works only after
+    # an Enter. "pasted" (implied by "blockedpaste") shows the unsent prompt in the pane.
+    held = "stalled" in s or "blockedpaste" in s
+    pasted = "pasted" in s or "blockedpaste" in s
     if cmd == "agent prompt":
-        if "stalled" in s and os.path.exists(rp):
+        if held and os.path.exists(rp):
             # The script asks an idle reviewer once more for the report at its path.
             open(pending, "w").write("write" if "obeys" in s else "none")
             out({"result": {}})
-        if "stalled" in s:
+        if held:
             # The pane shows pasted text; the report appears after the extra Enter.
             report = re.search(r"exactly this path: (\S+)\. This is required", args[3]).group(1)
             open(os.path.join(state, "report_path"), "w").write(report)
-            err("agent_prompt_stalled")
+            err("agent_blocked" if "blockedpaste" in s else "agent_prompt_stalled")
         if "blockedrej" in s: err("agent_blocked")
         if "timeout" in s: err("timeout")
         report = re.search(r"exactly this path: (\S+)\. This is required", args[3]).group(1)
@@ -81,7 +87,7 @@ FAKE = textwrap.dedent(r'''
         out({"result": {"agent": {"agent_status": "blocked" if "noreport" in s else "idle"}}})
     if cmd == "agent get":
         if "getfail" in s: err("agent_not_found")
-        if "stalled" in s:
+        if held:
             # Work the last keystroke or prompt started finishes during one "working" poll.
             if not os.path.exists(pending):
                 g = os.path.join(state, "idle_gets")
@@ -100,13 +106,18 @@ FAKE = textwrap.dedent(r'''
             out({"result": {"agent": {"agent_status": "working"}}})
         out({"result": {"agent": {"agent_status": "blocked"}}})
     if cmd == "agent send-keys":
-        if "stalled" in s and os.path.exists(rp) and not os.path.exists(os.path.join(state, "entered")):
-            open(os.path.join(state, "entered"), "w").write("")
+        if held and os.path.exists(rp) and not os.path.exists(entered):
+            open(entered, "w").write("")
             if "skillreport" in s:
                 # The reviewer saves only the review skill's own report, then goes idle.
-                d = os.path.join(os.environ["TMPDIR"], "ce-code-review", "run1")
+                d = os.path.join(os.environ["TMPDIR"], "compound-engineering-%d" % os.getuid(),
+                                 "ce-code-review", "20261023-010203-abc")
                 os.makedirs(d, exist_ok=True)
                 open(os.path.join(d, "report.md"), "w").write("SKILL REPORT\n")
+                open(os.path.join(d, "metadata.json"), "w").write(json.dumps({"branch": "b"}))
+                open(pending, "w").write("none")
+            elif "silent" in s:
+                # The reviewer works, writes no report anywhere, and goes idle.
                 open(pending, "w").write("none")
             elif "partial" in s:
                 # The report file appears with its first byte while the reviewer works on.
@@ -117,6 +128,8 @@ FAKE = textwrap.dedent(r'''
         out({"result": {}})
     if cmd == "agent read":
         if "readfail" in s: err("agent_not_found")
+        if pasted and not os.path.exists(entered):
+            print("> [Pasted text #1 +1 lines]"); sys.exit(0)
         print("pane text"); sys.exit(0)
     err("unexpected " + cmd)
 ''').lstrip()
@@ -144,9 +157,11 @@ class HerdrReview(unittest.TestCase):
         os.mkdir(repo)
         # Cursor reports go to a temporary folder, so the tests leave nothing in /tmp/herdr-reviews.
         self.review_dir = tempfile.mkdtemp()
+        tmpdir = tmpdir or tempfile.mkdtemp()
+        # The skill-report fallback searches only this test's TMPDIR, never the real /tmp.
         env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"], HERDR_REVIEW_DIR=self.review_dir,
                    FAKE_HERDR=scenario, FAKE_STATE=state, HERDR_WORKSPACE_ID="w2",
-                   TMPDIR=tmpdir or tempfile.mkdtemp())
+                   TMPDIR=tmpdir, HERDR_REVIEW_ARTIFACT_ROOTS=tmpdir)
         if home:
             env["HOME"] = home
         start = repo
@@ -415,42 +430,81 @@ class HerdrReview(unittest.TestCase):
         self.assertIn("agent prompt", calls)
 
     def test_cursor_stalled_prompt_gets_an_enter_and_waits_for_the_report(self):
-        r, calls = self.run_case("newtab,fresh,stalled", extra=("--kind", "cursor"))
+        r, calls = self.run_case("newtab,fresh,stalled,pasted", extra=("--kind", "cursor"))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("agent send-keys", calls)
         self.assertIn("REVIEW FINDINGS", r.stdout)
 
     def test_a_report_still_being_written_is_not_printed_early(self):
-        r, _ = self.run_case("newtab,fresh,stalled,partial", extra=("--kind", "cursor"))
+        r, _ = self.run_case("newtab,fresh,stalled,pasted,partial", extra=("--kind", "cursor"))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("REVIEW FINDINGS\n", r.stdout)
 
     def test_a_report_growing_while_idle_is_printed_only_once_it_stops(self):
-        r, _ = self.run_case("newtab,fresh,stalled,idlemidwrite", extra=("--kind", "cursor"))
+        r, _ = self.run_case("newtab,fresh,stalled,pasted,idlemidwrite", extra=("--kind", "cursor"))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout, "REVIEW FINDINGS\nMORE\n")
 
     def test_an_idle_reviewer_without_the_report_is_asked_once_for_it(self):
-        r, calls = self.run_case("newtab,fresh,stalled,skillreport,obeys", extra=("--kind", "cursor"))
+        r, calls = self.run_case("newtab,fresh,stalled,pasted,skillreport,obeys", extra=("--kind", "cursor"))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(calls.count("agent prompt"), 2)
         self.assertIn("REVIEW FINDINGS", r.stdout)
-
-    def test_another_reviews_skill_report_is_never_taken_as_this_one(self):
-        r, calls = self.run_case("newtab,fresh,stalled,skillreport", extra=("--kind", "cursor"))
-        self.assertEqual(r.returncode, 1)
-        self.assertEqual(calls.count("agent prompt"), 2)
-        self.assertNotIn("SKILL REPORT", r.stdout)
-        self.assertIn("No finished report", r.stdout)
 
     def test_prompt_names_the_exact_report_path(self):
         with open(SCRIPT) as f:
             self.assertIn("write the final report as Markdown to exactly this path", f.read())
 
-    def test_a_stalled_prompt_for_another_kind_still_stops(self):
+    def test_a_stalled_prompt_that_never_starts_work_exits_with_the_reason(self):
         r, calls = self.run_case("newtab,fresh,stalled")
-        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(r.returncode, 1)
         self.assertNotIn("agent send-keys", calls)
+        self.assertIn("the reviewer never started work on the prompt", r.stdout)
+
+    # The 2026-10-23 incident: agent_blocked with the prompt still pasted in Cursor's input.
+    def test_blocked_prompt_left_pasted_gets_an_enter_and_recovers(self):
+        r, calls = self.run_case("newtab,fresh,blockedpaste", extra=("--kind", "cursor"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("agent send-keys", calls)
+        self.assertEqual(r.stdout, "REVIEW FINDINGS\n")
+
+    def test_idle_without_report_is_asked_once_then_this_runs_skill_report_is_copied(self):
+        r, calls = self.run_case("newtab,fresh,stalled,pasted,skillreport", extra=("--kind", "cursor"))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(calls.count("agent prompt"), 2)
+        self.assertEqual(r.stdout, "SKILL REPORT\n")
+        self.assertIn("copied the review skill's report", r.stderr)
+        path = re.search(r"^Report file: (\S+)$", r.stderr, re.MULTILINE).group(1)
+        with open(path) as f:
+            self.assertEqual(f.read(), "SKILL REPORT\n")
+
+    def skill_report_before_the_run(self, tmpdir, branch="b"):
+        d = os.path.join(tmpdir, "compound-engineering-%d" % os.getuid(), "ce-code-review", "old-run")
+        os.makedirs(d)
+        path = os.path.join(d, "report.md")
+        with open(path, "w") as f:
+            f.write("OLD REPORT\n")
+        with open(os.path.join(d, "metadata.json"), "w") as f:
+            json.dump({"branch": branch}, f)
+        old = time.time() - 3600
+        os.utime(path, (old, old))
+
+    def test_a_skill_report_older_than_the_run_is_ignored(self):
+        tmpdir = tempfile.mkdtemp()
+        self.skill_report_before_the_run(tmpdir)
+        r, calls = self.run_case("newtab,fresh,blockedpaste,silent", tmpdir=tmpdir, extra=("--kind", "cursor"))
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(calls.count("agent prompt"), 2)
+        self.assertNotIn("OLD REPORT", r.stdout + r.stderr)
+        self.assertIn("finished without writing the report, even when asked", r.stdout)
+
+    def test_no_report_anywhere_exits_1_with_the_reason_and_next_command(self):
+        r, calls = self.run_case("newtab,fresh,stalled,pasted,silent")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(calls.count("agent prompt"), 2)
+        lines = r.stdout.splitlines()
+        self.assertRegex(lines[-2], r"^No report at \S+: the reviewer finished without writing the report, even when asked\.$")
+        self.assertRegex(lines[-1], r"^Next: \S*herdr-review\.sh --branch b --verify v $")
 
     def test_cursor_report_path_is_under_tmp(self):
         # The tests put Cursor reports in a temporary folder, so the default is read from the script.
