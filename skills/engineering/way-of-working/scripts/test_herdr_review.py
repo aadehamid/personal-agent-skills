@@ -29,8 +29,8 @@ FAKE = textwrap.dedent(r'''
         f.write(json.dumps(args) + "\n")
     def out(obj, code=0):
         print(json.dumps(obj)); sys.exit(code)
-    def err(code):
-        out({"error": {"code": code}}, 1)
+    def err(code, message=None):
+        out({"error": {"code": code, **({"message": message} if message else {})}}, 1)
     if cmd == "tab list":
         # A same-named review tab in another workspace; --workspace must filter it out.
         tabs = [{"tab_id": "w9:t1", "label": "review-repo", "workspace_id": "w9"}]
@@ -40,6 +40,9 @@ FAKE = textwrap.dedent(r'''
             ws = args[args.index("--workspace") + 1]
             tabs = [t for t in tabs if t["workspace_id"] == ws]
         out({"result": {"tabs": tabs}})
+    if cmd == "tab close":
+        open(os.path.join(state, "closed-" + args[2]), "w").write("")
+        out({"result": {}})
     if cmd == "tab create":
         root = None if "noroot" in s else {"pane_id": "w2:p3"}
         out({"result": {"tab": {"tab_id": "w2:t3"}, "root_pane": root}})
@@ -56,6 +59,16 @@ FAKE = textwrap.dedent(r'''
         # Herdr refuses a name a live agent already holds; "defaultlive" means the
         # default reviewer rev-repo is running in its own tab.
         if "defaultlive" in s and args[2] == "rev-repo": err("agent_name_taken")
+        # "taken<status>": an earlier review in this work tree (cwd, possibly with spaces)
+        # holds the name in tab w2:tEH until that tab is closed; "takenelsewhere": the
+        # holder is in another directory.
+        taken = [x[5:] for x in s if x.startswith("taken")]
+        closed = os.path.exists(os.path.join(state, "closed-w2:tEH"))
+        if taken and not closed:
+            cwd = "/elsewhere" if taken[0] == "elsewhere" else os.getcwd()
+            status = "Working" if taken[0] == "elsewhere" else taken[0].capitalize()
+            err("agent_name_taken", "agent name %s is already used; candidates: name=%s kind=cursor "
+                "pane_id=w2:pJB tab_id=w2:tEH cwd=%s status=%s" % (args[2], args[2], cwd, status))
         n_path = os.path.join(state, "starts")
         n = int(open(n_path).read()) + 1 if os.path.exists(n_path) else 1
         open(n_path, "w").write(str(n))
@@ -627,6 +640,30 @@ class HerdrReview(unittest.TestCase):
         r, _ = self.run_case("newtab,fresh", extra=("--kind", "cursor"))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("Report file: " + self.review_dir + "/review-", r.stderr)
+
+    def test_a_finished_review_holding_the_name_is_closed_and_the_start_retried(self):
+        r, calls = self.run_case("newtab,fresh,takendone", repo_name="my repo")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        closes = [a for a in self.argv if a[:2] == ["tab", "close"]]
+        self.assertEqual(closes, [["tab", "close", "w2:tEH"]])
+        self.assertEqual(calls.count("agent start"), 2)
+        self.assertEqual(r.stdout, "REVIEW FINDINGS\n")
+
+    def test_a_running_review_holding_the_name_is_left_alone(self):
+        r, calls = self.run_case("newtab,fresh,takenworking")
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("tab close", calls)
+        self.assertNotIn("agent prompt", calls)
+        lines = r.stdout.splitlines()
+        self.assertEqual(lines[-2], "Reviewer did not start: another review is running in w2:tEH; wait for it or close it.")
+        self.assertRegex(lines[-1], r"^Next: herdr agent wait w2:pJB --until idle --until done --timeout 3600000 && "
+                                    r"\S*herdr-review\.sh --branch b --verify v $")
+
+    def test_a_name_holder_in_another_directory_is_left_alone(self):
+        r, calls = self.run_case("newtab,fresh,takenelsewhere")
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("tab close", calls)
+        self.assertIn("did not start", r.stdout)
 
     def test_unknown_kind_is_refused(self):
         r, calls = self.run_case("ok", extra=("--kind", "gemini"))

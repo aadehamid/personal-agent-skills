@@ -16,6 +16,9 @@
 # Exit 1 before the prompt (HERDR_WORKSPACE_ID unset, a herdr error, no review tab or
 #   pane, an unwritable report folder, a reviewer that did not start): the error, and for
 #   a reviewer that did not start, the pane and what to do. Then run the script again.
+#   When the reviewer's name is held by a review still working or blocked in this work
+#   tree, the last two lines are "Reviewer did not start: another review is running in
+#   <tab>; wait for it or close it." and "Next: <wait for it, then run this again>".
 # Exit 2: bad arguments.
 # Every outcome of the prompt (completed, stalled, blocked, timed out) goes through one
 # recovery: Enter for a Cursor prompt left pasted but unsent, a wait until the reviewer
@@ -136,12 +139,46 @@ if [ -z "$pane_agent" ]; then
                 -a never -s workspace-write -c sandbox_workspace_write.network_access=true
                 -c "sandbox_workspace_write.writable_roots=$roots")
   fi
-  started="" out=""
+  # Herdr refuses a name another live agent holds, and names the holders in its error:
+  # "candidates: ... pane_id=<pane> ... tab_id=<tab> cwd=<dir> status=<status>". A holder
+  # in this work tree is an earlier review left open: one that is idle or done has its
+  # tab closed and the start is tried once more; one still working or blocked is another
+  # review running, and the script stops rather than close it.
+  name_holder() {
+    python3 - "$top" "$review_tab" "$1" <<'PY'
+import os, re, sys
+top, own_tab, text = os.path.realpath(sys.argv[1]), sys.argv[2], sys.argv[3]
+for m in re.finditer(r"pane_id=([^\s,;]+).*?tab_id=([^\s,;]+).*?cwd=(.*?)[,;]?\s+status=(\w+)", text):
+    pane, tab, cwd, status = m.groups()
+    if os.path.realpath(cwd) == top and tab != own_tab:
+        print(tab, pane, status.lower())
+        break
+PY
+  }
+  started="" out="" holder_closed=""
   for try in 1 2 3 4 5; do   # a just-created tab's shell may not be ready yet
     if out=$(herdr agent start "$name" --kind "$kind" --pane "$review_pane" -- "${agent_args[@]}" 2>&1); then
       started=1; break
     fi
-    case "$out" in *agent_pane_busy*) [ "$try" -lt 5 ] && sleep 2 ;; *) break ;; esac
+    case "$out" in
+      *agent_pane_busy*) [ "$try" -lt 5 ] && sleep 2 ;;
+      *agent_name_taken*)
+        holder=$(name_holder "$out")
+        [ -n "$holder" ] && [ -z "$holder_closed" ] || break
+        read -r holder_tab holder_pane holder_status <<<"$holder"
+        case "$holder_status" in
+          idle|done)
+            herdr tab close "$holder_tab" >/dev/null
+            echo "Closed $holder_tab, a finished review that held the name $name; starting again." >&2
+            holder_closed=1 ;;
+          *)
+            printf '%s\n' "$out"
+            echo "Reviewer did not start: another review is running in $holder_tab; wait for it or close it."
+            echo "Next: herdr agent wait $holder_pane --until idle --until done --timeout 3600000 && $rerun"
+            exit 1 ;;
+        esac ;;
+      *) break ;;
+    esac
   done
   if [ -z "$started" ]; then
     printf '%s\n' "$out"
