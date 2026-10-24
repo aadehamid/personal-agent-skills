@@ -23,6 +23,11 @@ FAKE = textwrap.dedent(r'''
     state = os.environ["FAKE_STATE"]
     args = sys.argv[1:]
     cmd = " ".join(args[:2])
+    if cmd == "agent prompt" and os.environ.get("FAKE_CLOBBER"):
+        # A checkout or edit rewrites the script mid-review: same length, other text.
+        path = os.environ["FAKE_CLOBBER"]
+        size = os.path.getsize(path)
+        open(path, "w").write(("exit 42\n" * (size // 8 + 1))[:size])
     with open(os.path.join(state, "calls"), "a") as f:
         f.write(cmd + "\n")
     with open(os.path.join(state, "argv"), "a") as f:
@@ -213,7 +218,7 @@ def reviewer_hash(kind_model):
 
 class HerdrReview(unittest.TestCase):
     def run_case(self, scenario, tmpdir=None, extra=(), repo_name="repo", home=None, subdir=False,
-                 git_head=False, skill=None, before=None):
+                 git_head=False, skill=None, before=None, script=SCRIPT, env_extra=None):
         state = tempfile.mkdtemp()
         bindir = tempfile.mkdtemp()
         fake = os.path.join(bindir, "herdr")
@@ -236,6 +241,7 @@ class HerdrReview(unittest.TestCase):
                    TMPDIR=tmpdir, HERDR_REVIEW_ARTIFACT_ROOTS=tmpdir)
         if home:
             env["HOME"] = home
+        env.update(env_extra or {})
         if skill is not None:
             env["FAKE_SKILL"] = json.dumps(skill)
         if git_head:
@@ -256,7 +262,8 @@ class HerdrReview(unittest.TestCase):
             start = os.path.join(repo, "sub", "dir")
             os.makedirs(start)
         self.repo = os.path.realpath(repo)
-        r = subprocess.run(["bash", SCRIPT, "--branch", "b", "--verify", "v", *extra],
+        self.tmpdir = tmpdir
+        r = subprocess.run(["bash", script, "--branch", "b", "--verify", "v", *extra],
                            cwd=start, env={k: v for k, v in env.items() if not k.startswith("GIT_")} if subdir or git_head else env,
                            capture_output=True, text=True)
         calls_path = os.path.join(state, "calls")
@@ -276,6 +283,23 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("REVIEW FINDINGS", r.stdout)
         self.assertNotIn("agent start", calls)
+
+    def test_a_script_rewritten_mid_review_still_finishes(self):
+        # The review runs from a copy, so rewriting the file mid-run changes nothing.
+        script = os.path.join(tempfile.mkdtemp(), "herdr-review.sh")
+        with open(SCRIPT) as src, open(script, "w") as dst:
+            dst.write(src.read())
+        r, calls = self.run_case("ok", script=script, env_extra={"FAKE_CLOBBER": script})
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("REVIEW FINDINGS", r.stdout)
+        with open(script) as f:
+            self.assertTrue(f.read().startswith("exit 42"))
+
+    def test_the_copy_is_removed_and_next_names_the_original(self):
+        r, _ = self.run_case("blockedrej")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual([f for f in os.listdir(self.tmpdir) if f.startswith("herdr-review.copy.")], [])
+        self.assertIn("then run: " + SCRIPT + " --branch b", r.stdout.splitlines()[-1])
 
     def test_report_path_is_printed_on_stderr(self):
         r, _ = self.run_case("ok")
@@ -339,9 +363,22 @@ class HerdrReview(unittest.TestCase):
         self.assertNotIn("agent get", calls)
 
     def test_unwritable_tmpdir_stops_before_the_prompt(self):
+        # No private copy can be made, so the script runs in place and still ends with its two lines.
         r, calls = self.run_case("ok", tmpdir="/nonexistent-dir-for-test")
-        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(r.returncode, 1)
         self.assertNotIn("agent prompt", calls)
+        lines = r.stdout.splitlines()
+        self.assertRegex(lines[-2], r"^No review: .* failed; the error is above\.$")
+        self.assertRegex(lines[-1], "^Next: " + re.escape(SCRIPT) + " --branch b --verify v $")
+
+    def test_unwritable_report_folder_stops_before_the_prompt(self):
+        # TMPDIR is writable, so the script runs from its copy; the Cursor report folder cannot be made.
+        r, calls = self.run_case("ok", extra=("--kind", "cursor"), env_extra={"HERDR_REVIEW_DIR": "/dev/null/reviews"})
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("agent prompt", calls)
+        lines = r.stdout.splitlines()
+        self.assertEqual(lines[-2], "No review: creating the report file failed; the error is above.")
+        self.assertRegex(lines[-1], "^Next: " + re.escape(SCRIPT) + " --branch b --verify v --kind cursor $")
 
     def test_error_payload_with_exit_zero_stops_before_start(self):
         r, calls = self.run_case("errpayload0,fresh")

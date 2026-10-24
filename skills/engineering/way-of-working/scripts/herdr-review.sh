@@ -34,8 +34,29 @@
 # Tests: test_herdr_review.py, run by the repository's scripts/check.sh.
 set -euo pipefail
 
+# Bash reads a script while it runs, and this file sits in a working tree that a commit or
+# checkout can rewrite mid-review: on 2026-10-24 that killed a review. So the script runs
+# from a private copy, which it removes once running (bash keeps its own handle open).
+# HERDR_REVIEW_ORIGINAL names this file in the copy, for usage and Next lines. When no copy can
+# be made (an unwritable TMPDIR), it runs in place, as it did before it had a copy: a failure
+# after that point exits through on_exit's trap with its reason and Next line, but a rewrite of
+# this file mid-run can again end the review.
+if [ -z "${HERDR_REVIEW_ORIGINAL:-}" ]; then
+  copy=""
+  # Neither path starts with "-" (mktemp's is under TMPDIR; $0 is the path the script was run
+  # by), so cp needs no "--".
+  if copy=$(mktemp "${TMPDIR:-/tmp}/herdr-review.copy.XXXXXX" 2>/dev/null) && cp "$0" "$copy"; then
+    HERDR_REVIEW_ORIGINAL=$0 exec bash "$copy" "$@"
+  fi
+  if [ -n "$copy" ]; then rm -f -- "$copy"; fi
+  HERDR_REVIEW_ORIGINAL=$0
+fi
+self=$HERDR_REVIEW_ORIGINAL
+unset HERDR_REVIEW_ORIGINAL
+case "$0" in "${TMPDIR:-/tmp}"/herdr-review.copy.*) rm -f -- "$0" ;; esac
+
 started_at=$(python3 -c 'import time; print(time.time())')   # the skill-report fallback takes only files newer than this
-rerun=$(printf '%q ' "$0" "$@")
+rerun=$(printf '%q ' "$self" "$@")
 
 branch="" verify="" kind="codex" model=""
 while [ $# -gt 0 ]; do
@@ -47,7 +68,7 @@ while [ $# -gt 0 ]; do
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
-[ -n "$branch" ] && [ -n "$verify" ] || { echo "usage: $0 --branch <branch> --verify <text>" >&2; exit 2; }
+[ -n "$branch" ] && [ -n "$verify" ] || { echo "usage: $self --branch <branch> --verify <text>" >&2; exit 2; }
 case "$kind" in
   codex) model="${model:-gpt-6.1-sol}" ;;
   kimi) model="${model:-kimi-code/k3}" ;;
@@ -258,9 +279,9 @@ fi
 
 # Cursor's sandbox may block the macOS temporary folder ($TMPDIR, under /var/folders) but
 # allows /tmp, so a Cursor reviewer gets its report path there.
+step="creating the report file"
 report_dir="${TMPDIR:-/tmp}"
 if [ "$kind" = cursor ]; then report_dir="${HERDR_REVIEW_DIR:-/tmp/herdr-reviews}"; mkdir -p "$report_dir"; fi
-step="creating the report file"
 report=$(mktemp "$report_dir/review-XXXXXX")   # unique; a failure stops here
 rm -f "$report"                                     # absent until the reviewer writes it
 echo "Report file: $report" >&2                     # findable even if the output is cut short
