@@ -2,7 +2,7 @@
 
 This file lists every source the ontology skill draws on: what the skill took from each, the version or date used, and how to check for a newer one. Agents do not read it. All text in the skill is our own wording, except short quotations marked as such.
 
-Last full review: 2026-10-22. Check the sources below every three months, and whenever a W3C specification, n10s or the property-graph playbook publishes a new version.
+Last full review: 2026-10-22. Check the sources below every three months, and whenever a W3C specification publishes a new version. The property-graph sources (n10s, Neo4j, the guideline) follow the `ontology-to-lpg` skill's review schedule.
 
 ## 1. The method as practised
 
@@ -13,12 +13,12 @@ Last full review: 2026-10-22. Check the sources below every three months, and wh
 - **Licence:** the ontology owner's own work, used with permission.
 - **How to check for updates:** ask the ontology owner whether the method has changed since 2026-10-22.
 
-## 2. Ontology-to-LPG Conversion Playbook, version 2.2 (October 2026)
+## 2. Ontology-to-LPG Conversion Playbook
 
-- **What it is:** a private guideline for mapping an OWL and SKOS ontology into a Neo4j labelled property graph.
-- **What the skill took:** the mental model; design rules 1 to 5, with rule 4 set to option 4a (qualified-relation nodes, the guideline's default) rather than 4b (RDF 1.2 reifiers); the check, reason, serialise, load and verify pipeline (without the 4b flatten queries); the anti-patterns. All in `references/lpg-projection.md`.
+- **What it is:** the guideline for mapping an OWL and SKOS ontology into a Neo4j labelled property graph. Version 2.2 (October 2026) was in the enterprise-people-graph repository; since 2026-10-23 the guideline is the `ontology-to-lpg` skill in this repository (version 2.3), whose `SOURCES.md` lists its sources.
+- **What the skill took:** when to project and the Rule 4 choice, in `references/lpg-projection.md`, which points to `ontology-to-lpg` for the method.
 - **Licence:** the ontology owner's own work, used with permission.
-- **How to check for updates:** ask the ontology owner whether a version after 2.2 exists.
+- **How to check for updates:** follow `ontology-to-lpg`'s `SOURCES.md`.
 
 ## 3. Juha Korpela, *Building Semantics with Conceptual Models* (Common Sense Data, 2026)
 
@@ -33,7 +33,7 @@ Last full review: 2026-10-22. Check the sources below every three months, and wh
 | RDF Schema 1.1, https://www.w3.org/TR/rdf-schema/ | W3C Recommendation, 25 February 2014 | `domain-model.md`, rule 6 | §3.1 and §3.2: several `rdfs:domain` or `rdfs:range` statements mean "all of the classes". Quoted. |
 | SKOS Reference, https://www.w3.org/TR/skos-reference/ | W3C Recommendation, 18 August 2009 | `identity-taxonomy.md`, Step 3; `domain-model.md`, rule 1 | The SKOS model; integrity condition S14 (one `skos:prefLabel` per language tag); §1.3: concepts are individuals, classes are classes, and a SKOS-aware system must tell them apart (quoted). |
 | SKOS Primer, https://www.w3.org/TR/skos-primer/ | W3C Working Group Note, 18 August 2009 | `domain-model.md`, rules 1 and 3 | §5.2, "SKOS Concepts and OWL Classes": SKOS concepts are OWL individuals; OWL DL users keep concepts and classes formally distinct and bridge them with an annotation property (quoted). |
-| OWL 2 Document Overview (Second Edition), https://www.w3.org/TR/owl2-overview/ | W3C Recommendation, 11 December 2012 | `domain-model.md`, `lpg-projection.md` | The OWL 2 document set, including the EL profile kept for reasoning. |
+| OWL 2 Document Overview (Second Edition), https://www.w3.org/TR/owl2-overview/ | W3C Recommendation, 11 December 2012 | `domain-model.md` | The OWL 2 document set. |
 | OWL 2 Primer (Second Edition), https://www.w3.org/TR/owl2-primer/ | W3C Recommendation, 11 December 2012 | `domain-model.md`, rules 5 and 7; `identity-taxonomy.md`, Step 3, rule 1 | §2, "What is OWL 2?": the open-world assumption (quoted); §4.2: a subclass axiom lets a reasoner infer membership in the parent (quoted); §4.3: disjointness must be stated explicitly (quoted); §8.1: annotations are not part of the logical meaning (quoted); §8.3: one name, one property kind in OWL 2 DL (paraphrased). |
 | SHACL, https://www.w3.org/TR/shacl/ | W3C Recommendation, 20 July 2017 | `shacl.md`, `domain-model.md`, templates | Shapes, cardinality, `sh:in` (§4.8.3, quoted), `sh:pattern` (§4.4.3). |
 | SPARQL 1.1 Query Language, https://www.w3.org/TR/sparql11-query/ | W3C Recommendation, 21 March 2013 | `shacl.md`, rule 17; `regression.md` | §17.4.3.14 `REGEX`; competency questions as queries. |
@@ -53,12 +53,9 @@ Last full review: 2026-10-22. Check the sources below every three months, and wh
 The two `sh:pattern` and `sh:in` facts in `references/shacl.md` (rules 17 and 18) rest on the n10s source at tag 2025.06.1 (commit `6a5846b`), `src/main/java/n10s/validation/SHACLValidator.java`, https://github.com/neo4j-labs/neosemantics/blob/2025.06.1/src/main/java/n10s/validation/SHACLValidator.java:
 
 - Lines 1408 to 1417: `sh:pattern` compiles to Cypher `toString(x) =~ params.theRegex`; Cypher's `=~` matches the whole string.
-- Lines 1044 to 1048, 465 to 471 and 1359: a literal `sh:in` list is read as strings and compared with `val in params.theInLiterals`.
+- Lines 1044 to 1048: a literal `sh:in` list is read as a list of strings; line 471 stores it as `params.put("theInLiterals", valueLiteralList)`; line 1359 tests `val in params.theInLiterals`.
 
-The other facts in `references/lpg-projection.md` (rules 5, 12 and 13) come from running the projection pipeline with n10s 2025.06.1 on Neo4j 2025.06.2 in October 2026:
-
-- n10s rejects `sh:datatype rdf:langString`; does not support `sh:not`, `sh:languageIn`, `sh:node`, `sh:targetSubjectsOf` or `sh:targetObjectsOf`; never runs a shape with a SPARQL target; imports and validates shapes only in a namespace-aware graph.
-- MAP mode breaks in-graph SHACL (neosemantics issue #237, open since 2021-11-09).
+The other n10s facts (the constraints it cannot run, SHORTEN against MAP mode) moved with the projection method to the `ontology-to-lpg` skill; its `SOURCES.md`, section 3, cites them.
 
 Status facts that change over time, checked 2026-10-22:
 

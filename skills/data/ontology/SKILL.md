@@ -1,14 +1,14 @@
 ---
 name: ontology
 description: >-
-  Gated method for building a business ontology for any domain on the W3C stack (RDF, SKOS, OWL, SHACL, PROV-O, DCAT). Use when designing, extending or reviewing an ontology or knowledge graph; deciding whether a term is a SKOS concept, an OWL class, a property, a metadata property, a code-list value or a reference individual; promoting spreadsheet or workbook data into governed triples; modelling roles, RACI or real organizations; writing SHACL shapes or competency questions as SPARQL; versioning, packaging or approving a release; deciding whether to reuse a public ontology; or projecting an ontology into a Neo4j property graph.
+  Gated method for building a business ontology for any domain on the W3C stack (RDF, SKOS, OWL, SHACL, PROV-O, DCAT). Use when designing, extending or reviewing an ontology or knowledge graph; deciding whether a term is a SKOS concept, an OWL class, a property, a metadata property, a code-list value or a reference individual; promoting spreadsheet or workbook data into governed triples; modelling roles, RACI or real organizations; writing SHACL shapes or competency questions as SPARQL; versioning, packaging or approving a release; or deciding whether to reuse a public ontology.
 ---
 
 # Ontology
 
 Build the ontology in **gated** steps. Each step ends on its "Done when" gate; start the next step only when the gate is met. The user, the ontology owner, makes every decision; your job is the evidence, the options and a recommendation. What counts as decided, and what stays with the owner under a delegation: `references/governance.md`, rules 6 and 12.
 
-Scope: from intake to a released, checked ontology and its property-graph projection. Namespace hosting is the owner's decision (`references/release.md`, rule 20); event records and measure values stay in the consumers' systems (`references/foundations.md`, policy 2); application Cypher and data-model advice for a graph database belong to a graph-database skill.
+Scope: from intake to a released, checked ontology; Step 12 hands its property-graph projection to the `ontology-to-lpg` skill. Namespace hosting is the owner's decision (`references/release.md`, rule 20); event records and measure values stay in the consumers' systems (`references/foundations.md`, policy 2); application Cypher and data-model advice for a graph database belong to a graph-database skill.
 
 ## First, find where the build stands
 
@@ -24,7 +24,7 @@ Keep the order, except Step 8, which runs right after Step 0. Before you work on
 0. **Reference framework and existing ontologies.** Read `references/foundations.md` and `references/external-ontologies.md`; record in `templates/survey-register.md`.
    Done when: every cited framework ID is verified against the publisher's copy (or the framework's absence is a recorded finding), every divergence has a boundary note, and the survey meets the "Done when" in `references/external-ontologies.md`.
 1. **Foundations: the ten policies.** Read `references/foundations.md`; for target formats, `references/lpg-projection.md`. Record in `templates/policies.md`.
-   Done when: all ten policies are recorded with their reasons and none is marked ASSUMED, and the owner has approved and locked the competency questions.
+   Done when: all ten policies are recorded with their reasons and none is marked ASSUMED, and the owner has approved and locked the competency questions. If policy 10 says the ontology will be projected, it also records the Rule 4 option and its reason, and `ontology-to-lpg`'s design rules have been read.
 2. **Identity.** Read `references/identity-taxonomy.md`; record in `templates/identity-table.md`.
    Done when: every node has an HTTP IRI under the base the URI policy records, every node has a kind, and nothing in the build identifies a node by its label.
 3. **Taxonomy, classes and properties.** Read `references/domain-model.md`, `references/identity-taxonomy.md` and `references/quality.md`; start from `templates/ontology-skeleton.ttl` and `templates/shapes-skeleton.ttl`.
@@ -45,8 +45,8 @@ Keep the order, except Step 8, which runs right after Step 0. Before you work on
     Done when: every released module is a package that passes `--verify`, the combined catalog lists every release and passes `--verify`, and each release is retrievable at its tag. Before the first module release, every row on the source-correction backlog has a fresh verdict (`references/promotion.md`, the first-release gate). "The catalog resolves" waits for the owner's hosting decision.
 11. **Regression.** Read `references/regression.md`.
     Done when: every competency question passes on the released packages, or is partial, parked or waiting by a recorded decision that names what it waits for.
-12. **Property-graph projection (optional).** Read `references/lpg-projection.md`; its design rules apply from Step 1.
-    Done when: over every released package, the in-graph SHACL is clean and its mutant fails, the round-trip diff is empty, and two load orders give equal hashes.
+12. **Property-graph projection (optional).** Read `references/lpg-projection.md`, then load the `ontology-to-lpg` skill, which holds the method; its design rules apply from Step 1. To hold the release in triple stores and Neo4j or Aura with proof that nothing is lost, follow its `references/multi-store.md`.
+    Done when: every "Done when" gate of `ontology-to-lpg` steps 2 to 6 is met, in that skill's words, over the newest release of every module: its step 2 (`check_projection_rules.py --releases`) proves each module is pinned at its newest version, its step 4 passes `build.py check-serialised`, then `validate_data.py` over `loadable.nt` and `inferred.nt` together, then records the manifest, and its step 6 ends with `build.py check-report` passing and the clean-up line `load_verify.py` printed.
 
 ## Rules that apply at every step
 

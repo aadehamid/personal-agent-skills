@@ -1,6 +1,6 @@
 # ontology
 
-An agent skill for building a business ontology in any domain, on the W3C stack (RDF, SKOS, OWL, SHACL, PROV-O, DCAT). The agent works in thirteen gated steps, from intake and competency questions to a released, checked package and an optional Neo4j property-graph projection. You, the ontology owner, make every decision; the agent brings the evidence, the options and a recommendation, and records your answers word for word.
+An agent skill for building a business ontology in any domain, on the W3C stack (RDF, SKOS, OWL, SHACL, PROV-O, DCAT). The agent works in thirteen gated steps, from intake and competency questions to a released, checked package and an optional Neo4j property-graph projection, which the `ontology-to-lpg` skill carries out. You, the ontology owner, make every decision; the agent brings the evidence, the options and a recommendation, and records your answers word for word.
 
 The method comes from a downstream refining enterprise's process ontology, built privately and rewritten here in neutral terms. The examples use a public library's lending and, in two places, Marathon Petroleum's public SEC filings.
 
@@ -38,7 +38,7 @@ The skill works on its own. If the `way-of-working` skill is installed too, the 
 | `references/shacl.md` | agent, Step 9 | What to shape and in what order, how to test shapes, and how to check a SHACL feature in a target engine. |
 | `references/release.md` | agent, Step 10 and any release | Change classification, deprecation, approvals, release packages, candidates, the catalog and the ontology header. |
 | `references/regression.md` | agent, Step 11 | Tracing elements to competency questions, writing them as SPARQL, question statuses, and when the suite runs. |
-| `references/lpg-projection.md` | agent, Step 12 and Step 1's target formats | Design rules for a property-graph projection and the check, reason, serialise, load and verify pipeline. |
+| `references/lpg-projection.md` | agent, Step 12 and Step 1's target formats | When to project into a property graph and the Rule 4 choice; points to the `ontology-to-lpg` skill, which holds the method. |
 | `references/external-ontologies.md` | agent, Step 0 or when asked about existing ontologies | Where to find public ontologies and code lists, how to assess them, and the map, import or ignore choice. |
 | `references/governance.md` | agent, before a new ontology, a decision, a delegation, setting up checks, a review, a release or publication | Intake and requirements, "not yet" answers, decision records, delegation, checks, generated content, review, privacy, and claims; with and without `way-of-working`. |
 | `templates/requirements.yaml` | agent, before Step 0 | The intake and requirements file, with its schema in the header. |
@@ -70,10 +70,10 @@ The skill works on its own. If the `way-of-working` skill is installed too, the 
 
 ## Status
 
-Last updated 2026-10-22.
+Last updated 2026-10-23.
 
-- **No evals yet.** One walk-through on a library's lending process (Steps 0, 8, 1, 2 and 3) shaped this version. Write test prompts for three branches before tuning: starting a new ontology, promoting a workbook into triples, and planning a Neo4j projection.
+- **No evals yet.** One walk-through on a library's lending process (Steps 0, 8, 1, 2 and 3) shaped this version. Write test prompts for three branches before tuning: starting a new ontology, promoting a workbook into triples, and choosing the target formats (the Neo4j projection itself is `ontology-to-lpg`'s branch).
 - **Scripts cover Steps 0 to 3 only.** Later steps describe their checks; the project writes them.
 - **Outside proposals not adopted yet:** a check that cited sources still hold, a queryable decision trace, a quality scorecard, views for the projection's consumers, and extraction artifacts. Reasons are in `SOURCES.md`, section 6.
-- **Rule 4 option 4a is a toolchain choice.** The projection uses qualified-relation nodes, not RDF 1.2 reifiers, because rdflib and pySHACL do not read RDF 1.2 yet. Recheck rdflib issue #3524 and the RDF 1.2 status every three months.
+- **The projection method moved to `ontology-to-lpg`** (2026-10-23). Its README tracks the open items on RDF 1.2 and option 4b.
 - **Two sources of experience.** Most rules come from one private build and one walk-through. Expect changes after a second full build.

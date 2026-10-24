@@ -60,6 +60,16 @@ echo "== ontology skill scripts =="
 (cd skills/data/ontology/scripts && uv run --no-project --with rdflib --with pyyaml --with pyshacl python3 -m unittest -q test_checks)
 
 echo
+echo "== ontology-to-lpg skill scripts =="
+(cd skills/data/ontology-to-lpg/scripts && uv run --no-project --with rdflib --with pyshacl python3 -m unittest -q test_projection test_engine_gate)
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  (cd skills/data/ontology-to-lpg/docker && LPG_RUN=/tmp/lpg-run NEO4J_PASSWORD=check \
+    docker compose --profile neo4j --profile fuseki config -q) && echo "  ok  ontology-to-lpg docker/compose.yaml parses"
+else
+  echo "  skip  docker compose not available; the pin tests above still read compose.yaml"
+fi
+
+echo
 echo "== shell syntax =="
 while IFS= read -r script; do
   bash -n "$script"

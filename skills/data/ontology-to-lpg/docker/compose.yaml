@@ -1,0 +1,55 @@
+# The services the ontology-to-lpg scripts run against (references/running.md, rule 5; add-on J).
+# Start one or both from this folder:
+#   docker compose --profile neo4j up -d      Neo4j 2025.06.2 with n10s 2025.06.1 and APOC
+#   docker compose --profile fuseki up -d --build    Jena Fuseki 6.2.0, in-memory dataset /ds (rebuilt
+#                                                    from the pinned package, jar and base images)
+#   docker compose --profile neo4j --profile fuseki down -v    remove containers and volumes
+# Required for neo4j (n10s-jar stops the start without them): LPG_RUN (a run folder holding plugins/ and import/, chmod 711 and 755) and
+# NEO4J_PASSWORD. Optional: LPG_BOLT_PORT (default 17687), LPG_FUSEKI_PORT (default 13030).
+# Nothing persists: /data and /logs are anonymous volumes, which `down -v` removes.
+
+services:
+  n10s-jar:
+    # Fetches the n10s jar into the plugins folder and checks it (running.md, rule 2).
+    profiles: [neo4j]
+    image: alpine:3.21.2@sha256:56fa17d2a7e7f168a043a2712e63aed1f8543aeafdcee47c58dcffe38ed51099
+    volumes:
+      - ${LPG_RUN:-/tmp/lpg-run-not-set}/plugins:/plugins
+    environment:
+      N10S_URL: https://github.com/neo4j-labs/neosemantics/releases/download/2025.06.1/neosemantics-2025.06.1.jar
+      N10S_SHA256: 4c461087e08405c7cb472ecfefc043e9e8ed93628ed74988e4fda1f1bac54b3e
+      LPG_RUN: ${LPG_RUN:-}
+      PASSWORD_SET: ${NEO4J_PASSWORD:+yes}
+    command:
+      - sh
+      - -ec
+      - |
+        [ -n "$$LPG_RUN" ] || { echo "set LPG_RUN to the run folder"; exit 1; }
+        [ -n "$$PASSWORD_SET" ] || { echo "set NEO4J_PASSWORD"; exit 1; }
+        f=/plugins/neosemantics-2025.06.1.jar
+        [ -f "$$f" ] || wget -q -O "$$f" "$$N10S_URL"
+        echo "$$N10S_SHA256  $$f" | sha256sum -c -
+
+  neo4j:
+    profiles: [neo4j]
+    image: neo4j:2025.06.2@sha256:0347fe5b1126dd328cc68a54449c2cf83636e348e2da1547abf62b2dbfad67f2
+    depends_on:
+      n10s-jar:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:${LPG_BOLT_PORT:-17687}:7687"
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-}
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: apoc.*,n10s.*
+    volumes:
+      - ${LPG_RUN:-/tmp/lpg-run-not-set}/plugins:/plugins
+      - ${LPG_RUN:-/tmp/lpg-run-not-set}/import:/import
+
+  fuseki:
+    profiles: [fuseki]
+    build: ./fuseki
+    image: lpg-fuseki:6.2.0
+    command: ["--mem", "/ds"]
+    ports:
+      - "127.0.0.1:${LPG_FUSEKI_PORT:-13030}:3030"
