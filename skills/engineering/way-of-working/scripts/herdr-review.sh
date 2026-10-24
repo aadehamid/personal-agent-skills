@@ -22,8 +22,9 @@
 #   (HERDR_WORKSPACE_ID unset, a herdr error, no review tab or pane, an unwritable
 #   report folder) prints its error on stderr, then "No review: <step> failed; the error
 #   is above." and the Next line (on_exit).
-#   A run that fails or is killed after the prompt ends the same way, with Next set to
-#   wait for that review and print its report.
+#   A run that fails or is killed once the prompt is on its way ends the same way; Next
+#   waits for that review and prints its report if the prompt was delivered, and runs
+#   this again if not (on_exit).
 # Exit 2: bad arguments.
 # Every outcome of the prompt (completed, stalled, blocked, timed out) goes through one
 # recovery: Enter for a Cursor prompt left pasted but unsent, a wait until the reviewer
@@ -57,10 +58,21 @@ esac
 # From here, any failure exits 1 and ends with the reason and a Next line. A path that
 # prints its own two lines sets trailer=1 first; any other failure (set -e, a herdr
 # error, a failed mktemp) gets them here, naming the step it was on.
-step="starting" trailer="" next_on_failure="$rerun"
+# Once the prompt is on its way, Next is the wait for that review only if delivery is
+# confirmed (the prompt returned, or the reviewer was seen working; at exit a prompt
+# still in flight is checked once); otherwise Next starts the review again.
+step="starting" trailer="" next_on_failure="$rerun" prompt_sent="" delivered="" prompt_file=""
 on_exit() {
-  local code=$?
+  local code=$? st
+  [ -z "$prompt_file" ] || rm -f "$prompt_file"
   [ "$code" -ne 0 ] && [ -z "$trailer" ] || return 0
+  if [ -n "$prompt_sent" ] && [ -z "$delivered" ]; then
+    st=$(herdr agent get "$review_pane" 2>/dev/null | jget result.agent.agent_status 2>/dev/null || true)
+    [ "$st" != working ] || delivered=1
+  fi
+  if [ -n "$delivered" ]; then
+    next_on_failure="herdr agent wait $review_pane --until idle --until done --timeout 3600000 && cat '$report'"
+  fi
   echo "No review: $step failed; the error is above."
   echo "Next: $next_on_failure"
   exit 1
@@ -204,14 +216,21 @@ PY
           idle|done)
             # Idle counts as finished: a reviewer is idle only once it finished or gave
             # up, and this script never leaves one idle mid-review (SOURCES.md 1j). A
-            # failed close shows herdr's error; the retry runs either way.
+            # failed close shows herdr's error; the retry runs either way, except when
+            # the holder is the review tab itself, whose replacement needs it gone.
             if close_out=$(herdr tab close "$holder_tab" 2>&1); then
               echo "closed $holder_tab (status $holder_status)" >&2
+              [ "$holder_tab" != "$review_tab" ] || create_review_tab
             else
               printf '%s\n' "$close_out" >&2
+              if [ "$holder_tab" = "$review_tab" ]; then
+                trailer=1
+                echo "Reviewer did not start: the review tab $review_tab holds the name $name and could not be closed (error above)."
+                echo "Next: herdr tab close $review_tab && $rerun"
+                exit 1
+              fi
             fi
-            holder_closed=1 try=0
-            [ "$holder_tab" != "$review_tab" ] || create_review_tab ;;
+            holder_closed=1 try=0 ;;
           *)
             printf '%s\n' "$out"
             trailer=1
@@ -312,15 +331,20 @@ PY
 # agent_prompt_stalled, agent_blocked or timeout. A completed prompt with the report
 # written is the common case; every other outcome goes to the recovery below.
 step="waiting for the review"
-# From here the review may be running, so a failure (or a kill) points at its report.
-next_on_failure="herdr agent wait $review_pane --until idle --until done --timeout 3600000 && cat '$report'"
+# The prompt runs in the background and the script waits on it, so a TERM, INT or HUP
+# ends the run at once through on_exit; the reviewer is left running.
 prompt_ok="" prompt_out=""
-if prompt_out=$(herdr agent prompt "$review_pane" "$prompt" --wait --timeout 3600000 2>&1); then prompt_ok=1; fi
+prompt_file=$(mktemp "$report_dir/prompt-XXXXXX")
+prompt_sent=1
+herdr agent prompt "$review_pane" "$prompt" --wait --timeout 3600000 >"$prompt_file" 2>&1 &
+if wait "$!"; then prompt_ok=1; fi
+prompt_out=$(cat "$prompt_file")
 if [ -n "$prompt_ok" ] && [ -s "$report" ]; then cat "$report"; exit 0; fi
 [ -n "$prompt_ok" ] || echo "Prompt did not complete; recovering: $prompt_out" >&2
 # A completed or timed-out prompt was sent and worked on; a stalled or rejected one was not.
 worked=1
 case "$prompt_ok:$prompt_out" in :*agent_prompt_stalled*|:*agent_blocked*) worked="" ;; esac
+delivered=$worked
 
 # Poll every 5 seconds, within 60 minutes of the start. The report counts once the
 # reviewer is idle and two idle polls in a row see it at the same size, so a file still
@@ -382,7 +406,7 @@ for _ in $(seq 1 720); do
       if [ "$unread" -ge 12 ]; then reason="herdr cannot read the reviewer's status"; next="$rerun"; break; fi
       ;;
     *)
-      worked=1 last_size="" idle_unworked=0 blocked=0 unread=0
+      worked=1 delivered=1 last_size="" idle_unworked=0 blocked=0 unread=0
       ;;
   esac
   sleep 5

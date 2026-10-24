@@ -45,8 +45,10 @@ FAKE = textwrap.dedent(r'''
         open(os.path.join(state, "closed-" + args[2]), "w").write("")
         out({"result": {}})
     if cmd == "tab create":
-        root = None if "noroot" in s else {"pane_id": "w2:p3"}
-        out({"result": {"tab": {"tab_id": "w2:t3"}, "root_pane": root}})
+        # Once the review tab w2:t3 is closed, a new tab gets new ids.
+        new = os.path.exists(os.path.join(state, "closed-w2:t3"))
+        root = None if "noroot" in s else {"pane_id": "w2:p4" if new else "w2:p3"}
+        out({"result": {"tab": {"tab_id": "w2:t4" if new else "w2:t3"}, "root_pane": root}})
     if cmd == "pane list":
         if "panelisterr" in s: err("pane_not_found")
         out({"result": {"panes": [{"tab_id": "w9:t1", "pane_id": "w9:p1"},
@@ -57,6 +59,8 @@ FAKE = textwrap.dedent(r'''
         if "nullpane" in s: out({"result": {"pane": None}})
         out({"result": {"pane": {"agent": None if "fresh" in s else "codex"}}})
     if cmd == "agent start":
+        pane_tab = {"w2:p3": "w2:t3", "w2:pJB": "w2:tEH"}.get(args[args.index("--pane") + 1])
+        if pane_tab and os.path.exists(os.path.join(state, "closed-" + pane_tab)): err("pane_not_found")
         # Herdr refuses a name a live agent already holds; "defaultlive" means the
         # default reviewer rev-repo is running in its own tab.
         if "defaultlive" in s and args[2] == "rev-repo": err("agent_name_taken")
@@ -92,6 +96,10 @@ FAKE = textwrap.dedent(r'''
     pasted = "pasted" in s or "blockedpaste" in s or late > 1
     seen = os.path.join(state, "marker_seen")
     if cmd == "agent prompt":
+        if "slowprompt" in s:
+            # The prompt wait is under way; the test kills the script now.
+            open(os.path.join(state, "waiting"), "w").write("")
+            import time; time.sleep(30)
         if held and os.path.exists(rp):
             # The script asks an idle reviewer once more for the report at its path.
             open(pending, "w").write("write" if "obeys" in s else "none")
@@ -115,6 +123,8 @@ FAKE = textwrap.dedent(r'''
         out({"result": {"agent": {"agent_status": "blocked" if "noreport" in s else "idle"}}})
     if cmd == "agent get":
         if "getfail" in s: err("agent_not_found")
+        if "slowprompt" in s:
+            out({"result": {"agent": {"agent_status": "working" if "delivered" in s else "idle"}}})
         if "slowget" in s:
             # The wait is under way; the test kills the script now.
             open(os.path.join(state, "waiting"), "w").write("")
@@ -675,8 +685,9 @@ class HerdrReview(unittest.TestCase):
         self.assertIn("Review tab: w2:t3 (reused)", r.stderr)
         self.assertEqual([a for a in self.argv if a[:2] == ["tab", "close"]], [["tab", "close", "w2:t3"]])
         self.assertEqual(calls.count("tab create"), 1)
-        self.assertIn("Review tab: w2:t3 (created)", r.stderr)
-        self.assertEqual(calls.count("agent start"), 2)
+        self.assertIn("Review tab: w2:t4 (created)", r.stderr)
+        starts = [a for a in self.argv if a[:2] == ["agent", "start"]]
+        self.assertEqual([a[a.index("--pane") + 1] for a in starts], ["w2:p3", "w2:p4"])
         self.assertEqual(r.stdout, "REVIEW FINDINGS\n")
 
     def test_a_working_reviewer_in_the_reused_tab_holding_the_name_is_left_alone(self):
@@ -730,9 +741,32 @@ class HerdrReview(unittest.TestCase):
         deadline = t.time() + 20
         while not os.path.exists(os.path.join(state, "waiting")) and t.time() < deadline:
             t.sleep(0.05)
+        t.sleep(0.2)
         p.send_signal(signal.SIGTERM)
-        out, err = p.communicate(timeout=30)
+        out, err = p.communicate(timeout=10)
         return out, p.returncode, err
+
+    def test_a_failed_close_of_the_reused_tab_creates_no_tab_and_stops(self):
+        r, calls = self.run_case("fresh,takenowndone,closefail")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("tab_not_found", r.stderr)
+        self.assertNotIn("tab create", calls)
+        self.assertEqual(calls.count("agent start"), 1)
+        lines = r.stdout.splitlines()
+        self.assertEqual(lines[-2], "Reviewer did not start: the review tab w2:t3 holds the name rev-repo and could not be closed (error above).")
+        self.assertRegex(lines[-1], r"^Next: herdr tab close w2:t3 && \S*herdr-review\.sh --branch b --verify v $")
+
+    def test_a_kill_during_the_prompt_wait_points_at_the_delivered_review(self):
+        out, code, err = self.run_killed("newtab,fresh,slowprompt,delivered")
+        self.assertEqual(code, 1, (out, err))
+        lines = out.splitlines()
+        self.assertEqual(lines[-2], "No review: waiting for the review failed; the error is above.")
+        self.assertRegex(lines[-1], r"^Next: herdr agent wait w2:p3 --until idle --until done --timeout 3600000 && cat '\S+review-\w+'$")
+
+    def test_a_kill_before_the_prompt_is_delivered_says_run_again(self):
+        out, code, err = self.run_killed("newtab,fresh,slowprompt")
+        self.assertEqual(code, 1, (out, err))
+        self.assertRegex(out.splitlines()[-1], r"^Next: \S*herdr-review\.sh --branch b --verify v $")
 
     def test_a_name_holder_in_another_directory_is_left_alone(self):
         r, calls = self.run_case("newtab,fresh,takenelsewhere")
