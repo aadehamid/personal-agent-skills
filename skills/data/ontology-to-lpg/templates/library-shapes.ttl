@@ -1,8 +1,8 @@
 # The shapes released with library-module.ttl. Every own property has a cardinality (Rule 2).
-# Some constraints here cannot run in n10s 2025.06.1 and are dropped from the in-graph subset by
+# Some terms here cannot go to n10s 2025.06.1 and are left out of the import-safe shapes by
 # scripts/in_graph_shapes.py (references/pipeline.md, rule 13): sh:datatype rdf:langString,
-# sh:languageIn, sh:pattern and the literal sh:in list on lib:position. The IRI sh:in list on
-# lib:creatorRole stays.
+# sh:pattern and the literal sh:in list on lib:position. sh:languageIn goes to n10s, which ignores
+# it; load_verify.py reports it as not compiled. The IRI sh:in list on lib:creatorRole runs.
 
 @prefix lib:  <https://id.example.org/library/> .
 @prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .

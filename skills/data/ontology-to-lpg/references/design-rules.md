@@ -9,10 +9,12 @@ Serves the design step. Read it before an ontology that will be projected is mod
 | Every individual, type, literal value and link | Nodes, labels, properties, relationships |
 | Facts about one link (a role, an order, a source, a validity period) | Properties of a qualified-relation node (Rule 4a), or of a relationship (Rule 4b) |
 | Class and property hierarchy, domains and ranges | Schema nodes from `n10s.onto.import`; in SHORTEN mode `:n4sch__Class`, `:n4sch__Relationship` and `:n4sch__Property`, linked by `n4sch__SCO`, `n4sch__DOMAIN` and `n4sch__RANGE` |
-| Cardinality and constraints | SHACL: every shape before the load, and the subset the engine can run inside the graph (`pipeline.md`) |
+| Cardinality and constraints | SHACL: every shape before the load, and inside the graph what the engine compiled, read back and tested row by row (`pipeline.md`, rules 13 and 14) |
 | A full round trip back to RDF | An automated diff (`pipeline.md`, verify) |
 
 **Not kept:** OWL reasoning (open world, complex class expressions, property chains). Neo4j has no reasoner. The pipeline runs one first and loads its inferences as data. The axioms stay in the Turtle files, which stay the master copy.
+
+**Background.** The research closest to these rules is S3PG (Rabbani, Lissandrini, Bonifati and Hose, *Proceedings of the ACM on Management of Data* 2(6), 2024, https://doi.org/10.1145/3698817), which drives the RDF-to-property-graph conversion from SHACL shapes and emits PG-Schema (Angles and others, *Proceedings of the ACM on Management of Data* 1(2), 2023, https://doi.org/10.1145/3589778). Like Rules 1 and 2 here, it lets the shapes decide whether a value becomes a property or a relationship, and how many values it may have. Neo4j's `neo4j-modeling-skill` is background for the same two rules from the graph side. This skill does not run S3PG; the rules stand on the n10s runs recorded in `SOURCES.md`.
 
 ## Mental model
 

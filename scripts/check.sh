@@ -61,7 +61,7 @@ echo "== ontology skill scripts =="
 
 echo
 echo "== ontology-to-lpg skill scripts =="
-(cd skills/data/ontology-to-lpg/scripts && uv run --no-project --with rdflib --with pyshacl python3 -m unittest -q test_projection)
+(cd skills/data/ontology-to-lpg/scripts && uv run --no-project --with rdflib --with pyshacl python3 -m unittest -q test_projection test_engine_gate)
 
 echo
 echo "== shell syntax =="

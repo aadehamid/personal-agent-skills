@@ -183,7 +183,7 @@ def applied_node_shapes(shapes):
     a class (the implicit class target), and every shape reached from one of these through sh:node,
     sh:and, sh:or or sh:xone. This is what pySHACL validates, not what n10s runs in the graph: Rule 2
     and the multivalued list follow SHACL, which runs before the load on every shape. What n10s runs
-    is in_graph_shapes.property_rows, which runs n10s's own query."""
+    is what n10s.validation.shacl.listShapes() lists after the import (load_verify.py reads it)."""
     from rdflib.collection import Collection
     applied = {s for p in TARGET_PREDICATES for s in shapes.subjects(p, None)}
     applied |= {s for kind in CLASS_KINDS for s in shapes.subjects(RDF.type, kind)

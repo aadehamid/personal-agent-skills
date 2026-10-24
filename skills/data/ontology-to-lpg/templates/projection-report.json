@@ -3,27 +3,34 @@
   "shapes_fingerprint": null,
   "shapes_import_rows": null,
   "in_graph_shape_constraints": null,
-  "dropped_constraints": [],
+  "left_out_before_import": [],
+  "compiled": [],
+  "not_compiled": [],
+  "prediction_differences": {
+    "predicted_not_listed": [],
+    "listed_not_predicted": []
+  },
   "shacl_violations_in_graph": null,
+  "fail_cases": [],
+  "mutant": null,
   "in_graph_mutant_violations": null,
+  "export_rows": null,
+  "schema_rows_skipped": null,
   "roundtrip_lost": null,
   "roundtrip_added": null,
+  "export_predicate_counts": {},
   "determinism_hash_sorted": null,
   "determinism_hash_shuffled": null,
   "nodes": null,
   "relationships": null,
+  "schema_relationships": null,
   "versions": {},
+  "plugin_jars_sha256": {},
   "samples": {
     "violations": [],
     "lost": [],
-    "added": []
+    "added": [],
+    "failed_cases": []
   },
-  "fail_cases": [],
-  "mutant": null,
-  "export_rows": null,
-  "schema_rows_skipped": null,
-  "schema_relationships": null,
-  "plugin_jars_sha256": {},
-  "kinds_without_case": [],
-  "manual_cases": []
+  "passed": false
 }

@@ -1,6 +1,6 @@
 # Learning path: the W3C skills a clean projection needs
 
-Read it when the user asks what to learn before modelling for a property graph, or asks for practice exercises. Twelve skills in priority order: ★★★ is needed for the five design rules, ★★ is important, ★ is good to know. About six to eight weeks at a few hours a week. Exercises use the library example in `design-rules.md`.
+Read it when the user asks what to learn before modelling for a property graph, or asks for practice exercises. Thirteen skills in priority order: ★★★ is needed for the five design rules, ★★ is important, ★ is good to know. About six to eight weeks at a few hours a week. Exercises use the library example in `design-rules.md`.
 
 | # | Skill | Priority | Supports |
 |---|---|---|---|
@@ -16,6 +16,7 @@ Read it when the user asks what to learn before modelling for a property graph, 
 | 10 | Standard vocabularies: QUDT, PROV-O, OWL-Time | ★ | add-ons E, F |
 | 11 | Canonicalisation and graph comparison | ★ | verify |
 | 12 | Neo4j modelling and n10s | ★★★ | load |
+| 13 | Research background: S3PG and PG-Schema | ★ | Rules 1, 2; add-on H |
 
 ## What to master, with one exercise each
 
@@ -31,6 +32,7 @@ Read it when the user asks what to learn before modelling for a property graph, 
 10. **Standard vocabularies.** QUDT for units, PROV-O for provenance, OWL-Time for validity periods; search Linked Open Vocabularies before inventing a term.
 11. **Comparison.** RDF Dataset Canonicalization (RDFC-1.0); rdflib `to_isomorphic` and `graph_diff`. *Exercise:* diff a graph against itself after a shuffle and get an empty result.
 12. **Neo4j and n10s.** Labels, relationship types, properties and constraints; n10s configuration, import, validation and export; APOC's `apoc.merge.relationship` and `apoc.coll.sort`. *Exercise:* run the load and verify steps end to end on the library module. Sources: Neo4j GraphAcademy (data modeling and Cypher fundamentals); the neosemantics documentation.
+13. **Research background.** S3PG (Kashif Rabbani, Matteo Lissandrini, Angela Bonifati and Katja Hose, "Transforming RDF Graphs to Property Graphs using Standardized Schemas", *Proceedings of the ACM on Management of Data* 2(6), article 242, December 2024, https://doi.org/10.1145/3698817) converts RDF graphs to property graphs driven by their SHACL shapes, emitting PG-Schema, and reports lossless transformation where other methods lose query answers. PG-Schema (Renzo Angles and others, "PG-Schema: Schemas for Property Graphs", *Proceedings of the ACM on Management of Data* 1(2), article 198, June 2023, https://doi.org/10.1145/3589778) proposes a schema language for property graphs, motivated, as its abstract says, by the ISO standardisation of GQL; Cypher 25's `GRAPH TYPE` (add-on H) states a subset of the same ideas. Neither is a tool this skill runs: read them for why shapes, not the OWL axioms, decide value against relationship (Rules 1 and 2), and for what add-on H's `GRAPH TYPE` can and cannot state. *Exercise:* write by hand the PG-Schema node type for `lib:Copy` from its shapes and compare it with what `build.py graph-type` prints.
 
 ## Flashcards
 

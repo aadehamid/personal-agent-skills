@@ -21,6 +21,10 @@ Run with: uv run --no-project --with rdflib python3 build.py <command> ...
             Fails unless both files are in byte order without duplicates, and inferred.nt holds only
             rdf:type and rdfs:subClassOf triples between two IRIs whose object is outside the OWL and
             RDFS namespaces (the step 4 gate in SKILL.md).
+  graph-type --config <config.json> --shapes <shapes.ttl>...
+            Prints an ALTER CURRENT GRAPH TYPE SET statement generated from the shapes (Cypher 25,
+            Enterprise Edition, introduced in Neo4j 2026.02), with what it leaves out as comments
+            (add-ons.md, H).
   check-report --manifest manifest.json --report report.json
             Fails unless the report names the manifest's fingerprints and every verify check passed.
 
@@ -37,7 +41,7 @@ import json
 import os
 import sys
 
-from rdflib import BNode, Graph, Literal, URIRef
+from rdflib import Graph, Literal, URIRef
 from rdflib.namespace import OWL, RDF, RDFS
 
 import check_projection_rules as cpr
@@ -158,43 +162,6 @@ REPORT_CHECKS = (
 )
 
 
-QUERY_SUFFIX = " (sh:targetQuery)"
-EXPECTED = {
-    "minCount": {"CountConstraintComponent", "MinCountConstraintComponent"},
-    "maxCount": {"CountConstraintComponent", "MaxCountConstraintComponent"},
-    "inverseMinCount": {"CountConstraintComponent", "MinCountConstraintComponent"},
-    "inverseMaxCount": {"CountConstraintComponent", "MaxCountConstraintComponent"},
-    "closed": {"ClosedConstraintComponent"},
-    "nodeClass": {"ClassConstraintComponent"},
-    "disjoint": {"DisjointConstraintComponent"},
-    "datatype": {"DatatypeConstraintComponent"},
-    "class": {"ClassConstraintComponent"},
-    "in": {"InConstraintComponent"},
-    "nodeKind": {"NodeKindConstraintComponent"},
-    "hasValue": {"HasValueConstraintComponent"},
-    "minInclusive": {"ValueRangeConstraintComponent", "MinInclusiveConstraintComponent"},
-    "maxInclusive": {"ValueRangeConstraintComponent", "MaxInclusiveConstraintComponent"},
-    "minExclusive": {"ValueRangeConstraintComponent", "MinExclusiveConstraintComponent"},
-    "maxExclusive": {"ValueRangeConstraintComponent", "MaxExclusiveConstraintComponent"},
-    "minLength": {"LengthConstraintComponent", "MinLengthConstraintComponent"},
-    "maxLength": {"LengthConstraintComponent", "MaxLengthConstraintComponent"},
-}
-
-
-def expected_components(kind):
-    """The components a case of this kind must report. A kind on a sh:targetQuery shape has the
-    same components as the class-targeted kind."""
-    base = kind[:-len(QUERY_SUFFIX)] if kind.endswith(QUERY_SUFFIX) else kind
-    for family in ("datatype", "nodeKind"):
-        if base.startswith(family):
-            return EXPECTED[family]
-    return EXPECTED.get(base, set())
-
-
-def component_name(value):
-    return str(value).rsplit("#", 1)[-1].strip()
-
-
 def _lines_and_graph(name, data, fails):
     """Every line of an N-Triples file must be exactly one triple: no blank line, no comment, no
     other text. Returns (lines, graph)."""
@@ -209,8 +176,10 @@ def _lines_and_graph(name, data, fails):
             one.parse(data=line + "\n", format="nt")
         except Exception:  # rdflib raises several parser types
             one = Graph()
-        if len(one) != 1 or line != line.strip():
-            fails.append(f"{name} line {number} is not exactly one N-Triples triple: {line[:80]!r}")
+        # Exactly one triple and nothing else: the line must equal rdflib's own N-Triples spelling of
+        # that triple, so a trailing comment, extra spaces or any other text fails.
+        if len(one) != 1 or sorted_nt(one).rstrip("\n") != line:
+            fails.append(f"{name} line {number} is not exactly one N-Triples triple and nothing else: {line[:80]!r}")
         graph += one
     return [line.encode("utf-8") for line in lines], graph
 
@@ -234,6 +203,80 @@ def check_serialised(loadable_bytes, inferred_bytes):
     return fails
 
 
+# XSD datatype to the GRAPH TYPE property type (the XSD to Cypher table in design-rules.md).
+GRAPH_TYPE_TYPES = {
+    "string": "STRING", "token": "STRING", "normalizedString": "STRING", "anyURI": "STRING",
+    "boolean": "BOOLEAN", "integer": "INTEGER", "long": "INTEGER", "int": "INTEGER",
+    "nonNegativeInteger": "INTEGER", "double": "FLOAT", "float": "FLOAT", "decimal": "FLOAT",
+    "date": "DATE", "dateTimeStamp": "ZONED DATETIME", "duration": "DURATION",
+}
+LANG_STRING = "http://www.w3.org/1999/02/22-rdf-syntax-ns#langString"
+
+
+def _q(name):
+    return "`" + name.replace("`", "``") + "`"
+
+
+def graph_type(cfg, shapes):
+    """(statement, left out) for the shapes: one node element type per sh:targetClass, with a typed
+    property for each literal property shape that names a mappable sh:datatype (NOT NULL when
+    sh:minCount is at least 1 and sh:maxCount is 1, LIST<T> when there is no sh:maxCount 1), and one
+    relationship element type per predicate whose property shapes name one sh:class, from the
+    shapes' target class to that class. Everything else is listed in left out."""
+    from rdflib import BNode
+    from rdflib.namespace import SH, XSD
+    nodes, rels, left_out = {}, {}, []
+    for ns in sorted(set(shapes.subjects(SH.targetClass, None)), key=str):
+        for cls in sorted(shapes.objects(ns, SH.targetClass), key=str):
+            label = shorten(cls, cfg)
+            props = nodes.setdefault(label, {})
+            for ps in sorted(shapes.objects(ns, SH.property), key=str):
+                path = shapes.value(ps, SH.path)
+                if isinstance(path, BNode) or path is None:
+                    left_out.append(f"{label}: a property shape with a non-predicate path ({ps})")
+                    continue
+                key = shorten(path, cfg)
+                dt, target = shapes.value(ps, SH.datatype), shapes.value(ps, SH["class"])
+                min_c, max_c = shapes.value(ps, SH.minCount), shapes.value(ps, SH.maxCount)
+                single = max_c is not None and int(max_c) == 1
+                if dt is not None:
+                    if str(dt) == LANG_STRING:
+                        base = "STRING"
+                    elif str(dt).startswith(str(XSD)) and str(dt)[len(str(XSD)):] in GRAPH_TYPE_TYPES:
+                        base = GRAPH_TYPE_TYPES[str(dt)[len(str(XSD)):]]
+                    else:
+                        left_out.append(f"{label}.{key}: sh:datatype {dt} has no GRAPH TYPE property type")
+                        continue
+                    kind = base if single else f"LIST<{base} NOT NULL>"
+                    required = single and min_c is not None and int(min_c) >= 1
+                    props[key] = f"{_q(key)} :: {kind}" + (" NOT NULL" if required else "")
+                elif target is not None:
+                    rels.setdefault(key, set()).add((label, shorten(target, cfg)))
+                else:
+                    left_out.append(f"{label}.{key}: no sh:datatype or sh:class to map")
+                for term in ("in", "hasValue", "pattern", "minInclusive", "maxInclusive", "minExclusive",
+                             "maxExclusive", "minLength", "maxLength", "disjoint", "nodeKind"):
+                    if (ps, SH[term], None) in shapes:
+                        left_out.append(f"{label}.{key}: sh:{term} (no GRAPH TYPE form)")
+                if max_c is not None and int(max_c) > 1 or (min_c is not None and int(min_c) > 1):
+                    left_out.append(f"{label}.{key}: a count other than 0 or 1")
+                if target is not None and (min_c is not None or max_c is not None):
+                    left_out.append(f"{label}.{key}: relationship counts (no GRAPH TYPE form)")
+            if (ns, SH.closed, None) in shapes:
+                left_out.append(f"{label}: sh:closed (a graph type is open)")
+    elements = [f"  (:{_q(label)} =>" + (" {" + ", ".join(props[k] for k in sorted(props)) + "}" if props else "") + ")"
+                for label, props in sorted(nodes.items())]
+    for key, ends in sorted(rels.items()):
+        if len(ends) > 1:
+            left_out.append(f"{key}: relationship type used between several label pairs "
+                            f"({', '.join(f'{a}->{b}' for a, b in sorted(ends))}); one identifying pair only")
+            continue
+        (source, target), = ends
+        elements.append(f"  (:{_q(source)})-[:{_q(key)} =>]->(:{_q(target)})")
+    statement = "CYPHER 25\nALTER CURRENT GRAPH TYPE SET {\n" + ",\n".join(elements) + "\n}"
+    return statement, sorted(set(left_out))
+
+
 def check_report(man, rep):
     fails = []
     for key in ("input_fingerprint", "shapes_fingerprint"):
@@ -247,26 +290,15 @@ def check_report(man, rep):
         fails.append(f"report determinism hashes differ or are missing ({a!r}, {b!r})")
     if not rep.get("in_graph_shape_constraints") or rep.get("in_graph_shape_constraints") != rep.get("shapes_import_rows"):
         fails.append("report in_graph_shape_constraints is missing or differs from shapes_import_rows")
-    failed = [c.get("kind") for c in rep.get("fail_cases") or [] if not c.get("passed")]
+    if rep.get("passed") is not True:
+        fails.append("report does not say passed: true (load_verify.py writes a report only when every check passed)")
+    cases = rep.get("fail_cases")
+    if not isinstance(cases, list) or not cases:
+        fails.append("report has no fail cases (pipeline.md, rule 14)")
+    failed = [f"{c.get('target')} {c.get('path')} {c.get('param')}" for c in cases or []
+              if c.get("status") not in ("passed", "no-op")]
     if failed:
-        fails.append(f"report fail cases did not fail as expected: {', '.join(map(str, failed))}")
-    # A manual case counts only when it records what it ran and what it saw: the Cypher change, the
-    # focus node, and at least one component validate() reported on that node.
-    # It counts only when it reported a component the kind expects (EXPECTED).
-    by_hand = {c.get("kind") for c in rep.get("manual_cases") or []
-               if c.get("passed") is True and str(c.get("cypher") or "").strip() and str(c.get("focus") or "").strip()
-               and isinstance(c.get("components"), list)
-               and {component_name(x) for x in c["components"]} & expected_components(str(c.get("kind")))}
-    if rep.get("invalidated"):
-        fails.append(f"report was invalidated: {rep['invalidated']}")
-    listed = rep.get("kinds_without_case")
-    if not isinstance(listed, list):
-        fails.append("report has no kinds_without_case list (load_verify.py writes one, empty or not)")
-        listed = []
-    missing = [k for k in listed if k not in by_hand]
-    if missing:
-        fails.append("report lists constraint kinds left in the graph with no fail case: "
-                     + ", ".join(missing) + " (pipeline.md, rule 14)")
+        fails.append("report fail cases did not pass: " + "; ".join(failed))
     mutant = rep.get("mutant")
     if not isinstance(mutant, dict):
         fails.append("report has no mutant object (pipeline.md, rule 15)")
@@ -369,6 +401,12 @@ def main(argv):
             if fails:
                 return 1
             print("loadable.nt and inferred.nt are in byte order, and inferred.nt holds only kept inferences")
+        elif command == "graph-type":
+            need(opts, "--config")
+            statement, left_out = graph_type(load_config(opts["--config"]), parse(opts.get("--shapes", [])))
+            print(statement)
+            for line in left_out:
+                print(f"// left out: {line}")
         elif command == "check-report":
             need(opts, "--manifest", "--report")
             with open(opts["--manifest"], encoding="utf-8") as f:
