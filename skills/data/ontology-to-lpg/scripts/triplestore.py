@@ -29,9 +29,15 @@ matching their labels. The checks:
 With --cq, each SPARQL SELECT runs over the merge of the loaded graphs (passed as default-graph-uri
 parameters) and its row count is recorded.
 
+The report is fail-closed, as load_verify.py's is: the report named by --report (and its .failed
+file) is deleted before anything else, even before the flags are checked; it is written, by a
+rename, only when every check passed. A count mismatch writes the details to <report>.failed; a
+request that fails writes nothing. --projection-report must say passed: true.
+
 Exit 0 when every check passed, 1 when a check or a request failed, 2 on bad input.
 """
 import base64
+import http.client
 import json
 import os
 import sys
@@ -43,6 +49,7 @@ from rdflib import Graph, URIRef
 from rdflib.namespace import OWL, RDF
 
 import build
+import load_verify as lv
 
 DEFAULT_BASE = "urn:lpg-projection:graph:"
 
@@ -133,6 +140,8 @@ def predicate_count_query(iris):
 
 
 def main(argv):
+    for path in build.named_paths(argv, "--report"):
+        lv.remove_report(path)
     try:
         opts, data = build.options(argv, multi=("--cq",))
         env = read_env_file(opts.get("--env"))
@@ -152,12 +161,15 @@ def main(argv):
         export = None
         if opts.get("--projection-report"):
             with open(opts["--projection-report"], encoding="utf-8") as f:
-                export = json.load(f).get("export_predicate_counts")
+                projection = json.load(f)
+            if projection.get("passed") is not True:
+                raise ValueError(f"{opts['--projection-report']} does not say passed: true")
+            export = projection.get("export_predicate_counts")
             if not isinstance(export, dict):
                 raise ValueError(f"{opts['--projection-report']} has no export_predicate_counts")
         questions = [(p, open(p, encoding="utf-8").read()) for p in opts.get("--cq", [])]
     except Exception as exc:  # bad flags, unreadable or unparsable files
-        print(f"ERROR {exc}", file=sys.stderr)
+        print(f"ERROR {lv.q(exc)}", file=sys.stderr)
         return 2
     store = Store(gsp, query, env.get("SPARQL_USER"), env.get("SPARQL_PASSWORD"))
     report = {"graphs": {}, "store": {"gsp": gsp, "query": query}}
@@ -168,7 +180,7 @@ def main(argv):
             stored = int(store.select(graph_count_query(iri))[0]["n"]["value"])
             report["graphs"][iri] = {"file": path, "put_status": status, "file_triples": len(g), "store_triples": stored}
             if stored != len(g):
-                fails.append(f"graph <{iri}> holds {stored} triples, its file {len(g)}")
+                fails.append(f"graph {iri} holds {stored} triples, its file {len(g)}")
         iris = [iri for _, iri, _ in files]
         store_counts = {b["p"]["value"]: int(b["n"]["value"]) for b in store.select(predicate_count_query(iris))}
         file_counts = predicate_counts([g for _, _, g in files])
@@ -178,17 +190,18 @@ def main(argv):
             report["export_predicate_counts"] = export
             fails += compare("store against the n10s export", export, store_counts)
         report["competency_questions"] = {p: len(store.select(text, iris)) for p, text in questions}
-    except (urllib.error.URLError, OSError, ValueError, KeyError) as exc:
-        print(f"FAIL a store request failed: {exc}")
+    except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError, KeyError) as exc:
+        print(f"FAIL a store request failed: {lv.q(exc)}. No report was written.")
         return 1
     report["failures"] = fails
     report["passed"] = not fails
-    with open(opts["--report"], "w", encoding="utf-8") as f:
-        f.write(json.dumps(report, indent=2, sort_keys=True) + "\n")
     for line in fails:
-        print(f"FAIL {line}")
+        print(f"FAIL {lv.q(line)}")
     if fails:
+        lv.write_atomically(opts["--report"] + ".failed", report)
+        print(f"No report was written at {lv.q(opts['--report'])}; the details are in {lv.q(opts['--report'] + '.failed')}.")
         return 1
+    lv.write_atomically(opts["--report"], report)
     print(f"loaded {len(files)} named graphs; per-graph, per-predicate"
           + (" and three-way" if export is not None else "") + " counts match")
     return 0

@@ -141,10 +141,21 @@ class FileAgainstEngine(unittest.TestCase):
         missing = lv.not_compiled(lv.file_constraints(g, cfg()), [row("lib__Copy", "lib__barcode", "sh:maxLength", 8)])
         self.assertEqual([(c["term"], c["value"]) for c in missing], [("sh:maxLength", 9)])
 
-    def test_closed_matches_its_ignored_properties_row(self):
+    def test_closed_matches_its_ignored_properties_row_exactly(self):
+        # Review 8, #4: the file's ignore-list is compared with the compiled one, not skipped.
         g = shape_graph((lib("S"), SH.closed, Literal(True)))
-        rows = [row("lib__Copy", None, "sh:ignoredProperties", ["rdf__type"])]
-        self.assertEqual(lv.not_compiled(lv.file_constraints(g, cfg()), rows), [])
+        head = BNode()
+        Collection(g, head, [RDF.type])
+        g.add((lib("S"), SH.ignoredProperties, head))
+        cons = lv.file_constraints(g, cfg())
+        self.assertEqual(lv.not_compiled(cons, [row("lib__Copy", None, "sh:ignoredProperties", ["rdf__type"])]), [])
+        wider = [row("lib__Copy", None, "sh:ignoredProperties", ["lib__extra", "rdf__type"])]
+        self.assertEqual([c["term"] for c in lv.not_compiled(cons, wider)], ["sh:ignoredProperties"])
+        planned = lv.plan_cases(wider, cons, set(), cfg())
+        self.assertIn("mismatch", planned[0])
+        self.assertEqual(lv.run_cases(None, planned)[0]["status"], "failed")
+        bare = lv.file_constraints(shape_graph((lib("S"), SH.closed, Literal(True))), cfg())
+        self.assertTrue(lv.not_compiled(bare, [row("lib__Copy", None, "sh:ignoredProperties", ["rdf__type"])]))
 
     def test_node_shape_reached_from_a_property_shape_has_no_class_target(self):
         g = shape_graph((lib("S-p"), SH.node, lib("Inner")), (lib("Inner"), RDF.type, SH.NodeShape),
@@ -263,10 +274,12 @@ class Cases(unittest.TestCase):
         report["fail_cases"].append({"status": "no case"})
         self.assertFalse(lv.passed(report))
 
-    def test_nothing_is_carried_from_an_earlier_report(self):
-        self.assertFalse(hasattr(lv, "CARRY_KEYS"))
-        self.assertFalse(hasattr(lv, "read_previous_report"))
-        self.assertNotIn("manual_cases", json.dumps(lv.plan_cases([], [], set(), cfg())))
+    def test_a_manual_case_for_another_row_is_not_used(self):
+        # Review 8, #20: a behavioural check in place of the vacuous one.
+        rows = [row("lib__Copy", "lib__barcode", "sh:NodeKind", str(SH.BlankNode))]
+        cons = self.constraints((lib("S-p"), SH.datatype, XSD.string))
+        other = [{"target": "lib__Copy", "path": "lib__title", "param": "sh:NodeKind", "cypher": "RETURN 'x' AS focus"}]
+        self.assertEqual(lv.plan_cases(rows, cons, set(), cfg(), other)[0]["cypher"], "")
 
 
 class FailClosedReport(unittest.TestCase):
@@ -297,7 +310,8 @@ class FailClosedReport(unittest.TestCase):
                 "fail_cases": [{"status": "passed" if passed else "no case"}], "not_compiled": [], "passed": passed}
 
     def test_a_bad_flag_leaves_no_report(self):
-        code, out, _ = self.main(extra=["--manual-cases"])
+        # Review 8, #20: a flag value that is really bad (a missing manual-cases file), with valid data.
+        code, out, _ = self.main(extra=["--manual-cases", os.path.join(self.tmp, "missing.json")])
         self.assertEqual(code, 2, out)
         self.assertFalse(os.path.exists(self.path))
         self.assertFalse(os.path.exists(self.path + ".failed"))
@@ -321,7 +335,9 @@ class FailClosedReport(unittest.TestCase):
             self.assertTrue(json.load(f)["passed"])
         self.assertFalse(os.path.exists(self.path + ".failed"))
         self.assertEqual([n for n in os.listdir(self.tmp) if n.endswith(".tmp")], [])
-        self.assertEqual(run.call_args[0][-1], [])              # no manual cases carried from the old report
+        import inspect
+        bound = inspect.signature(lv.run).bind(*run.call_args.args, **run.call_args.kwargs)
+        self.assertEqual(list(bound.arguments.get("manual", ())), [])   # nothing carried from the old report
         self.assertIn(shlex.quote(self.path), out)
 
     def test_check_report_requires_passed_and_cases(self):
@@ -335,8 +351,8 @@ class FailClosedReport(unittest.TestCase):
         self.assertTrue(build.check_report(man, dict(rep, passed=False)))
         self.assertTrue(build.check_report(man, dict(rep, fail_cases=[])))
         self.assertTrue(build.check_report(man, dict(rep, fail_cases=[{"status": "no case"}])))
-        for gone in ("invalidated", "kinds_without_case", "manual_cases"):
-            self.assertNotIn(gone, build.check_report.__code__.co_consts)
+        # Review 8, #20: an old report's fields no longer satisfy the gate on their own.
+        self.assertTrue(build.check_report(man, {"kinds_without_case": [], "manual_cases": [], "invalidated": False}))
 
 
 class StrictSerialised(unittest.TestCase):
@@ -349,12 +365,22 @@ class StrictSerialised(unittest.TestCase):
 
 class GraphType(unittest.TestCase):
     def test_library_graph_type(self):
-        text, left = build.graph_type(cfg(), Graph().parse(SHAPES, format="turtle"))
+        text, left = build.graph_type(cfg(), Graph().parse(SHAPES, format="turtle"), Graph().parse(MODULE))
         self.assertTrue(text.startswith("CYPHER 25\nALTER CURRENT GRAPH TYPE SET {"))
         self.assertIn("(:`lib__Person` => {`lib__name` :: STRING NOT NULL})", text)
         self.assertIn("(:`lib__Copy`)-[:`lib__copyOf` =>]->(:`lib__Work`)", text)
         self.assertTrue(any("sh:pattern" in line for line in left))
         self.assertTrue(any("non-predicate path" in line for line in left))
+
+
+def passing_report(case, **change):
+    """A temporary projection report that passed, with hash h, changed by **change."""
+    rep = dict({"passed": True, "determinism_hash_sorted": "h", "determinism_hash_shuffled": "h"}, **change)
+    f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+    json.dump(rep, f)
+    f.close()
+    case.addCleanup(os.remove, f.name)
+    return f.name
 
 
 class CopyGraph(unittest.TestCase):
@@ -375,7 +401,8 @@ class CopyGraph(unittest.TestCase):
     def test_missing_keys_stop_without_printing_secrets(self):
         path = self.env("NEO4J_URI=bolt://h\nNEO4J_PASSWORD=s3cret\n")
         with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "local"}):
-            code, out = run_main(cg.main, ["--source", "bolt://127.0.0.1:1", "--target-env", path])
+            code, out = run_main(cg.main, ["--source", "bolt://127.0.0.1:1", "--target-env", path,
+                                           "--report", passing_report(self)])
         self.assertEqual(code, 2)
         self.assertIn("NEO4J_USERNAME", out)
         self.assertNotIn("s3cret", out)
@@ -387,7 +414,8 @@ class CopyGraph(unittest.TestCase):
         with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "local"}), mock.patch.dict(sys.modules, {"neo4j": fake}), \
                 mock.patch.object(cg, "graph_hash", return_value="h"), \
                 mock.patch.object(cg, "count_nodes", return_value=5), mock.patch.object(cg, "copy") as copy:
-            code, out = run_main(cg.main, ["--source", "bolt://127.0.0.1:1", "--target-env", path])
+            code, out = run_main(cg.main, ["--source", "bolt://127.0.0.1:1", "--target-env", path,
+                                           "--report", passing_report(self)])
         self.assertEqual(code, 1, out)
         self.assertIn("holds 5 nodes", out)
         self.assertNotIn("s3cret", out)
@@ -467,11 +495,413 @@ class DockerPins(unittest.TestCase):
         sha = re.search(r"SHA-256 `([0-9a-f]{64})`", self.read("references", "add-ons.md")).group(1)
         self.assertIn(f"PACKAGE_SHA256={sha}", self.read("docker", "fuseki", "Dockerfile"))
 
+    def test_every_download_and_base_image_is_pinned(self):
+        # Review 8, #12: the JDK layer, the server jar and the manual Neo4j recipe are pinned too.
+        docker = self.read("docker", "fuseki", "Dockerfile")
+        self.assertRegex(docker, r"TEMURIN_IMAGE=eclipse-temurin:21-alpine@sha256:[0-9a-f]{64}")
+        self.assertRegex(docker, r"FUSEKI_JAR_SHA256=[0-9a-f]{64}")
+        self.assertEqual(docker.count("sha256sum -c"), 2)
+        self.assertNotIn("download.sh", docker)
+        self.assertTrue(all("@sha256:" in line for line in docker.splitlines() if line.startswith("FROM ") and "$" not in line))
+        self.assertIn("sha256sum -c", self.read("docker", "compose.yaml"))
+        running = self.read("references", "running.md")
+        self.assertRegex(running, r"neo4j:2025\.06\.2@sha256:[0-9a-f]{64}\n")
+
     def test_ports_are_local_and_no_password_is_written(self):
         compose = self.read("docker", "compose.yaml")
         ports = [line.strip() for line in compose.splitlines() if line.strip().startswith('- "') and ":" in line]
         self.assertTrue(ports and all(p.startswith('- "127.0.0.1:') for p in ports))
         self.assertIn("NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-}", compose)
+
+
+GOOD_REPORT = {"shacl_violations_in_graph": 0, "in_graph_mutant_violations": 1,
+               "mutant": {"focus": "u", "removed": "k", "violations": 1, "after_restore": 0},
+               "roundtrip_lost": 0, "roundtrip_added": 0, "determinism_hash_sorted": "h",
+               "determinism_hash_shuffled": "h", "fail_cases": [{"status": "passed"}, {"status": "no-op"}]}
+# One failing value per clause of the gate: (name, change).
+GATE_BREAKS = [
+    ("a failed case", {"fail_cases": [{"status": "failed"}]}),
+    ("a row without a case", {"fail_cases": [{"status": "no case"}]}),
+    ("a violation in the graph", {"shacl_violations_in_graph": 1}),
+    ("a mutant nothing caught", {"in_graph_mutant_violations": 0}),
+    ("a mutant not restored", {"mutant": {"focus": "u", "removed": "k", "violations": 1, "after_restore": 1}}),
+    ("a lost triple", {"roundtrip_lost": 1}),
+    ("an added triple", {"roundtrip_added": 1}),
+    ("two hashes", {"determinism_hash_shuffled": "other"}),
+]
+
+
+class GateClauses(unittest.TestCase):
+    """Review 8, #8 and #2: every clause of passed() and of check_report is seen to fail on its own."""
+
+    def test_passed_fails_on_each_clause(self):
+        self.assertTrue(lv.passed(dict(GOOD_REPORT)))
+        for name, change in GATE_BREAKS:
+            with self.subTest(name):
+                self.assertFalse(lv.passed(dict(GOOD_REPORT, **change)))
+
+    def test_check_report_fails_on_each_field(self):
+        man = {"input_fingerprint": "f", "shapes_fingerprint": "s"}
+        good = dict(GOOD_REPORT, input_fingerprint="f", shapes_fingerprint="s", in_graph_shape_constraints=3,
+                    shapes_import_rows=3, passed=True)
+        self.assertEqual(build.check_report(man, good), [])
+        breaks = GATE_BREAKS + [
+            ("a stale input fingerprint", {"input_fingerprint": "old"}),
+            ("a stale shapes fingerprint", {"shapes_fingerprint": "old"}),
+            ("shape counts that differ", {"shapes_import_rows": 2}),
+            ("no shape count", {"in_graph_shape_constraints": 0, "shapes_import_rows": 0}),
+            ("not passed", {"passed": False}),
+            ("no fail cases", {"fail_cases": []}),
+            ("no mutant", {"mutant": None}),
+            ("a compiled row without a case", {"compiled": [{"target": "T", "path": "p", "param": "sh:minCount", "value": 1}]}),
+            ("no compiled rows", {"compiled": []}),
+        ]
+        for name, change in breaks:
+            with self.subTest(name):
+                self.assertTrue(build.check_report(man, dict(good, **change)))
+
+
+class FakeResult:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def data(self):
+        return list(self.rows)
+
+    def single(self):
+        return self.rows[0] if self.rows else None
+
+    def value(self):
+        return [next(iter(r.values())) for r in self.rows]
+
+    def consume(self):
+        return None
+
+
+class FakeEngine:
+    """A session that answers run()'s queries from canned rows, keyed by the query text."""
+
+    def __init__(self, listed, export_rows, fire=True):
+        self.listed, self.export_rows, self.fire = listed, export_rows, fire
+        self.rollbacks, self.removed = 0, False
+        self.paths = sorted({LIB + local for local in ("notInTheShape",)} |
+                            {str(lv.iri_of(r["path"], cfg())) for r in listed if r["path"]})
+
+    def session(self):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def begin_transaction(self):
+        engine = self
+
+        class Tx:
+            focus = None
+
+            def run(self, query, **_):
+                if query == lv.VALIDATE:
+                    if not engine.fire or not self.focus:
+                        return FakeResult([])
+                    return FakeResult([{"focusNode": self.focus, "propertyShape": str(SH) + comp, "resultPath": p,
+                                        "resultMessage": ""}
+                                       for comp in sorted(set().union(*lv.EXPECTED.values())) for p in engine.paths])
+                import re
+                self.focus = re.search(r'uri: "([^"]+)"', query).group(1)
+                return FakeResult([{"focus": self.focus}])
+
+            def rollback(self):
+                engine.rollbacks += 1
+        return Tx()
+
+    def run(self, query, **_):
+        if query == lv.VALIDATE:
+            return FakeResult([{"focusNode": "u", "propertyShape": str(SH) + "CountConstraintComponent",
+                                "resultPath": "", "resultMessage": ""}] if self.removed else [])
+        if "RETURN n.uri AS uri, labels(n)" in query:
+            return FakeResult([{"uri": "u", "labels": ["Resource"], "props": {"uri": "u"}}])
+        if "RETURN n.uri AS uri" in query:
+            return FakeResult([{"uri": "u", "value": "v"}])
+        if " REMOVE n." in query:
+            self.removed = True
+            return FakeResult([])
+        if "SET n.`" in query and "$value" in query:
+            self.removed = False
+            return FakeResult([])
+        if "count(n) AS n" in query or "count(*) AS n" in query and "SHOW CONSTRAINTS" in query:
+            return FakeResult([{"n": 0}])
+        if "listShapes() YIELD target" in query:
+            return FakeResult([{"n": len(self.listed)}])
+        if "listShapes()" in query:
+            return FakeResult([{"target": r["target"], "propertyOrRelationshipPath": r["path"], "param": r["param"],
+                                "value": r["value"]} for r in self.listed])
+        if "shacl.import" in query:
+            return FakeResult([{"target": "x"}] * len(self.listed))
+        if "rdf.import" in query or "onto.import" in query:
+            return FakeResult([{"terminationStatus": "OK"}])
+        if query.startswith("CALL n10s.rdf.export"):
+            return FakeResult(self.export_rows)
+        if "RETURN n.uri AS uri, labels(n)" in query:
+            return FakeResult([{"uri": "u", "labels": ["Resource"], "props": {"uri": "u"}}])
+        if "type(r) AS t" in query:
+            return FakeResult([])
+        return FakeResult([])
+
+
+class RunWiring(unittest.TestCase):
+    """Review 8, #7: run() itself, with a fake engine, not a patched-out run()."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.tmp))
+        loadable, self.inferred = os.path.join(self.tmp, "l.nt"), os.path.join(self.tmp, "i.nt")
+        with open(loadable, "w", encoding="utf-8") as f:
+            f.write(build.sorted_nt(build.parse([MODULE])))
+        open(self.inferred, "w").close()
+        self.loadable = loadable
+        safe, _ = igs.subset(Graph().parse(SHAPES))
+        cons = [c for c in lv.file_constraints(safe, cfg()) if not c["target"].startswith("(")]
+        rows, seen = [], set()
+        for c in cons:
+            r = row(c["target"], c["path"], c["term"], c["value"])
+            if lv.row_key(r) not in seen:
+                seen.add(lv.row_key(r))
+                rows.append(r)
+        self.dropped = rows.pop()                      # one constraint n10s "did not compile"
+        self.rows = rows
+        g = Graph().parse(data=open(loadable).read(), format="nt")
+        self.export = [{"subject": str(s), "predicate": str(p), "object": str(o), "isLiteral": isinstance(o, Literal),
+                        "literalType": str(o.datatype) if isinstance(o, Literal) and o.datatype else None,
+                        "literalLang": o.language if isinstance(o, Literal) else None} for s, p, o in g]
+
+    def run_with(self, engine):
+        return lv.run(engine, cfg(), [MODULE], [SHAPES], self.tmp, MODULE, self.loadable, self.inferred)
+
+    def test_run_reads_the_engine_and_tests_every_row(self):
+        engine = FakeEngine(self.rows, self.export)
+        report = self.run_with(engine)
+        self.assertEqual(report["compiled"], self.rows)
+        self.assertIn((self.dropped["target"], self.dropped["path"], self.dropped["param"]),
+                      [(c["target"], c["path"], c["term"]) for c in report["not_compiled"]])
+        self.assertEqual(len(report["fail_cases"]), len(self.rows))
+        tested = [c for c in report["fail_cases"] if c["status"] in ("passed", "failed")]
+        self.assertEqual(engine.rollbacks, len(tested))
+        self.assertEqual((report["roundtrip_lost"], report["roundtrip_added"]), (0, 0))
+        self.assertTrue(report["passed"], [c for c in report["fail_cases"] if c["status"] != "passed"][:3])
+
+    def test_run_fails_when_a_case_does_not_fire(self):
+        report = self.run_with(FakeEngine(self.rows, self.export, fire=False))
+        self.assertFalse(report["passed"])
+
+
+class RoundEight(unittest.TestCase):
+    """Full review 8 of 3bf17ed..8abb44b: one test per behaviour change; each fails on 8648028."""
+
+    def tmp(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(d))
+        return d
+
+    # 1: printed values are quoted, and the next step has no redirection token
+    def test_not_compiled_line_is_one_quoted_line(self):
+        d = self.tmp()
+        path = os.path.join(d, "r.json")
+        bad = {"target": "lib__Copy", "path": None, "term": "sh:sparql", "file_term": "sh:sparql",
+               "raw": "x\n$(touch pwned)", "shape": "lib:S"}
+        rep = dict(GOOD_REPORT, shapes_import_rows=1, in_graph_shape_constraints=1, nodes=1, relationships=0,
+                   not_compiled=[bad], passed=True)
+        args = ["--config", CONFIG, "--shapes", SHAPES, "--bolt", "bolt://x", "--import-dir", d, "--merged", MODULE,
+                "--loadable", MODULE, "--inferred", MODULE, "--report", path, MODULE]
+        with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "x"}), \
+                mock.patch.dict(sys.modules, {"neo4j": mock.MagicMock()}), mock.patch.object(lv, "run", return_value=rep):
+            code, out = run_main(lv.main, args)
+        self.assertEqual(code, 0, out)
+        line = [x for x in out.splitlines() if x.startswith("NOT COMPILED")]
+        self.assertEqual(len(line), 1)
+        self.assertNotIn("\n$(touch", out)
+        payload = line[0].split(": ", 1)[1]
+        self.assertEqual(json.loads(shlex.split(payload)[0])["raw"], "x\n$(touch pwned)")
+        self.assertNotIn("<", lv.check_report_command(path))
+        self.assertNotIn(">", lv.check_report_command(path))
+
+    def test_in_graph_shapes_quotes_what_it_prints(self):
+        d = self.tmp()
+        out_path = os.path.join(d, "a b;$(x).ttl")
+        code, out = run_main(igs.main, ["--output", out_path, SHAPES])
+        self.assertEqual(code, 0, out)
+        self.assertIn("wrote " + shlex.quote(out_path), out)
+        for line in out.splitlines():
+            if line.startswith("PREDICTION"):
+                self.assertEqual(len(shlex.split(line.split(": ", 1)[1])), 3)
+
+    def test_copy_target_is_quoted(self):
+        self.assertIn("'bolt://h;rm -rf x'", cg.describe_target(
+            {"NEO4J_URI": "bolt://h;rm -rf x", "NEO4J_USERNAME": "n", "NEO4J_PASSWORD": "p"}))
+
+    def test_graph_type_left_out_lines_cannot_break_the_comment(self):
+        with mock.patch.object(build, "graph_type", return_value=("CYPHER 25", ["a\nMATCH (n) DETACH DELETE n"])):
+            code, out = run_main(build.main, ["graph-type", "--config", CONFIG, "--shapes", SHAPES, MODULE])
+        self.assertEqual(code, 0, out)
+        self.assertTrue(all(x.startswith("// left out:") for x in out.splitlines()[1:]), out)
+
+    # 9: every exit 2 that names a report path deletes it
+    def test_report_named_with_equals_or_last_is_deleted(self):
+        d = self.tmp()
+        for argv in (lambda p: ["--report=" + p], lambda p: ["--config", "nope", "--report", p]):
+            path = os.path.join(d, "r.json")
+            with open(path, "w") as f:
+                f.write('{"passed": true}')
+            code, _ = run_main(lv.main, argv(path))
+            self.assertEqual(code, 2)
+            self.assertFalse(os.path.exists(path))
+        self.assertEqual(build.named_paths(["--report=a", "--x", "--report", "b"], "--report"), ["a", "b"])
+
+    # 11: the store report is deleted first and written only on a pass
+    def store_main(self, d, put=None, counts=None, projection=None):
+        nt = os.path.join(d, "inferred.nt")
+        open(nt, "w").close()
+        path = os.path.join(d, "ts.json")
+        with open(path, "w") as f:
+            f.write('{"passed": true}')
+        args = ["--gsp", "http://127.0.0.1:1/ds", "--query", "http://127.0.0.1:1/q", "--inferred", nt,
+                "--report", path, MODULE]
+        if projection:
+            args[0:0] = ["--projection-report", projection]
+        graph = ts.graph_iri(Graph().parse(MODULE), MODULE, ts.DEFAULT_BASE)
+        n = len(Graph().parse(MODULE))
+
+        def select(store, sparql, default_graphs=()):
+            if "GROUP BY ?p" in sparql:
+                return [{"p": {"value": p}, "n": {"value": str(c)}}
+                        for p, c in (counts or ts.predicate_counts([Graph().parse(MODULE)])).items()]
+            return [{"n": {"value": str(n if graph in sparql else 0)}}]
+        with mock.patch.object(ts.Store, "put_graph", side_effect=put or (lambda *a: 201)), \
+                mock.patch.object(ts.Store, "select", select):
+            code, out = run_main(ts.main, args)
+        return code, out, path
+
+    def test_store_request_failure_leaves_no_report(self):
+        import urllib.error
+        code, out, path = self.store_main(self.tmp(), put=urllib.error.URLError("refused"))
+        self.assertEqual(code, 1, out)
+        self.assertFalse(os.path.exists(path))
+
+    def test_store_count_mismatch_writes_only_the_failed_file(self):
+        code, out, path = self.store_main(self.tmp(), counts={LIB + "x": 1})
+        self.assertEqual(code, 1, out)
+        self.assertFalse(os.path.exists(path))
+        self.assertTrue(os.path.exists(path + ".failed"))
+
+    def test_store_pass_writes_the_report(self):
+        code, out, path = self.store_main(self.tmp())
+        self.assertEqual(code, 0, out)
+        with open(path) as f:
+            self.assertTrue(json.load(f)["passed"])
+
+    def test_store_refuses_a_projection_report_that_did_not_pass(self):
+        code, out, path = self.store_main(self.tmp(), projection=passing_report(self, passed=False))
+        self.assertEqual(code, 2, out)
+        self.assertFalse(os.path.exists(path))
+
+    # 3: copy only a verified graph, and never touch the target otherwise
+    def copy_main(self, report_args, source_hash="h", present=5):
+        env = tempfile.NamedTemporaryFile("w", suffix=".env", delete=False)
+        env.write("NEO4J_URI=bolt://h\nNEO4J_USERNAME=neo4j\nNEO4J_PASSWORD=s3cret\n")
+        env.close()
+        self.addCleanup(os.remove, env.name)
+        with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "local"}), \
+                mock.patch.dict(sys.modules, {"neo4j": mock.MagicMock()}), \
+                mock.patch.object(cg, "graph_hash", return_value=source_hash), \
+                mock.patch.object(cg, "count_nodes", return_value=present), \
+                mock.patch.object(cg, "empty_target") as empty, mock.patch.object(cg, "copy") as copy:
+            code, out = run_main(cg.main, ["--source", "bolt://x", "--target-env", env.name, "--replace", *report_args])
+        return code, out, empty, copy
+
+    def test_copy_needs_a_passing_report(self):
+        for args in ([], ["--report", passing_report(self, passed=False)],
+                     ["--report", passing_report(self, determinism_hash_shuffled="other")]):
+            code, out, empty, copy = self.copy_main(args)
+            self.assertEqual(code, 2, out)
+            empty.assert_not_called()
+            copy.assert_not_called()
+
+    def test_copy_of_an_unverified_source_deletes_nothing(self):
+        code, out, empty, copy = self.copy_main(["--report", passing_report(self)], source_hash="changed")
+        self.assertEqual(code, 1, out)
+        empty.assert_not_called()
+        copy.assert_not_called()
+
+    def test_copy_of_the_verified_source_runs(self):
+        code, out, empty, copy = self.copy_main(["--report", passing_report(self)])
+        self.assertEqual(code, 0, out)
+        empty.assert_called_once()
+        copy.assert_called_once()
+
+    # 26: a date and the string of its text do not hash alike
+    def test_typed_values_hash_with_their_type(self):
+        import datetime
+        nodes = lambda v: [{"uri": "u", "labels": ["Resource"], "props": {"d": v}}]
+        self.assertNotEqual(lv.graph_hash(nodes(datetime.date(2020, 1, 1)), []), lv.graph_hash(nodes("2020-01-01"), []))
+
+    # 27: qualified cardinality is reported as not compiled
+    def test_qualified_cardinality_is_reported(self):
+        g = shape_graph((lib("S-p"), SH.qualifiedMinCount, Literal(1)), (lib("S-p"), SH.qualifiedMaxCount, Literal(2)),
+                        (lib("S-p"), SH.qualifiedValueShapesDisjoint, Literal(True)))
+        terms = {c["term"] for c in lv.not_compiled(lv.file_constraints(g, cfg()), [])}
+        self.assertTrue({"sh:qualifiedMinCount", "sh:qualifiedMaxCount", "sh:qualifiedValueShapesDisjoint"} <= terms)
+
+    # 29: a minimum is tested one value short
+    def test_minimum_cases_are_near_misses(self):
+        lit = lv.file_constraints(shape_graph((lib("S-p"), SH.datatype, XSD.integer)), cfg())
+        cypher = lv.case_for(row("lib__Copy", "lib__barcode", "sh:minCount", 3), lit, set(), cfg())[2]
+        self.assertIn("SET n.`lib__barcode` = [1, 2]", cypher)
+        rel = lv.file_constraints(shape_graph((lib("S-p"), SH["class"], lib("Work"))), cfg())
+        cypher = lv.case_for(row("lib__Copy", "lib__barcode", "sh:minCount", 3), rel, set(), cfg())[2]
+        self.assertEqual(cypher.count("CREATE (n)-[:`lib__barcode`]->"), 2)
+        strs = lv.file_constraints(shape_graph((lib("S-p"), SH.datatype, XSD.string)), cfg())
+        self.assertIn('"xxxx"', lv.case_for(row("lib__Copy", "lib__barcode", "sh:minLength", 5), strs, set(), cfg())[2])
+
+    # 31: the clean-up line matches a compose start
+    def test_compose_project_cleanup(self):
+        self.assertEqual(lv.remove_command({"--compose-project": "p q"}),
+                         "docker compose -p 'p q' --profile neo4j --profile fuseki down -v")
+
+    # 15 and the two Aura findings: GRAPH TYPE
+    def test_graph_type_omits_empty_node_types_and_keeps_endpoints(self):
+        g = shape_graph()
+        g.remove((lib("S-p"), SH.path, lib("barcode")))
+        g.add((lib("S-p"), SH.path, lib("copyOf")))
+        g.add((lib("S-p"), SH["class"], lib("Work")))
+        text, left = build.graph_type(cfg(), g, Graph())
+        self.assertNotIn("=>)", text)
+        self.assertIn("(:`lib__Copy`)-[:`lib__copyOf` =>]->(:`lib__Work`)", text)
+        self.assertIn("lib__Copy: no typed property, so no node element type", left)
+
+    def test_graph_type_follows_the_loads_multivalued_list(self):
+        g = shape_graph((lib("S-p"), SH.datatype, XSD.string), (lib("S-p"), SH.maxCount, Literal(1)))
+        data = Graph()
+        data.add((lib("c1"), lib("barcode"), Literal("a")))
+        data.add((lib("c1"), lib("barcode"), Literal("b")))       # two values: the load stores a list
+        self.assertIn("`lib__barcode` :: LIST<STRING NOT NULL>", build.graph_type(cfg(), g, data)[0])
+        single = Graph()
+        single.add((lib("c1"), lib("barcode"), Literal("a")))
+        self.assertIn("`lib__barcode` :: STRING", build.graph_type(cfg(), g, single)[0])
+
+    def test_graph_type_lists_a_second_mapping_and_terms_after_an_unknown_datatype(self):
+        g = shape_graph((lib("S-p"), SH.datatype, XSD.string), (lib("S"), SH.property, lib("S-q")),
+                        (lib("S-q"), SH.path, lib("barcode")), (lib("S-q"), SH.datatype, XSD.integer),
+                        (lib("S"), SH.property, lib("S-r")), (lib("S-r"), SH.path, lib("note")),
+                        (lib("S-r"), SH.datatype, XSD.gYear), (lib("S-r"), SH.pattern, Literal("^1")),
+                        (lib("S"), SH.property, lib("S-s")), (lib("S-s"), SH.path, lib("copyOf")),
+                        (lib("S-s"), SH.datatype, XSD.string), (lib("S-s"), SH["class"], lib("Work")))
+        text, left = build.graph_type(cfg(), g, Graph())
+        self.assertTrue(any("a second property shape maps it" in x for x in left), left)
+        self.assertIn("lib__Copy.lib__note: sh:pattern (no GRAPH TYPE form)", left)
+        self.assertTrue(any("beside sh:datatype" in x for x in left), left)
+        self.assertNotIn("lib__copyOf =>", text)
 
 
 if __name__ == "__main__":

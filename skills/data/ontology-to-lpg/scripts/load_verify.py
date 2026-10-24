@@ -5,10 +5,12 @@ Run: NEO4J_PASSWORD=... uv run --no-project --with rdflib --with neo4j python3 l
          --config <config.json> --shapes <shapes.ttl>... --bolt bolt://127.0.0.1:<port> \
          --import-dir <folder mounted at /import> --merged merged.ttl --loadable loadable.nt \
          --inferred inferred.nt --report projection-report.json [--plugins-dir <folder>]
-         [--manual-cases <cases.json>] [--container <name>] <data.ttl>...
+         [--manual-cases <cases.json>] [--container <name> | --compose-project <name>] <data.ttl>...
 
-The container name only goes into the printed next steps: --container, else $LPG_CONTAINER, else
-lpg-projection. Every printed name and path is shell-quoted.
+The container name only goes into the printed clean-up line: with --compose-project (the -p name the
+services were started under from docker/compose.yaml) it is `docker compose -p <name> ... down -v`;
+else `docker rm -f -v` of --container, $LPG_CONTAINER or lpg-projection. Every value printed for
+pasting is shell-quoted; a NOT COMPILED line is one quoted JSON object.
 
 The gate is what n10s says it compiled. What it does, in order (references/pipeline.md, rules 8 to 17):
   1. Writes the import-safe shapes (in_graph_shapes.subset) and copies merged.ttl, loadable.nt and
@@ -46,7 +48,8 @@ The graph hash (graph_hash): every :Resource node as [uri, sorted labels, proper
 relationship between two :Resource nodes as [source uri, type, target uri, relationship uri or "",
 relationship properties]; both lists sorted (nodes by uri, relationships by their first four fields,
 a missing uri counting as ""); property maps with sorted keys; list values in their stored order (the
-load sorts them); any value JSON cannot hold (dates, times, durations, points) written with str();
+load sorts them); any value JSON cannot hold (dates, times, durations, points) written as {"type": <module.Type>,
+"value": str()}, so it never equals a string;
 the whole serialised with json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=False),
 encoded as UTF-8 and hashed with SHA-256. Schema nodes from onto.import are :Resource nodes and are
 included: they come from the same files on both loads.
@@ -145,11 +148,14 @@ def diff(source, exported):
 
 
 def _plain(value):
+    """A property value as JSON. A value JSON cannot hold (a date, a time, a duration, a point) is
+    written as {"type": <its Python type, module included>, "value": <its str()>}, so a date and the
+    string of the same text hash differently."""
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     if isinstance(value, list):
         return [_plain(v) for v in value]
-    return str(value)
+    return {"type": f"{type(value).__module__}.{type(value).__qualname__}", "value": str(value)}
 
 
 def graph_hash(nodes, edges):
@@ -191,7 +197,7 @@ EXPECTED = {
 # How a term of the shapes file appears as a listShapes param.
 LISTED_AS = {**igs.LISTED_AS, SH.closed: "sh:ignoredProperties"}
 UNREAD_TERMS = (SH.languageIn, SH.uniqueLang, SH.lessThan, SH.lessThanOrEquals, SH.equals, SH.qualifiedValueShape,
-                SH["not"], SH["and"], SH["or"], SH.xone, SH.sparql, SH.targetNode, SH.targetSubjectsOf,
+                SH.qualifiedMinCount, SH.qualifiedMaxCount, SH.qualifiedValueShapesDisjoint, SH["not"], SH["and"], SH["or"], SH.xone, SH.sparql, SH.targetNode, SH.targetSubjectsOf,
                 SH.targetObjectsOf)
 FILE_TERMS = (SH.minCount, SH.maxCount, SH.datatype, SH["class"], SH.nodeKind, SH["in"], SH.hasValue, SH.disjoint,
               SH.minInclusive, SH.maxInclusive, SH.minExclusive, SH.maxExclusive, SH.minLength, SH.maxLength)
@@ -268,8 +274,8 @@ def value_key(value):
 def file_constraints(g, cfg):
     """Every constraint the shapes file states, as dicts with target (a SHORTEN name, or a note when
     nothing gives the shape a class target), path (None for a node-level constraint), term (as
-    listShapes names it), file_term, value (as listShapes would list it; None for sh:closed, whose
-    row lists sh:ignoredProperties instead), raw, inverse and shape."""
+    listShapes names it), file_term, value (as listShapes would list it; for sh:closed the
+    sh:ignoredProperties names, which is what its row lists), raw, inverse and shape."""
     out = []
 
     def add(shape, targets, **c):
@@ -298,8 +304,9 @@ def file_constraints(g, cfg):
                 path=name_of(path, cfg) if isinstance(path, URIRef) else None, term="sh:" + component(p_),
                 file_term="sh:" + component(p_), value=_shown(g, o_), raw=str(_shown(g, o_)), inverse=False)
     for shape in sorted(set(g.subjects(SH.closed, Literal(True))), key=str):
+        ignored = sorted(name_of(m, cfg) for lst in g.objects(shape, SH.ignoredProperties) for m in Collection(g, lst))
         add(shape, sorted(name_of(t, cfg) for t in _targets(g, shape)), path=None, term="sh:ignoredProperties",
-            file_term="sh:closed", value=None, raw="true", inverse=False)
+            file_term="sh:closed", value=ignored, raw=f"true, ignoring {ignored}", inverse=False)
     return out
 
 
@@ -310,7 +317,7 @@ def listed_rows(session):
 
 def not_compiled(constraints, rows):
     """The constraints of the shapes file with no listShapes row for the same target, path, param
-    and value (the value is not compared for sh:closed, listed as its sh:ignoredProperties). Each
+    and value (for sh:closed, the value is its sh:ignoredProperties list, compared exactly). Each
     row answers at most one constraint, so a second shape stating the same thing on the same target
     is still found when n10s compiled only one of them."""
     left = {}
@@ -320,8 +327,8 @@ def not_compiled(constraints, rows):
     missing = []
     for c in constraints:
         values = left.get((c["target"], c["path"], c["term"]), [])
-        want = None if c["value"] is None else value_key(c["value"])
-        match = next((v for v in values if want is None or v == want), None)
+        want = value_key(c["value"])
+        match = next((v for v in values if v == want), None)
         if match is None:
             missing.append(c)
         else:
@@ -398,15 +405,26 @@ def case_for(row, constraints, literal_preds, cfg, index=1):
         return "sh:disjoint", path_iri, base + f"CREATE (n)-[:`{k}`]->(m{new_node(1)[1:]} CREATE (n)-[:`{k2}`]->(m) " + end
     if param in ("sh:minCount", "sh:minLength") and int(value) < 1:
         return param, path_iri, None
+    # A minimum gets one value fewer than it asks for, a maximum one more: the near miss, so a check
+    # that enforced a weaker bound would not fire.
+    short = int(value) - 1 if param == "sh:minCount" else 0
     if inverse:
         if param == "sh:minCount":
-            return param, path_iri, base + end
+            edges = " ".join(f"CREATE (n)<-[:`{k}`]-{new_node(i)}" for i in range(1, short + 1))
+            return param, path_iri, base + edges + (" " if edges else "") + end
         if param == "sh:maxCount":
             edges = " ".join(f"CREATE (n)<-[:`{k}`]-{new_node(i)}" for i in range(1, int(value) + 2))
             return param, path_iri, base + edges + " " + end
         return param, path_iri, ""
     if param == "sh:minCount":
-        return param, path_iri, base + end
+        if short == 0:
+            return param, path_iri, base + end
+        if literal:
+            values = [sample(dtype, i) for i in range(1, short + 1)]
+            stored = values[0] if short == 1 else "[" + ", ".join(values) + "]"
+            return param, path_iri, base + f"SET n.`{k}` = {stored} " + end
+        edges = " ".join(f"CREATE (n)-[:`{k}`]->{new_node(i)}" for i in range(1, short + 1))
+        return param, path_iri, base + edges + " " + end
     if param == "sh:maxCount":
         extra = int(value) + 1
         if literal:
@@ -432,7 +450,7 @@ def case_for(row, constraints, literal_preds, cfg, index=1):
     if param in deltas and literal and isinstance(value, (int, float)) and not isinstance(value, bool):
         return param, path_iri, base + f"SET n.`{k}` = {value} {deltas[param]} " + end
     if param == "sh:minLength" and literal:
-        return param, path_iri, base + f"SET n.`{k}` = '' " + end
+        return param, path_iri, base + f"SET n.`{k}` = {_literal('x' * (int(value) - 1))} " + end
     if param == "sh:maxLength" and literal:
         return param, path_iri, base + f"SET n.`{k}` = {_literal('x' * (int(value) + 1))} " + end
     return param, path_iri, ""
@@ -457,20 +475,29 @@ def plan_cases(rows, constraints, literal_preds, cfg, manual=()):
         source = "generated"
         if cypher == "" and (row["target"], row["path"], row["param"]) in by_key:
             cypher, path, source = by_key[(row["target"], row["path"], row["param"])], None, "manual"
-        planned.append({"target": row["target"], "path": row["path"], "param": row["param"], "value": row["value"],
-                        "expected_param": param, "expected_path": path, "cypher": cypher, "source": source})
+        case = {"target": row["target"], "path": row["path"], "param": row["param"], "value": row["value"],
+                "expected_param": param, "expected_path": path, "cypher": cypher, "source": source}
+        if row["param"] == "sh:ignoredProperties" and not any(
+                c["term"] == "sh:ignoredProperties" and c["target"] == row["target"]
+                and value_key(c["value"]) == value_key(row["value"]) for c in constraints):
+            # A compiled ignore-list the shapes file does not state would let n10s accept properties
+            # the file forbids, while the case below still fires on a property neither list names.
+            case["mismatch"] = "the compiled sh:ignoredProperties differs from every closed shape on this target"
+        planned.append(case)
     return planned
 
 
-def mutant_target(rows, constraints, literal_preds, cfg):
-    """The deliberate mutant: the first compiled minCount of at least 1 on a literal value."""
+def mutant_targets(rows, constraints, literal_preds, cfg):
+    """The candidates for the deliberate mutant, in order: every compiled minCount of at least 1 on a
+    literal value that is not an inverse path. run() takes the first one some node holds."""
+    out = []
     for row in sorted(rows, key=lambda r: tuple(str(x) for x in row_key(r))):
         if row["param"] == "sh:minCount" and row["path"] and int(row["value"]) >= 1 \
                 and iri_of(row["path"], cfg) in literal_preds:
             mine = [c for c in constraints if c["target"] == row["target"] and c["path"] == row["path"]]
-            if not (mine and all(c["inverse"] for c in mine)):
-                return row["target"], row["path"]
-    return None
+            if not (mine and all(c["inverse"] for c in mine)) and (row["target"], row["path"]) not in out:
+                out.append((row["target"], row["path"]))
+    return out
 
 
 def read_manual_cases(path):
@@ -531,7 +558,9 @@ def run_cases(session, planned):
     results = []
     for case in planned:
         result = dict(case, focus=None, components=[], expected=sorted(EXPECTED.get(case["expected_param"], set())))
-        if case["cypher"] is None:
+        if case.get("mismatch"):
+            result["status"] = "failed"
+        elif case["cypher"] is None:
             result["status"] = "no-op"
         elif case["cypher"] == "":
             result["status"] = "no case"
@@ -550,10 +579,11 @@ def run_cases(session, planned):
 
 
 def mutant(session, label, key):
+    """The committed mutant on the first node holding the key, or None when no node holds it."""
     record = session.run(f"MATCH (n:`{label}`) WHERE n.`{key}` IS NOT NULL WITH n ORDER BY n.uri LIMIT 1 "
                          f"RETURN n.uri AS uri, n.`{key}` AS value").single()
     if record is None:
-        raise Failed(f"no {label} node has {key} for the mutant")
+        return None
     uri, value = record["uri"], record["value"]
     session.run(f"MATCH (n:Resource {{uri: $uri}}) REMOVE n.`{key}`", uri=uri).consume()
     caught = [r for r in violations(session) if r["focusNode"] == uri]
@@ -610,10 +640,14 @@ def run(driver, cfg, data_paths, shape_paths, import_dir, merged, loadable, infe
         found = violations(session)
         report["shacl_violations_in_graph"] = len(found)
         report["fail_cases"] = run_cases(session, plan_cases(rows, constraints, literal_preds, cfg, manual))
-        target = mutant_target(rows, constraints, literal_preds, cfg)
-        if target is None:
-            raise Failed("no compiled minCount of at least 1 on a literal value to use as the mutant")
-        m = mutant(session, *target)
+        m = None
+        for target in mutant_targets(rows, constraints, literal_preds, cfg):
+            m = mutant(session, *target)
+            if m is not None:
+                break
+        if m is None:
+            raise Failed("no node holds a value for any compiled minCount of at least 1 on a literal, so there "
+                         "is no mutant")
         report["mutant"] = m
         report["in_graph_mutant_violations"] = m["violations"]
         exported_rows = session.run(EXPORT).data()
@@ -662,7 +696,8 @@ def q(text):
 
 
 def check_report_command(report_path):
-    return f"build.py check-report --manifest <projection-manifest.json> --report {q(report_path)}"
+    """The next step, safe to paste: MANIFEST.json stands for your manifest's path."""
+    return f"build.py check-report --manifest MANIFEST.json --report {q(report_path)}"
 
 
 DEFAULT_CONTAINER = "lpg-projection"
@@ -674,6 +709,10 @@ def container_name(opts):
 
 
 def remove_command(opts):
+    """The clean-up line: `docker compose -p <project> ... down -v` when --compose-project names the
+    project the services were started under (docker/compose.yaml), else `docker rm -f -v`."""
+    if opts.get("--compose-project"):
+        return f"docker compose -p {q(opts['--compose-project'])} --profile neo4j --profile fuseki down -v"
     return f"docker rm -f -v {q(container_name(opts))}"
 
 
@@ -706,10 +745,9 @@ def remove_report(path):
 def main(argv):
     opts = {}
     # Delete the report first, before the flags are checked: a run that stops on a bad flag must not
-    # leave an earlier report standing.
-    for i, arg in enumerate(argv[:-1]):
-        if arg == "--report":
-            remove_report(argv[i + 1])
+    # leave an earlier report standing (--report PATH and --report=PATH both name one).
+    for path in build.named_paths(argv, "--report"):
+        remove_report(path)
     try:
         opts, data = build.options(argv)
         build.need(opts, "--config", "--bolt", "--import-dir", "--merged", "--loadable", "--inferred", "--report")
@@ -749,8 +787,9 @@ def main(argv):
     summary["not_compiled"] = len(report["not_compiled"])
     print(json.dumps(summary, indent=1))
     for c in report["not_compiled"]:
-        print(f"NOT COMPILED by n10s (validate_data.py checked it before the load): {c['target']} {c['path']} "
-              f"{c['file_term']} {c['raw']} (shape {c['shape']})")
+        # One line, quoted: a shapes literal can hold a newline or $(...).
+        print("NOT COMPILED by n10s (validate_data.py checked it before the load): " + q(json.dumps(
+            {k: c[k] for k in ("target", "path", "file_term", "raw", "shape")}, ensure_ascii=False)))
     if not report["passed"]:
         failed_path = report_path + ".failed"
         write_atomically(failed_path, report)

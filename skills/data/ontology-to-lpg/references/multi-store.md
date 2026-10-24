@@ -1,6 +1,6 @@
 # Multi-store: one source, several stores, nothing lost
 
-Read it when the same released ontology must live in triple stores and in Neo4j or Aura, and you must prove each copy holds exactly the source. It is the plan the skill's owner decided on 2026-10-23. Hops 1 to 5 can be run with this skill's scripts today. Hop 3's Databricks store (add-on K) and hop 6's rebuild are planned, not built.
+Read it when the same released ontology must live in triple stores and in Neo4j or Aura, and you must prove each copy holds exactly the source. It is the plan the skill's owner decided on 2026-10-23. Hops 1, 4 and 5, and the counts of hop 3 (add-on J, which loads the released files as they are until hop 2 exists), can be run with this skill's scripts today. Hop 2 (skolemize), hop 3's export diff and Databricks store (add-on K), and hop 6 (the rebuild) are planned, not built.
 
 ## The flow
 
@@ -8,7 +8,7 @@ Read it when the same released ontology must live in triple stores and in Neo4j 
 |---|---|---|---|
 | 1. Source | The released packages and their data files are the master copy (`inputs.md`, rule 1). | `check_projection_rules.py` and `validate_data.py` pass (SKILL.md steps 2 and 3). | Built |
 | 2. Skolemize | Replace every blank node with a Skolem IRI once, before any load, and keep that file beside the release as the derived copy every store reads; the release stays the master copy. | The skolemized file has no blank node and the same number of triples; a reverse map from Skolem IRI to blank node turns it back into a graph isomorphic to the original (rdflib `to_isomorphic`). | Planned: no script yet |
-| 3. Triple stores | Load the skolemized files into each store, one named graph per file. Any SPARQL 1.1 store through add-on J. Databricks through add-on K: a Delta table in Unity Catalog with the columns `subject`, `predicate`, `object`, `datatype`, `lang`, `graph`. | Counts per graph and per predicate equal the files' (`triplestore.py`). Then export each store back to N-Triples and diff it with the source: zero lost, zero added. | J built and tested on Jena Fuseki 6.2.0 (counts only, on the library and a multi-module ontology; the export diff is planned). K planned |
+| 3. Triple stores | Load the skolemized files into each store, one named graph per file. Any SPARQL 1.1 store through add-on J. Databricks through add-on K: a Delta table in Unity Catalog with the columns `subject`, `predicate`, `object`, `datatype`, `lang`, `graph`. | Counts per graph and per predicate equal the files' (`triplestore.py`). Then export each store back to N-Triples and diff it with the source: zero lost, zero added. | J built and tested on Jena Fuseki 6.2.0 (counts only, on the library and a multi-module ontology, loading the unskolemized files; the export diff is planned). K planned |
 | 4. Local Neo4j | Project with n10s: SKILL.md steps 4 to 6. | `check-report` passes: what n10s compiled, one fail case per row, the round trip and two equal hashes (`pipeline.md`, rules 13 to 17). | Built |
 | 5. Aura or any Neo4j | Copy the verified graph with add-on I. | The target's graph hash equals the local one and the report's. | Built; run against a local second Neo4j and Aura Free |
 | 6. Rebuild | Delete the local Neo4j and the Aura data. Rebuild both, taking a store's export (for example the Databricks Delta table) as the source of hops 4 and 5. | The rebuilt graph's hash equals the hash from hop 4, and its round trip against the original source files loses and adds nothing. That proves source → store → Neo4j and Aura loses nothing. | Planned |
@@ -69,19 +69,19 @@ The diagram is `diagrams/validation-path.png` (source `diagrams/validation-path.
 
 | # | Checks | Without it | Command, record | Rule |
 |---|---|---|---|---|
-| V13 | Aura copy: the Aura hash equals the local hash and the report's `determinism_hash_sorted` | a copy that dropped or changed anything would go unseen | `copy_graph.py --expect-hash`; stops, prints both hashes | `add-ons.md`, I |
-| V14 | Triple store: counts per graph, per predicate, and three-way (files, store, the report's export) | a store that lost triples would go unseen | `triplestore.py`; its report's `passed` and `failures`, exit 1 | `add-ons.md`, J |
+| V13 | Aura copy: the Aura hash equals the local hash and the report's `determinism_hash_sorted` | a copy that dropped or changed anything would go unseen | `copy_graph.py --report`; stops before touching the target unless the report passed and its hash matches the source; prints both hashes | `add-ons.md`, I |
+| V14 | Triple store: counts per graph, per predicate, and three-way (files, store, the report's export) | a store that lost triples would go unseen | `triplestore.py`; its report, written only when every count matched (else `<report>.failed`, exit 1) | `add-ons.md`, J |
 
 **GRAPH TYPE on Aura** (Enterprise or Aura; Community refuses it)
 
 | # | What | Rule |
 |---|---|---|
-| G1 | `build.py graph-type` prints one `ALTER CURRENT GRAPH TYPE SET` statement from the `sh:targetClass` shapes, with what it leaves out as `// left out:` comments | `add-ons.md`, H |
+| G1 | `build.py graph-type` prints one `ALTER CURRENT GRAPH TYPE SET` statement from the `sh:targetClass` shapes and the data (list types follow the load's multivalued list; no empty node type), with what it leaves out as `// left out:` comments | `add-ons.md`, H |
 | G2 | Apply it after V13, on the copied graph, and confirm with `SHOW CURRENT GRAPH TYPE`; the data already passed V6 to V13, so it is accepted | `add-ons.md`, H |
 | G3 | Probe: a write that breaks the type must fail with `Neo.ClientError.Schema.ConstraintValidationFailed`; roll it back | `add-ons.md`, H |
 | G4 | From then on the database rejects bad writes from applications, where n10s cannot run | `add-ons.md`, H |
 
-It covers labels, property types, `NOT NULL` (from `sh:minCount 1` with `sh:maxCount 1`), lists and relationship endpoints. It leaves out relationship counts, `sh:in`, `sh:pattern`, ranges and lengths, which have no `GRAPH TYPE` form. Coverage depends on `sh:targetClass` shapes: a shape that targets by node or by SHACL-SPARQL gives no element type (on one test ontology, one node type and two relationship types). It guards later writes; the n10s gate (V6 to V12) stays the proof that the projection is right.
+It covers labels, property types, `NOT NULL` (from `sh:minCount 1` with `sh:maxCount 1`), lists and relationship endpoints. It leaves out relationship counts, `sh:in`, `sh:pattern`, ranges and lengths, which have no `GRAPH TYPE` form. Coverage depends on `sh:targetClass` shapes: a shape that targets by node or by SHACL-SPARQL gives no element type (on one multi-module test ontology, 35 node and 46 relationship element types). It guards later writes; the n10s gate (V6 to V12) stays the proof that the projection is right.
 
 ## Why each step is there
 

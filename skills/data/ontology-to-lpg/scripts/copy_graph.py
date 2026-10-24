@@ -5,9 +5,9 @@ the copy is identical by the graph hash.
 n10s is not available on Aura, so the projection is built and verified locally (load_verify.py),
 and this script copies the result with plain Cypher over the Python driver.
 
-Run: NEO4J_PASSWORD=<local password> uv run --no-project --with neo4j python3 copy_graph.py \
-         --source bolt://127.0.0.1:<port> --target-env <file> [--batch 1000] [--replace] \
-         [--expect-hash <determinism_hash_sorted from the report>]
+Run: NEO4J_PASSWORD=<local password> uv run --no-project --with rdflib --with neo4j python3 copy_graph.py \
+         --source bolt://127.0.0.1:<port> --target-env <file> --report <projection-report.json> \
+         [--batch 1000] [--replace]
 
 --target-env names a file of KEY=VALUE lines: NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD and
 optionally NEO4J_DATABASE (the format of an Aura credentials file). The password is never printed.
@@ -19,9 +19,13 @@ _n10sValidatorConfig), which have no Resource label. It creates the n10s uniquen
 :Resource(uri) on the target first, then writes nodes and relationships in batches with UNWIND and
 dynamic labels and types (Cypher 5.26 and later; Aura runs current versions).
 
-It refuses a target that holds any node unless --replace is given, which deletes everything on the
-target first (in batches). It then hashes both graphs exactly as load_verify.py does and fails when
-they differ, or when --expect-hash is given and the source hash differs from it.
+--report is required: the projection report load_verify.py wrote. The script reads it before it
+touches either database and stops (exit 2) unless it says passed: true with equal sorted and
+shuffled hashes. It then hashes the source and stops (exit 1), before writing or deleting anything on
+the target, unless that hash equals the report's determinism_hash_sorted: only the verified graph is
+copied. It refuses a target that holds any node unless --replace is given, which deletes everything
+on the target first (in batches). After the copy it hashes the target exactly as load_verify.py
+does and fails unless it equals the source hash. Every printed value is shell-quoted.
 
 Exit 0 when the hashes match, 1 when a copy or check fails, 2 on bad input.
 """
@@ -60,9 +64,22 @@ def read_env_file(path):
 
 
 def describe_target(values):
-    """The target as it may be printed: never the password."""
-    return f"{values['NEO4J_URI']} as {values['NEO4J_USERNAME']}" + (
-        f" (database {values['NEO4J_DATABASE']})" if values.get("NEO4J_DATABASE") else "")
+    """The target as it may be printed: never the password, every value shell-quoted."""
+    return f"{lv.q(values['NEO4J_URI'])} as {lv.q(values['NEO4J_USERNAME'])}" + (
+        f" (database {lv.q(values['NEO4J_DATABASE'])})" if values.get("NEO4J_DATABASE") else "")
+
+
+def verified_hash(report_path):
+    """The determinism_hash_sorted of a report that passed, or ValueError."""
+    import json
+    with open(report_path, encoding="utf-8") as f:
+        rep = json.load(f)
+    if rep.get("passed") is not True:
+        raise ValueError(f"{report_path} does not say passed: true; copy only a verified graph")
+    h = rep.get("determinism_hash_sorted")
+    if not h or h != rep.get("determinism_hash_shuffled"):
+        raise ValueError(f"{report_path} has no pair of equal determinism hashes")
+    return h
 
 
 def batches(session, query, size):
@@ -102,7 +119,7 @@ def copy(source, target, size):
 def main(argv):
     try:
         opts, rest = build.options(argv, flags=("--replace",))
-        build.need(opts, "--source", "--target-env")
+        build.need(opts, "--source", "--target-env", "--report")
         if rest:
             raise ValueError(f"unexpected arguments: {' '.join(rest)}")
         size = int(opts.get("--batch", 1000))
@@ -110,8 +127,9 @@ def main(argv):
         if not password:
             raise ValueError("set NEO4J_PASSWORD to the local (source) password")
         target_values = read_env_file(opts["--target-env"])
+        expected = verified_hash(opts["--report"])
     except (OSError, ValueError) as exc:
-        print(f"ERROR {exc}", file=sys.stderr)
+        print(f"ERROR {lv.q(exc)}", file=sys.stderr)
         return 2
     from neo4j import GraphDatabase
     try:
@@ -121,8 +139,9 @@ def main(argv):
             database = target_values.get("NEO4J_DATABASE") or None
             with src_driver.session() as source, dst_driver.session(database=database) as target:
                 source_hash = graph_hash(source)
-                if opts.get("--expect-hash") and source_hash != opts["--expect-hash"]:
-                    print(f"FAIL the source graph hash {source_hash} is not the report's {opts['--expect-hash']}")
+                if source_hash != expected:
+                    print(f"FAIL the source graph hash {source_hash} is not the report's {expected}; "
+                          "nothing was written to the target")
                     return 1
                 present = count_nodes(target)
                 if present and not opts.get("--replace"):
@@ -134,7 +153,7 @@ def main(argv):
                 copied = copy(source, target, size)
                 target_hash = graph_hash(target)
     except Exception as exc:  # a driver, network or Cypher error
-        print(f"FAIL {exc}")
+        print(f"FAIL {lv.q(exc)}; the target may hold a partial copy")
         return 1
     print(f"copied {copied['nodes']} nodes and {copied['relationships']} relationships to {describe_target(target_values)}")
     if target_hash != source_hash:

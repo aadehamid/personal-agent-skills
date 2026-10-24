@@ -1,11 +1,12 @@
 # Apache Jena Fuseki 6.2.0 for add-on J (references/add-ons.md). Jena publishes a Dockerfile in
-# its jena-fuseki-docker package, not an image. This file fetches that package, checks it against
-# the pinned SHA-256, and builds from it as Jena's Dockerfile does: Jena's download.sh fetches the
-# server jar and checks it against Maven Central's SHA-1.
-#   docker compose --profile fuseki build      (from the docker/ folder)
+# its jena-fuseki-docker package, not an image. This file fetches that package and the server jar,
+# checks each against a pinned SHA-256, and builds as Jena's Dockerfile does, on base images pinned
+# by digest. Build it (from the docker/ folder) with:
+#   docker compose --profile fuseki build
+# and start it with `up --build`, so a stale local lpg-fuseki:6.2.0 tag is never used.
 
 ARG JENA_VERSION=6.2.0
-ARG JAVA_VERSION=21
+ARG TEMURIN_IMAGE=eclipse-temurin:21-alpine@sha256:fd52084c35bbac78890d95d57707d31ffc9d7a3324199e89c06be2a9dc71bfa0
 ARG ALPINE_IMAGE=alpine:3.21.2@sha256:56fa17d2a7e7f168a043a2712e63aed1f8543aeafdcee47c58dcffe38ed51099
 
 ## ---- Stage 1: the jena-fuseki-docker package, checked.
@@ -19,16 +20,17 @@ RUN wget -q -O package.zip \
  && unzip -q package.zip && mv "jena-fuseki-docker-${JENA_VERSION}" src
 
 ## ---- Stage 2: the server jar and a reduced Java runtime (Jena's Dockerfile, stage "base").
-FROM eclipse-temurin:${JAVA_VERSION}-alpine AS base
+FROM ${TEMURIN_IMAGE} AS base
 ARG JENA_VERSION
 ARG FUSEKI_JAR=jena-fuseki-server-${JENA_VERSION}.jar
+ARG FUSEKI_JAR_SHA256=2c92c598e65ab69d99820052e05f4277ed1d77980a8845f87545ad35b71a76ee
 RUN apk add --no-cache curl binutils
 WORKDIR /fuseki
-COPY --from=package /pkg/src/download.sh /pkg/src/entrypoint.sh /pkg/src/log4j2.properties ./
-RUN chmod a+x download.sh entrypoint.sh \
- && ./download.sh --chksum sha1 \
+COPY --from=package /pkg/src/entrypoint.sh /pkg/src/log4j2.properties ./
+RUN chmod a+x entrypoint.sh \
+ && curl -fsSL -o "${FUSEKI_JAR}" \
       "https://repo1.maven.org/maven2/org/apache/jena/jena-fuseki-server/${JENA_VERSION}/${FUSEKI_JAR}" \
- && rm download.sh
+ && echo "${FUSEKI_JAR_SHA256}  ${FUSEKI_JAR}" | sha256sum -c -
 RUN JDEPS="$(jdeps --multi-release base --print-module-deps --ignore-missing-deps ${FUSEKI_JAR})" \
  && jlink --compress 2 --strip-debug --no-header-files --no-man-pages --output /opt/java-minimal \
       --add-modules "${JDEPS},jdk.crypto.cryptoki,jdk.crypto.ec,jdk.localedata"

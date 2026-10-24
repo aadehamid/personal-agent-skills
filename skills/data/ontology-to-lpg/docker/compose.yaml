@@ -1,7 +1,8 @@
 # The services the ontology-to-lpg scripts run against (references/running.md, rule 5; add-on J).
 # Start one or both from this folder:
 #   docker compose --profile neo4j up -d      Neo4j 2025.06.2 with n10s 2025.06.1 and APOC
-#   docker compose --profile fuseki up -d     Jena Fuseki 6.2.0, in-memory dataset /ds
+#   docker compose --profile fuseki up -d --build    Jena Fuseki 6.2.0, in-memory dataset /ds (rebuilt
+#                                                    from the pinned package, jar and base images)
 #   docker compose --profile neo4j --profile fuseki down -v    remove containers and volumes
 # Required for neo4j (n10s-jar stops the start without them): LPG_RUN (a run folder holding plugins/ and import/, chmod 711 and 755) and
 # NEO4J_PASSWORD. Optional: LPG_BOLT_PORT (default 17687), LPG_FUSEKI_PORT (default 13030).

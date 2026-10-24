@@ -47,7 +47,7 @@ Serves the load step (rule 5, the container) and the running step. Read it befor
    | `passed` | `true`: `load_verify.py` writes the report only when every check passed. |
    | `samples` | Up to ten lost or added triples, five violations and five failed cases. |
 
-   `build.py check-report` fails when the report's fingerprints differ from the manifest's, or when any check in it did not pass: it needs `passed: true`, at least one fail case and every case `passed` or `no-op`, a mutant that caught a violation and was restored, equal hashes and zero round-trip differences. The template, with its empty values, fails on purpose. A report is written only at the end of a run that passed: `load_verify.py` deletes the report and `<report>.failed` when it starts, before it reads any flag, writes a temporary file beside the report and renames it into place only after every check passed. A run that stops leaves no report: a failed check writes its details to `<report>.failed` (exit 1), a driver, network or file error writes nothing (exit 1), and bad input writes nothing (exit 2). *Why:* a projection result that outlives its inputs, or a run that did not finish, is a false pass, and a shape can change while the loaded triples do not.
+   `build.py check-report` fails when the report's fingerprints differ from the manifest's, or when any check in it did not pass: it needs `passed: true`, at least one fail case, a fail case for every row in `compiled` and every case `passed` or `no-op`, a mutant that caught a violation and was restored, equal hashes and zero round-trip differences. The template, with its empty values, fails on purpose. A report is written only at the end of a run that passed: `load_verify.py` deletes the report and `<report>.failed` when it starts, before it reads any flag, writes a temporary file beside the report and renames it into place only after every check passed. A run that stops leaves no report: a failed check writes its details to `<report>.failed` (exit 1), a driver, network or file error writes nothing (exit 1), and bad input writes nothing (exit 2). *Why:* a projection result that outlives its inputs, or a run that did not finish, is a false pass, and a shape can change while the loaded triples do not.
 
 4. **Commit `inferred.nt`, the manifest and the report together, after one full workstation run.** Keep `loadable.nt`, `merged.ttl` and the downloads out of the repository; they are rebuilt from the Turtle files. *Why:* the three describe one run, and CI compares them with each other.
 
@@ -58,10 +58,10 @@ Serves the load step (rule 5, the container) and the running step. Read it befor
    ```bash
    . "<run folder>/run.env"
    LPG_RUN="$RUN" NEO4J_PASSWORD="$PASSWORD" LPG_BOLT_PORT="$PORT" \
-     docker compose -p "$CONTAINER" --profile neo4j up -d          # add --profile fuseki for add-on J
+     docker compose -p "$CONTAINER" --profile neo4j up -d   # add --profile fuseki --build for add-on J
    ```
 
-   Wait for the start with `docker compose -p "$CONTAINER" logs neo4j` showing `Started.`, run steps 1 to 3 below, then remove everything with `docker compose -p "$CONTAINER" --profile neo4j --profile fuseki down -v`, which removes the containers and their anonymous `/data` and `/logs` volumes, as `docker rm -f -v` does. Pass `--container "$CONTAINER"` to `load_verify.py` all the same; its printed `docker rm` line names a container the project prefixes, so use the `down -v` line instead. The manual recipe that follows is the reference for what the compose file does.
+   Wait for the start with `docker compose -p "$CONTAINER" logs neo4j` showing `Started.`, run steps 1 to 3 below, then remove everything with `docker compose -p "$CONTAINER" --profile neo4j --profile fuseki down -v`, which removes the containers and their anonymous `/data` and `/logs` volumes, as `docker rm -f -v` does. Pass `--compose-project "$CONTAINER"` to `load_verify.py` (in place of `--container`), so the clean-up line it prints is that `down -v` line. The manual recipe that follows is the reference for what the compose file does.
 
    The plugins folder must be writable: the image changes its owner and writes `apoc.jar` into it, so a read-only mount (`:ro`) stops the container. Make new folders for each run, and copy the checked n10s jar into the plugins folder, so the image never writes into the folder that holds your downloads.
 
@@ -76,7 +76,8 @@ Serves the load step (rule 5, the container) and the running step. Read it befor
    docker run -d --name "$CONTAINER" -p "127.0.0.1:$PORT:7687" \
      -e NEO4J_AUTH="neo4j/$PASSWORD" -e NEO4J_PLUGINS='["apoc"]' \
      -e NEO4J_dbms_security_procedures_unrestricted='apoc.*,n10s.*' \
-     -v "$RUN/import":/import -v "$RUN/plugins":/plugins neo4j:2025.06.2
+     -v "$RUN/import":/import -v "$RUN/plugins":/plugins \
+     neo4j:2025.06.2@sha256:0347fe5b1126dd328cc68a54449c2cf83636e348e2da1547abf62b2dbfad67f2
    ```
 
    The `chmod 711` on the run folder and `755` on the two mounted folders matter: a folder only its owner can open (what `mktemp -d` makes) stops the container at once ("Folder /plugins is not accessible for user: neo4j"), while `run.env` itself stays readable by you alone.
@@ -98,8 +99,8 @@ Serves the load step (rule 5, the container) and the running step. Read it befor
    ```
 
    Then, in this order, each command starting with `. "<run folder>/run.env"`:
-   1. run `load_verify.py` as its docstring shows, with `NEO4J_PASSWORD="$PASSWORD"`, `--bolt "bolt://127.0.0.1:$PORT"`, `--import-dir "$RUN/import"`, `--plugins-dir "$RUN/plugins"`, `--container "$CONTAINER"` and the configuration, shape, data, `merged.ttl`, `loadable.nt`, `inferred.nt` and `--report` arguments. It prints its next step with that container name;
-   2. if it exits 1 or 2, stop here, do not run `check-report`, and go to step 4. No report exists then; on exit 1 after the database checks, `<report>.failed` holds the values. A case with status `no case` needs a manual case: write one in a `--manual-cases` file (`pipeline.md`, rule 14) and rerun from step 1. Every rerun runs every case again;
+   1. run `load_verify.py` as its docstring shows, with `NEO4J_PASSWORD="$PASSWORD"`, `--bolt "bolt://127.0.0.1:$PORT"`, `--import-dir "$RUN/import"`, `--plugins-dir "$RUN/plugins"`, `--container "$CONTAINER"` (or `--compose-project "$CONTAINER"` when you started it with the compose file) and the configuration, shape, data, `merged.ttl`, `loadable.nt`, `inferred.nt` and `--report` arguments. It prints its next step with that container name;
+   2. if it exits 1 or 2, stop here and do not run `check-report`. No report exists then; on exit 1 after the database checks, `<report>.failed` holds the values. The run deleted the report path when it started, so if that path is the committed report, restore it (`git restore projection-report.json`) and never stage `<report>.failed`. To try again after a fix (a case with status `no case` needs a manual case in a `--manual-cases` file, `pipeline.md`, rule 14), rerun step 1 while the container is still up; `load_verify.py` empties the database itself. If you stop instead, go to step 4. Every rerun runs every case again;
    3. run `build.py check-report --manifest projection-manifest.json --report projection-report.json`, as in rule 1; if you copy the graph to another Neo4j, such as Aura (`add-ons.md`, add-on I), do it now, while the container is up;
    4. only then `docker rm -f -v "$CONTAINER"` (with the compose file, `docker compose -p "$CONTAINER" --profile neo4j --profile fuseki down -v`), then delete the run folder with its `run.env`. If you stop before `check-report` passes, do the same anyway; `docker ps -a` then lists no projection container. The `-v` removes the container's anonymous `/data` and `/logs` volumes; without it each run leaves them behind, and after a few runs Docker's disk fills and Neo4j fails to start ("Database name 'system' is invalid"). *Why:* the load script reads `file:///import/...`; Community edition has one user database, so the determinism check empties it between loads (`pipeline.md`, rule 17); and a forgotten container with a known password is an open database on the workstation.
 

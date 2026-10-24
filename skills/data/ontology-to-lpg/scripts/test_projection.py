@@ -364,12 +364,15 @@ class InGraphShapes(unittest.TestCase):
         self.assertIn((lib("CopyShape-barcode"), SH.maxCount, Literal(1)), self.sub)
         self.assertIn((lib("CopyShape"), SH.targetClass, lib("Copy")), self.sub)
 
-    def test_the_subset_still_catches_a_mutant(self):
-        # The in-graph check must be able to fail: remove a required value and expect a violation.
+    def test_the_sanitised_shapes_still_reject_a_missing_value_in_pyshacl(self):
+        # A pySHACL check of the import-safe file, not of the engine: the engine's mutant is
+        # load_verify.mutant, run against what listShapes() reads back (pipeline.md, rule 15).
         data = module()
         conforms, _, _ = validate(data, shacl_graph=self.sub)
         self.assertTrue(conforms)
         data.remove((COPY, lib("barcode"), None))
+        conforms, _, _ = validate(data, shacl_graph=self.sub)
+        self.assertFalse(conforms)
         conforms, report, _ = validate(data, shacl_graph=self.sub)
         self.assertFalse(conforms)
         self.assertIn((None, SH.resultPath, lib("barcode")), report)
@@ -581,7 +584,7 @@ class InGraphReviewRoundOne(unittest.TestCase):
             sub, _ = igs.subset(minimal_shape(SH.datatype, dt))
             self.assertIn((lib("S-p"), SH.datatype, dt), sub, dt)
 
-    # 10: a property shape a kept node shape uses survives; sh:and is dropped and recorded
+    # 10: a property shape a kept node shape uses survives
     def test_shared_property_shape_survives_an_untargeted_node(self):
         full = shapes()
         full.add((lib("Untargeted"), RDF.type, SH.NodeShape))
@@ -593,10 +596,6 @@ class InGraphReviewRoundOne(unittest.TestCase):
         conforms, _, _ = validate(data, shacl_graph=sub)
         self.assertFalse(conforms)
 
-    # 11: every term the subset leaves out is exercised on its own
-    # Written out, not read from igs.UNSUPPORTED, so deleting an entry there fails this test.
-    DROPPED = (SH["not"], SH.languageIn, SH.node, SH.targetSubjectsOf, SH.targetObjectsOf, SH["and"], SH["or"],
-               SH.xone, SH.target, SH.sparql, SH.pattern, SH.flags)
 
     # 13: a literal sh:hasValue is dropped; an IRI one stays
     def test_literal_has_value_is_dropped(self):

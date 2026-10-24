@@ -21,7 +21,7 @@ Run with: uv run --no-project --with rdflib python3 build.py <command> ...
             Fails unless both files are in byte order without duplicates, and inferred.nt holds only
             rdf:type and rdfs:subClassOf triples between two IRIs whose object is outside the OWL and
             RDFS namespaces (the step 4 gate in SKILL.md).
-  graph-type --config <config.json> --shapes <shapes.ttl>...
+  graph-type --config <config.json> --shapes <shapes.ttl>... <data.ttl>...
             Prints an ALTER CURRENT GRAPH TYPE SET statement generated from the shapes (Cypher 25,
             Enterprise Edition, introduced in Neo4j 2026.02), with what it leaves out as comments
             (add-ons.md, H).
@@ -39,6 +39,7 @@ file cannot be read or the arguments are wrong.
 import hashlib
 import json
 import os
+import shlex
 import sys
 
 from rdflib import Graph, Literal, URIRef
@@ -218,14 +219,22 @@ def _q(name):
     return "`" + name.replace("`", "``") + "`"
 
 
-def graph_type(cfg, shapes):
-    """(statement, left out) for the shapes: one node element type per sh:targetClass, with a typed
-    property for each literal property shape that names a mappable sh:datatype (NOT NULL when
-    sh:minCount is at least 1 and sh:maxCount is 1, LIST<T> when there is no sh:maxCount 1), and one
-    relationship element type per predicate whose property shapes name one sh:class, from the
-    shapes' target class to that class. Everything else is listed in left out."""
+def graph_type(cfg, shapes, data):
+    """(statement, left out) for the shapes: one node element type per sh:targetClass that has at
+    least one typed property, and one relationship element type per predicate whose property shapes
+    name one sh:class, from the shapes' target class to that class. An endpoint may name a label
+    with no node element type of its own (Aura Free accepted it on 2026-10-23); an empty node element
+    type `(:Label =>)` is a syntax error there, so none is written.
+
+    A property is typed from a mappable sh:datatype. It is a LIST<T NOT NULL> exactly when the load
+    stores it as an array, which is the global multivalued decision of the load script
+    (multivalued(data, shapes), references/pipeline.md, rule 10), and a scalar otherwise. It is NOT
+    NULL when sh:minCount is at least 1 (Aura Free accepted `LIST<STRING NOT NULL> NOT NULL`). When two property shapes on one target map one key
+    differently, the first (by shape IRI) is kept and the other is listed. Everything that has no
+    GRAPH TYPE form is listed in left out."""
     from rdflib import BNode
     from rdflib.namespace import SH, XSD
+    multi = set(multivalued(data, shapes))
     nodes, rels, left_out = {}, {}, []
     for ns in sorted(set(shapes.subjects(SH.targetClass, None)), key=str):
         for cls in sorted(shapes.objects(ns, SH.targetClass), key=str):
@@ -239,7 +248,15 @@ def graph_type(cfg, shapes):
                 key = shorten(path, cfg)
                 dt, target = shapes.value(ps, SH.datatype), shapes.value(ps, SH["class"])
                 min_c, max_c = shapes.value(ps, SH.minCount), shapes.value(ps, SH.maxCount)
-                single = max_c is not None and int(max_c) == 1
+                for term in ("in", "hasValue", "pattern", "minInclusive", "maxInclusive", "minExclusive",
+                             "maxExclusive", "minLength", "maxLength", "disjoint", "nodeKind"):
+                    if (ps, SH[term], None) in shapes:
+                        left_out.append(f"{label}.{key}: sh:{term} (no GRAPH TYPE form)")
+                if max_c is not None and int(max_c) > 1 or (min_c is not None and int(min_c) > 1):
+                    left_out.append(f"{label}.{key}: a count other than 0 or 1")
+                if dt is not None and target is not None:
+                    left_out.append(f"{label}.{key}: sh:class {target} beside sh:datatype; the property is typed, "
+                                    "the relationship left out")
                 if dt is not None:
                     if str(dt) == LANG_STRING:
                         base = "STRING"
@@ -248,25 +265,29 @@ def graph_type(cfg, shapes):
                     else:
                         left_out.append(f"{label}.{key}: sh:datatype {dt} has no GRAPH TYPE property type")
                         continue
-                    kind = base if single else f"LIST<{base} NOT NULL>"
-                    required = single and min_c is not None and int(min_c) >= 1
-                    props[key] = f"{_q(key)} :: {kind}" + (" NOT NULL" if required else "")
+                    listed = str(path) in multi
+                    kind = f"LIST<{base} NOT NULL>" if listed else base
+                    required = min_c is not None and int(min_c) >= 1
+                    spec = f"{_q(key)} :: {kind}" + (" NOT NULL" if required else "")
+                    if key in props and props[key] != spec:
+                        left_out.append(f"{label}.{key}: a second property shape maps it as {spec}; "
+                                        f"kept {props[key]}")
+                    else:
+                        props.setdefault(key, spec)
                 elif target is not None:
                     rels.setdefault(key, set()).add((label, shorten(target, cfg)))
+                    if min_c is not None or max_c is not None:
+                        left_out.append(f"{label}.{key}: relationship counts (no GRAPH TYPE form)")
                 else:
                     left_out.append(f"{label}.{key}: no sh:datatype or sh:class to map")
-                for term in ("in", "hasValue", "pattern", "minInclusive", "maxInclusive", "minExclusive",
-                             "maxExclusive", "minLength", "maxLength", "disjoint", "nodeKind"):
-                    if (ps, SH[term], None) in shapes:
-                        left_out.append(f"{label}.{key}: sh:{term} (no GRAPH TYPE form)")
-                if max_c is not None and int(max_c) > 1 or (min_c is not None and int(min_c) > 1):
-                    left_out.append(f"{label}.{key}: a count other than 0 or 1")
-                if target is not None and (min_c is not None or max_c is not None):
-                    left_out.append(f"{label}.{key}: relationship counts (no GRAPH TYPE form)")
             if (ns, SH.closed, None) in shapes:
                 left_out.append(f"{label}: sh:closed (a graph type is open)")
-    elements = [f"  (:{_q(label)} =>" + (" {" + ", ".join(props[k] for k in sorted(props)) + "}" if props else "") + ")"
-                for label, props in sorted(nodes.items())]
+    elements = []
+    for label, props in sorted(nodes.items()):
+        if props:
+            elements.append(f"  (:{_q(label)} => {{" + ", ".join(props[k] for k in sorted(props)) + "})")
+        else:
+            left_out.append(f"{label}: no typed property, so no node element type")
     for key, ends in sorted(rels.items()):
         if len(ends) > 1:
             left_out.append(f"{key}: relationship type used between several label pairs "
@@ -296,6 +317,15 @@ def check_report(man, rep):
     cases = rep.get("fail_cases")
     if not isinstance(cases, list) or not cases:
         fails.append("report has no fail cases (pipeline.md, rule 14)")
+    compiled = rep.get("compiled")
+    if compiled is not None:
+        def key(r):
+            return (r.get("target"), r.get("path"), r.get("param"), json.dumps(r.get("value"), sort_keys=True, default=str))
+        missing = {key(r) for r in compiled} - {key(c) for c in cases or []}
+        if not compiled:
+            fails.append("report lists no compiled rows")
+        if missing:
+            fails.append(f"report has no fail case for {len(missing)} compiled row(s), such as {sorted(missing)[0]}")
     failed = [f"{c.get('target')} {c.get('path')} {c.get('param')}" for c in cases or []
               if c.get("status") not in ("passed", "no-op")]
     if failed:
@@ -309,6 +339,17 @@ def check_report(man, rep):
         if mutant.get("after_restore") != 0:
             fails.append("report mutant was not restored to zero violations")
     return fails
+
+
+def named_paths(argv, flag):
+    """Every path argv names for flag, as `flag PATH` or `flag=PATH`, read before any flag is checked."""
+    paths = []
+    for i, arg in enumerate(argv):
+        if arg == flag and i + 1 < len(argv) and not argv[i + 1].startswith("--"):
+            paths.append(argv[i + 1])
+        elif arg.startswith(flag + "=") and len(arg) > len(flag) + 1:
+            paths.append(arg[len(flag) + 1:])
+    return paths
 
 
 def options(argv, multi=("--shapes",), flags=("--verify",)):
@@ -358,19 +399,19 @@ def main(argv):
                 raise ValueError("no data files")
             merged = parse(data)
             merged.serialize(opts["--output"], format="turtle")
-            print(f"wrote {opts['--output']}: {len(merged)} triples from {len(data)} file(s)")
+            print(f"wrote {shlex.quote(opts['--output'])}: {len(merged)} triples from {len(data)} file(s)")
         elif command == "loadable":
             need(opts, "--output")
             if not data:
                 raise ValueError("no data files")
             text = sorted_nt(parse(data))
             write(opts["--output"], text)
-            print(f"wrote {opts['--output']}: {text.count(chr(10))} triples")
+            print(f"wrote {shlex.quote(opts['--output'])}: {text.count(chr(10))} triples")
         elif command == "inferred":
             need(opts, "--input", "--reasoned", "--output")
             text = sorted_nt(inferred(parse([opts["--input"]]), parse([opts["--reasoned"]])))
             write(opts["--output"], text)
-            print(f"wrote {opts['--output']}: {text.count(chr(10))} triples")
+            print(f"wrote {shlex.quote(opts['--output'])}: {text.count(chr(10))} triples")
         elif command == "cypher":
             need(opts, "--config")
             if not data:
@@ -393,7 +434,7 @@ def main(argv):
                 print(f"{opts['--output']} is current")
             else:
                 write(opts["--output"], text)
-                print(f"wrote {opts['--output']}")
+                print(f"wrote {shlex.quote(opts['--output'])}")
         elif command == "check-serialised":
             need(opts, "--loadable", "--inferred")
             fails = check_serialised(read_bytes(opts["--loadable"]), read_bytes(opts["--inferred"]))
@@ -404,10 +445,14 @@ def main(argv):
             print("loadable.nt and inferred.nt are in byte order, and inferred.nt holds only kept inferences")
         elif command == "graph-type":
             need(opts, "--config")
-            statement, left_out = graph_type(load_config(opts["--config"]), parse(opts.get("--shapes", [])))
+            if not data:
+                raise ValueError("give the data files: the property types follow the load's multivalued list")
+            statement, left_out = graph_type(load_config(opts["--config"]), parse(opts.get("--shapes", [])),
+                                             parse(data))
             print(statement)
             for line in left_out:
-                print(f"// left out: {line}")
+                # One line each, escaped: a shapes term cannot break out of the Cypher comment.
+                print("// left out: " + json.dumps(line, ensure_ascii=False)[1:-1])
         elif command == "check-report":
             need(opts, "--manifest", "--report")
             with open(opts["--manifest"], encoding="utf-8") as f:

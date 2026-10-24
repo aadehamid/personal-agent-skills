@@ -28,6 +28,7 @@ This script gates nothing. What n10s compiled is read back from the engine by lo
 
 Exit 0 on success, 2 when a file cannot be read or the arguments are wrong.
 """
+import shlex
 import sys
 
 from rdflib import BNode, Graph, Literal, URIRef
@@ -78,6 +79,10 @@ LISTED_AS = {SH.nodeKind: "sh:NodeKind", SH.disjoint: "sh:hasValue"}
 def _inverse(shapes, ps):
     path = shapes.value(ps, SH.path)
     return isinstance(path, BNode) and shapes.value(path, SH.inversePath) is not None
+
+
+def q(text):
+    return shlex.quote(str(text))
 
 
 def sanitize_reason(shapes, p, o, s=None):
@@ -165,11 +170,13 @@ def main(argv):
         return 2
     g, dropped = subset(shapes)
     g.serialize(output, format="turtle")
+    # Every value is shell-quoted: a shapes file can put a newline or $(...) in an IRI or a literal.
     for shape, constraint, reason in dropped:
-        print(f"left out {shape.n3(shapes.namespace_manager)} {constraint.n3(shapes.namespace_manager)}: {reason}")
-    print(f"wrote {output}: {len(g)} triples, {len(dropped)} term(s) left out")
+        print(f"left out {q(shape.n3(shapes.namespace_manager))} {q(constraint.n3(shapes.namespace_manager))}: "
+              f"{q(reason)}")
+    print(f"wrote {q(output)}: {len(g)} triples, {len(dropped)} term(s) left out")
     for target, path, term in sorted(predict(g, lambda iri: iri.n3(g.namespace_manager)), key=str):
-        print(f"PREDICTION (advisory; load_verify.py reads what n10s compiled): {target} {path} {term}")
+        print(f"PREDICTION (advisory; load_verify.py reads what n10s compiled): {q(target)} {q(path)} {q(term)}")
     return 0
 
 
