@@ -46,7 +46,7 @@ Keep the order, except Step 8, which runs right after Step 0. Before you work on
 11. **Regression.** Read `references/regression.md`.
     Done when: every competency question passes on the released packages, or is partial, parked or waiting by a recorded decision that names what it waits for.
 12. **Property-graph projection (optional).** Read `references/lpg-projection.md`, then load the `ontology-to-lpg` skill, which holds the method; its design rules apply from Step 1. To hold the release in triple stores and Neo4j or Aura with proof that nothing is lost, follow its `references/multi-store.md`.
-    Done when: `ontology-to-lpg`'s steps 4 and 6 are done over every released package: its `build.py check-serialised` passes on `loadable.nt` and `inferred.nt`, its `build.py check-report` passes on the report (written only by a run whose every check passed, every compiled shape row tested), and the container has been removed with the clean-up line its `load_verify.py` printed (`docker compose -p <project> ... down -v` when started from its compose file with `--compose-project`, else `docker rm -f -v <container>`).
+    Done when: every "Done when" gate of `ontology-to-lpg` steps 2 to 6 is met, in that skill's words, over the newest release of every module: its step 2 (`check_projection_rules.py --releases`) proves each module is pinned at its newest version, its step 4 passes `build.py check-serialised` and records the manifest, and its step 6 ends with `build.py check-report` passing and the clean-up line `load_verify.py` printed.
 
 ## Rules that apply at every step
 
