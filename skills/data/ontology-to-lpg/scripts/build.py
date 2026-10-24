@@ -341,7 +341,7 @@ def report_earned(rep):
             return (r.get("target"), r.get("path"), r.get("param"), json.dumps(r.get("value"), sort_keys=True, default=str))
         missing = {key(r) for r in compiled} - {key(c) for c in cases or [] if isinstance(c, dict)}
         if missing:
-            fails.append(f"report has no fail case for {len(missing)} compiled row(s), such as {sorted(missing)[0]}")
+            fails.append(f"report has no fail case for {q(len(missing))} compiled row(s), such as {sorted(missing)[0]}")
     failed = [f"{c.get('target')} {c.get('path')} {c.get('param')}" for c in cases or []
               if not isinstance(c, dict) or c.get("status") not in ("passed", "no-op")]
     if failed:
@@ -404,7 +404,7 @@ def write(path, text):
 
 def main(argv):
     if not argv:
-        print(USAGE, file=sys.stderr)
+        print(q(USAGE), file=sys.stderr)
         return 2
     command, rest = argv[0], argv[1:]
     try:
@@ -415,30 +415,30 @@ def main(argv):
                 raise ValueError("no data files")
             merged = parse(data)
             merged.serialize(opts["--output"], format="turtle")
-            print(f"wrote {q(opts['--output'])}: {len(merged)} triples from {len(data)} file(s)")
+            print(f"wrote {q(opts['--output'])}: {q(len(merged))} triples from {q(len(data))} file(s)")
         elif command == "loadable":
             need(opts, "--output")
             if not data:
                 raise ValueError("no data files")
             text = sorted_nt(parse(data))
             write(opts["--output"], text)
-            print(f"wrote {q(opts['--output'])}: {text.count(chr(10))} triples")
+            print(f"wrote {q(opts['--output'])}: {q(text.count(chr(10)))} triples")
         elif command == "inferred":
             need(opts, "--input", "--reasoned", "--output")
             text = sorted_nt(inferred(parse([opts["--input"]]), parse([opts["--reasoned"]])))
             write(opts["--output"], text)
-            print(f"wrote {q(opts['--output'])}: {text.count(chr(10))} triples")
+            print(f"wrote {q(opts['--output'])}: {q(text.count(chr(10)))} triples")
         elif command == "cypher":
             need(opts, "--config", "--output")
             if not data:
                 raise ValueError("no data files")
             cfg = load_config(opts["--config"])
             if cfg.rule4 == "4b":
-                print(cpr.RULE_4B_STOP.format(script="build.py cypher"), file=sys.stderr)
+                print(q(cpr.RULE_4B_STOP.format(script="build.py cypher")), file=sys.stderr)
                 return 2
             text = cypher(cfg, parse(data), parse(opts.get("--shapes", [])))
             write(opts["--output"], text)
-            print(f"wrote {q(opts['--output'])}: {text.count(chr(10))} statements")
+            print(f"wrote {q(opts['--output'])}: {q(text.count(chr(10)))} statements")
         elif command == "manifest":
             need(opts, "--config", "--loadable", "--inferred", "--output")
             root = os.path.dirname(os.path.abspath(opts["--output"]))
@@ -470,7 +470,7 @@ def main(argv):
             # The statement goes to a file, never to the terminal; each left-out line is one quoted
             # Cypher comment, so a shapes term cannot break out of it.
             write(opts["--output"], statement + "\n" + "".join(comment("left out: " + line) + "\n" for line in left_out))
-            print(f"wrote {q(opts['--output'])}: {statement.count(' =>')} element types, {len(left_out)} left out")
+            print(f"wrote {q(opts['--output'])}: {q(statement.count(' =>'))} element types, {q(len(left_out))} left out")
         elif command == "check-report":
             need(opts, "--manifest", "--report")
             with open(opts["--manifest"], encoding="utf-8") as f:

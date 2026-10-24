@@ -769,7 +769,7 @@ def main(argv):
         print(f"ERROR {q(exc)}", file=sys.stderr)
         return 2
     if cfg.rule4 == "4b":
-        print(cpr.RULE_4B_STOP.format(script="load_verify.py"), file=sys.stderr)
+        print(q(cpr.RULE_4B_STOP.format(script="load_verify.py")), file=sys.stderr)
         return 2
     report_path = opts["--report"]
     try:

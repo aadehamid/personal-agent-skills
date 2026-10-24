@@ -171,7 +171,7 @@ def main(argv):
     for shape, constraint, reason in dropped:
         print(f"left out {q(shape.n3(shapes.namespace_manager))} {q(constraint.n3(shapes.namespace_manager))}: "
               f"{q(reason)}")
-    print(f"wrote {q(output)}: {len(g)} triples, {len(dropped)} term(s) left out")
+    print(f"wrote {q(output)}: {q(len(g))} triples, {q(len(dropped))} term(s) left out")
     for target, path, term in sorted(predict(g, lambda iri: iri.n3(g.namespace_manager)), key=str):
         print(f"PREDICTION (advisory; load_verify.py reads what n10s compiled): {q(target)} {q(path)} {q(term)}")
     return 0

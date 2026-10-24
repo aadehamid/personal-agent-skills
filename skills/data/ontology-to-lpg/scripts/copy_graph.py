@@ -23,7 +23,8 @@ dynamic labels and types (Cypher 5.26 and later; Aura runs current versions).
 touches either database and stops (exit 2) unless the report earns its pass: passed alone is not
 trusted, and build.report_earned rechecks every field check-report checks except the fingerprints
 (the numbers, equal hashes, a passing case for every compiled row, the mutant). It also stops on an
-unknown flag, such as the old --expect-hash, and when the target URI is the source. It then hashes the source and stops (exit 1), before writing or deleting anything on
+unknown flag, such as the old --expect-hash, and (exit 1, before any write or delete) when the
+target is the source database, compared by the id db.info() returns on both. It then hashes the source and stops (exit 1), before writing or deleting anything on
 the target, unless that hash equals the report's determinism_hash_sorted: only the verified graph is
 copied. It refuses a target that holds any node unless --replace is given, which deletes everything
 on the target first (in batches). After the copy it hashes the target exactly as load_verify.py
@@ -68,8 +69,9 @@ def read_env_file(path):
 
 def describe_target(values):
     """The target as it may be printed: never the password, every value shell-quoted."""
-    return f"{q(values['NEO4J_URI'])} as {q(values['NEO4J_USERNAME'])}" + (
-        f" (database {q(values['NEO4J_DATABASE'])})" if values.get("NEO4J_DATABASE") else "")
+    if values.get("NEO4J_DATABASE"):
+        return f"{q(values['NEO4J_URI'])} as {q(values['NEO4J_USERNAME'])} (database {q(values['NEO4J_DATABASE'])})"
+    return f"{q(values['NEO4J_URI'])} as {q(values['NEO4J_USERNAME'])}"
 
 
 def verified_hash(report_path):
@@ -83,6 +85,12 @@ def verified_hash(report_path):
     if fails:
         raise ValueError(f"{report_path} is not a verified projection report: {'; '.join(fails)}")
     return rep["determinism_hash_sorted"]
+
+
+def database_identity(session):
+    """The id Neo4j gives the database a session opens (db.info()): the same database answers with
+    the same id whatever URI, host alias or scheme reached it."""
+    return session.run("CALL db.info() YIELD id RETURN id").single()["id"]
 
 
 def batches(session, query, size):
@@ -132,8 +140,6 @@ def main(argv):
             raise ValueError("set NEO4J_PASSWORD to the local (source) password")
         target_values = read_env_file(opts["--target-env"])
         expected = verified_hash(opts["--report"])
-        if target_values["NEO4J_URI"].rstrip("/") == opts["--source"].rstrip("/"):
-            raise ValueError("the target is the source; --replace would delete the verified graph")
     except (OSError, ValueError) as exc:
         print(f"ERROR {q(exc)}", file=sys.stderr)
         return 2
@@ -144,6 +150,12 @@ def main(argv):
                                      auth=(target_values["NEO4J_USERNAME"], target_values["NEO4J_PASSWORD"])) as dst_driver:
             database = target_values.get("NEO4J_DATABASE") or None
             with src_driver.session() as source, dst_driver.session(database=database) as target:
+                # Compared by the server's own database id, before anything is written or deleted:
+                # bolt://127.0.0.1 and bolt://localhost, or neo4j:// and bolt://, can reach one database.
+                if database_identity(source) == database_identity(target):
+                    print("FAIL the target is the source database (same db.info() id); --replace would delete "
+                          "the verified graph. Nothing was written.")
+                    return 1
                 source_hash = graph_hash(source)
                 if source_hash != expected:
                     print(f"FAIL the source graph hash {q(source_hash)} is not the report's {q(expected)}; "

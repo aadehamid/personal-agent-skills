@@ -182,7 +182,7 @@ def main(argv):
             stored = int(store.select(graph_count_query(iri))[0]["n"]["value"])
             report["graphs"][iri] = {"file": path, "put_status": status, "file_triples": len(g), "store_triples": stored}
             if stored != len(g):
-                fails.append(f"graph {iri} holds {stored} triples, its file {len(g)}")
+                fails.append(f"graph {iri} holds {stored} triples, its file {q(len(g))}")
         iris = [iri for _, iri, _ in files]
         store_counts = {b["p"]["value"]: int(b["n"]["value"]) for b in store.select(predicate_count_query(iris))}
         file_counts = predicate_counts([g for _, _, g in files])
@@ -204,8 +204,10 @@ def main(argv):
         print(f"No report was written at {q(opts['--report'])}; the details are in {q(opts['--report'] + '.failed')}.")
         return 1
     lv.write_atomically(opts["--report"], report)
-    print(f"loaded {len(files)} named graphs; per-graph, per-predicate"
-          + (" and three-way" if export is not None else "") + " counts match")
+    if export is not None:
+        print(f"loaded {q(len(files))} named graphs; per-graph, per-predicate and three-way counts match")
+    else:
+        print(f"loaded {q(len(files))} named graphs; per-graph and per-predicate counts match")
     return 0
 
 

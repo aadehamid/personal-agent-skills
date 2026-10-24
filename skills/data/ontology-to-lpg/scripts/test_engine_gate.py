@@ -426,6 +426,7 @@ class CopyGraph(unittest.TestCase):
         session = fake.GraphDatabase.driver.return_value.__enter__.return_value.session.return_value.__enter__.return_value
         with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "local"}), mock.patch.dict(sys.modules, {"neo4j": fake}), \
                 mock.patch.object(cg, "graph_hash", return_value="h"), \
+                mock.patch.object(cg, "database_identity", side_effect=["source-db", "target-db"], create=True), \
                 mock.patch.object(cg, "count_nodes", return_value=5), mock.patch.object(cg, "copy") as copy:
             code, out = run_main(cg.main, ["--source", "bolt://127.0.0.1:1", "--target-env", path,
                                            "--report", passing_report(self)])
@@ -827,17 +828,6 @@ class RoundEight(unittest.TestCase):
         with open(path) as f:
             self.assertTrue(json.load(f)["passed"])
 
-    def test_store_refuses_a_projection_report_that_did_not_pass(self):
-        # Review 9, #12: export counts present and equal, so only the passed check can reject it.
-        export = ts.predicate_counts([Graph().parse(MODULE)])
-        code, out, path = self.store_main(self.tmp(), projection=passing_report(self, passed=False,
-                                                                             export_predicate_counts=export))
-        self.assertEqual(code, 2, out)
-        self.assertIn("does not say passed: true", out)
-        self.assertFalse(os.path.exists(path))
-        code, out, _ = self.store_main(self.tmp(), projection=passing_report(self, export_predicate_counts=export))
-        self.assertEqual(code, 0, out)
-
     # 3: copy only a verified graph, and never touch the target otherwise
     def copy_main(self, report_args, source_hash="h", present=5):
         env = tempfile.NamedTemporaryFile("w", suffix=".env", delete=False)
@@ -847,6 +837,7 @@ class RoundEight(unittest.TestCase):
         with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "local"}), \
                 mock.patch.dict(sys.modules, {"neo4j": mock.MagicMock()}), \
                 mock.patch.object(cg, "graph_hash", return_value=source_hash), \
+                mock.patch.object(cg, "database_identity", side_effect=["source-db", "target-db"], create=True), \
                 mock.patch.object(cg, "count_nodes", return_value=present), \
                 mock.patch.object(cg, "empty_target") as empty, mock.patch.object(cg, "copy") as copy:
             code, out = run_main(cg.main, ["--source", "bolt://x", "--target-env", env.name, "--replace", *report_args])
@@ -937,62 +928,112 @@ class RoundEight(unittest.TestCase):
 
 
 class PrintedValues(unittest.TestCase):
-    """Review 9: every value any script prints goes through shell.q (or a helper built on it). This
-    reads the syntax tree of every script in scripts/ and fails on a print, or a write to stdout or
-    stderr, that interpolates anything else."""
+    """Review 9 and quick check 10: every value any script prints goes through shell.q or
+    shell.comment. This reads the syntax tree of every script in scripts/ and fails on a call to
+    print, or to a write or print attribute aimed at stdout or stderr, any of whose positional or
+    keyword arguments is not a string or number literal, a q() or comment() call, an f-string or a +
+    of those, or a call to one of the helpers below whose every return value obeys the same rule.
+    print's file= may only name sys.stdout or sys.stderr."""
 
-    # Helpers whose result is already quoted (each tested to quote its values), and counts.
-    SAFE_CALLS = {"q", "comment", "len", "sum", "count", "remove_command", "check_report_command", "describe_target"}
+    # Helpers that build a printed line; each one's return values are checked by the same rule.
+    HELPERS = ("describe_target", "remove_command", "check_report_command")
 
-    def safe(self, node):
+    @staticmethod
+    def safe(node, helpers=()):
         import ast
         if isinstance(node, ast.Constant):
-            return True
+            return isinstance(node.value, (str, int, float)) and not isinstance(node.value, bool)
         if isinstance(node, ast.JoinedStr):
-            return all(isinstance(v, ast.Constant) or self.safe(v.value) for v in node.values)
+            return all(isinstance(v, ast.Constant) or (v.format_spec is None and PrintedValues.safe(v.value, helpers))
+                       for v in node.values)
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-            return self.safe(node.left) and self.safe(node.right)
-        if isinstance(node, ast.IfExp):
-            return self.safe(node.body) and self.safe(node.orelse)
-        if isinstance(node, ast.Name):
-            return node.id.isupper()                       # a fixed text constant such as USAGE
-        if isinstance(node, ast.Attribute):
-            return node.attr.isupper()
-        if isinstance(node, ast.Call):
-            f = node.func
-            if isinstance(f, ast.Attribute) and f.attr == "format" and self.safe(f.value):
-                return all(isinstance(k.value, ast.Constant) for k in node.keywords) and not node.args
-            name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else None
-            return name in self.SAFE_CALLS
+            return PrintedValues.safe(node.left, helpers) and PrintedValues.safe(node.right, helpers)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            return node.func.id in ("q", "comment") + tuple(helpers)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and \
+                isinstance(node.func.value, ast.Name) and node.func.value.id in ("shell", "lv", "build", "cg"):
+            return node.func.attr in ("q", "comment") + tuple(helpers)
         return False
 
-    def test_every_printed_value_goes_through_the_helper(self):
+    @staticmethod
+    def std_stream(node):
         import ast
-        import glob
+        return isinstance(node, ast.Attribute) and node.attr in ("stdout", "stderr") and \
+            isinstance(node.value, ast.Name) and node.value.id == "sys"
+
+    @classmethod
+    def unsafe_prints(cls, source, name="<source>", helpers=HELPERS):
+        import ast
         bad = []
-        for path in sorted(glob.glob(os.path.join(HERE, "*.py"))):
-            if os.path.basename(path).startswith("test_"):
+        for n in ast.walk(ast.parse(source)):
+            if not isinstance(n, ast.Call):
                 continue
-            with open(path, encoding="utf-8") as f:
-                tree = ast.parse(f.read())
-            for n in ast.walk(tree):
-                if not isinstance(n, ast.Call):
+            f = n.func
+            is_print = isinstance(f, ast.Name) and f.id == "print"
+            is_stream = isinstance(f, ast.Attribute) and f.attr in ("write", "print") and cls.std_stream(f.value)
+            if not (is_print or is_stream):
+                continue
+            for a in n.args:
+                if not cls.safe(a, helpers):
+                    bad.append(f"{name}:{n.lineno}: {ast.unparse(a)[:90]}")
+            for k in n.keywords:
+                if is_print and k.arg == "file" and cls.std_stream(k.value):
                     continue
-                is_print = isinstance(n.func, ast.Name) and n.func.id == "print"
-                is_write = (isinstance(n.func, ast.Attribute) and n.func.attr == "write"
-                            and isinstance(n.func.value, ast.Attribute) and n.func.value.attr in ("stdout", "stderr"))
-                if is_print or is_write:
-                    bad += [f"{os.path.basename(path)}:{n.lineno}: {ast.unparse(a)[:90]}"
-                            for a in n.args if not self.safe(a)]
+                if not cls.safe(k.value, helpers):
+                    bad.append(f"{name}:{n.lineno}: {k.arg}={ast.unparse(k.value)[:80]}")
+        return bad
+
+    def scripts(self):
+        import glob
+        for path in sorted(glob.glob(os.path.join(HERE, "*.py"))):
+            if not os.path.basename(path).startswith("test_"):
+                with open(path, encoding="utf-8") as f:
+                    yield os.path.basename(path), f.read()
+
+    def test_every_printed_value_goes_through_the_helper(self):
+        bad = []
+        for name, source in self.scripts():
+            bad += self.unsafe_prints(source, name)
         self.assertEqual(bad, [])
+
+    def test_the_helpers_build_only_quoted_text(self):
+        import ast
+        found = set()
+        for name, source in self.scripts():
+            for n in ast.walk(ast.parse(source)):
+                if isinstance(n, ast.FunctionDef) and n.name in self.HELPERS:
+                    found.add(n.name)
+                    returns = [r.value for r in ast.walk(n) if isinstance(r, ast.Return)]
+                    self.assertTrue(returns, n.name)
+                    for r in returns:
+                        self.assertTrue(self.safe(r, ()), f"{name}: {n.name} returns {ast.unparse(r)[:90]}")
+        self.assertEqual(found, set(self.HELPERS))
+
+    def test_the_checker_flags_the_known_escapes(self):
+        escapes = ['print(MSG)', 'print("ok", end=user)', 'print(f"{user.count(user)}")', 'print(f"{len(user)}")',
+                   'sys.stderr.write(user)', 'sys.stdout.print(user)', 'print("x", file=user_file)',
+                   'print(f"{user:>{width}}")', 'print(USAGE)', 'print(RULE.format(script=x))']
+        for src in escapes:
+            with self.subTest(src):
+                self.assertTrue(self.unsafe_prints(src), src)
+        for src in ['print("ok")', 'print(q(user))', 'print(f"a {q(user)}", file=sys.stderr)', 'print(q(USAGE))',
+                    'print(comment(x) + "\\n")']:
+            with self.subTest(src):
+                self.assertEqual(self.unsafe_prints(src), [], src)
 
     def test_the_quoting_helpers_quote(self):
         import shell
+        hostile = "a b;$(touch x)`y`<z>\n"
         self.assertEqual(shell.q("a b"), "'a b'")
         self.assertEqual(len(shlex.split(shell.comment("x\n`y` $(z) <w>")[3:])), 1)
-        self.assertIn("'p q'", lv.remove_command({"--compose-project": "p q"}))
-        self.assertIn("'a b.json'", lv.check_report_command("a b.json"))
-
+        self.assertEqual(shlex.split(lv.remove_command({"--compose-project": hostile})),
+                         ["docker", "compose", "-p", hostile, "--profile", "neo4j", "--profile", "fuseki", "down", "-v"])
+        self.assertEqual(shlex.split(lv.remove_command({"--container": hostile})), ["docker", "rm", "-f", "-v", hostile])
+        self.assertEqual(shlex.split(lv.check_report_command(hostile))[-1], hostile)
+        described = cg.describe_target({"NEO4J_URI": hostile, "NEO4J_USERNAME": hostile, "NEO4J_DATABASE": hostile,
+                                        "NEO4J_PASSWORD": "s3cret"})
+        self.assertEqual(shlex.split(described), [hostile, "as", hostile, "(database", hostile + ")"])
+        self.assertNotIn("s3cret", described)
 
 class RoundNine(unittest.TestCase):
     """Review 9 of 8648028 and cb6c005: one test per behaviour change; each fails on cb6c005."""
@@ -1025,19 +1066,10 @@ class RoundNine(unittest.TestCase):
         self.assertEqual(code, 2, out)
         self.assertIn("lists no compiled rows", out)
 
-    def test_copy_refuses_old_flags_and_the_source_as_target(self):
+    def test_copy_refuses_old_flags(self):
         code, out, _, _ = RoundEight.copy_main(self, ["--report", passing_report(self), "--expect-hash", "h"])
         self.assertEqual(code, 2, out)
         self.assertIn("--expect-hash", out)
-        env = tempfile.NamedTemporaryFile("w", suffix=".env", delete=False)
-        env.write("NEO4J_URI=bolt://x\nNEO4J_USERNAME=neo4j\nNEO4J_PASSWORD=p\n")
-        env.close()
-        self.addCleanup(os.remove, env.name)
-        with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "local"}):
-            code, out = run_main(cg.main, ["--source", "bolt://x", "--target-env", env.name,
-                                           "--report", passing_report(self)])
-        self.assertEqual(code, 2, out)
-        self.assertIn("the target is the source", out)
 
     # 5: a wider compiled ignore-list beside a stricter file list fails, whichever matches
     def test_a_stricter_closed_shape_with_no_equal_row_fails_the_case(self):
@@ -1069,6 +1101,32 @@ class RoundNine(unittest.TestCase):
         g = shape_graph((lib("S-p"), SH.datatype, XSD.gYear))
         with self.assertRaises(ValueError):
             build.graph_type(cfg(), g, Graph())
+
+    def test_a_report_path_that_cannot_be_deleted_stops(self):
+        d = self.tmp()
+        path = os.path.join(d, "r.json")
+        os.mkdir(path)
+        code, out = run_main(lv.main, ["--report", path])
+        self.assertEqual(code, 2, out)
+        self.assertIn("cannot delete the earlier report", out)
+
+    # W5: the printed next step names the skill's manifest file
+    def test_next_step_names_the_manifest(self):
+        self.assertIn("--manifest projection-manifest.json", lv.check_report_command("r.json"))
+
+
+class AddedCoverage(unittest.TestCase):
+    """Tests that lock behaviour the code already had: each passes on cb6c005 and on 88a8510.
+    test_store_refuses_a_projection_report_that_did_not_pass also passes on cb6c005 (it fails on
+    8648028, which left the stale store report in place)."""
+
+    def tmp(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(lambda: __import__("shutil").rmtree(d))
+        return d
+
+    def store_main(self, *a, **kw):
+        return RoundEight.store_main(self, *a, **kw)
 
     # 11: the mutant walks to the next candidate, and stops when none has a holder
     def test_the_mutant_takes_the_next_candidate(self):
@@ -1103,17 +1161,41 @@ class RoundNine(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertFalse(os.path.exists(path))
 
-    def test_a_report_path_that_cannot_be_deleted_stops(self):
-        d = self.tmp()
-        path = os.path.join(d, "r.json")
-        os.mkdir(path)
-        code, out = run_main(lv.main, ["--report", path])
+    def test_store_refuses_a_projection_report_that_did_not_pass(self):
+        # Review 9, #12: export counts present and equal, so only the passed check can reject it.
+        export = ts.predicate_counts([Graph().parse(MODULE)])
+        code, out, path = self.store_main(self.tmp(), projection=passing_report(self, passed=False,
+                                                                             export_predicate_counts=export))
         self.assertEqual(code, 2, out)
-        self.assertIn("cannot delete the earlier report", out)
+        self.assertIn("does not say passed: true", out)
+        self.assertFalse(os.path.exists(path))
+        code, out, _ = self.store_main(self.tmp(), projection=passing_report(self, export_predicate_counts=export))
+        self.assertEqual(code, 0, out)
 
-    # W5: the printed next step names the skill's manifest file
-    def test_next_step_names_the_manifest(self):
-        self.assertIn("--manifest projection-manifest.json", lv.check_report_command("r.json"))
+class QuickCheckTen(unittest.TestCase):
+    """Quick check 10 of 88a8510: each test here fails on 88a8510."""
+
+    def test_copy_refuses_the_source_database_under_another_uri(self):
+        # Quick check 10, #3: one server reached as bolt://127.0.0.1 and as bolt://localhost.
+        class Server:
+            def run(self, query, **_):
+                return FakeResult([{"id": "one-database"}] if "db.info()" in query else [{"n": 5}])
+
+        env = tempfile.NamedTemporaryFile("w", suffix=".env", delete=False)
+        env.write("NEO4J_URI=bolt://localhost:7687\nNEO4J_USERNAME=neo4j\nNEO4J_PASSWORD=p\n")
+        env.close()
+        self.addCleanup(os.remove, env.name)
+        fake = mock.MagicMock()
+        fake.GraphDatabase.driver.return_value.__enter__.return_value.session.return_value.__enter__.return_value = Server()
+        with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "local"}), mock.patch.dict(sys.modules, {"neo4j": fake}), \
+                mock.patch.object(cg, "graph_hash", return_value="h"), \
+                mock.patch.object(cg, "empty_target") as empty, mock.patch.object(cg, "copy") as copy:
+            code, out = run_main(cg.main, ["--source", "bolt://127.0.0.1:7687", "--target-env", env.name,
+                                           "--report", passing_report(self), "--replace"])
+        self.assertEqual(code, 1, out)
+        self.assertIn("the target is the source database", out)
+        empty.assert_not_called()
+        copy.assert_not_called()
 
 
 class FakeResultSession:

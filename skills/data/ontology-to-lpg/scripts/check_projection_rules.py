@@ -247,7 +247,7 @@ def check_rule_1(data, cfg, props):
         name = cfg.short(p)
         kinds = [k for k in KINDS if (p, RDF.type, k) in data]
         if len(kinds) != 1:
-            fails.append(("rule-1", f"Rule 1: {name} has {len(kinds)} kinds; it needs exactly one of "
+            fails.append(("rule-1", f"Rule 1: {name} has {q(len(kinds))} kinds; it needs exactly one of "
                                     "owl:ObjectProperty, owl:DatatypeProperty and owl:AnnotationProperty"))
             continue
         if kinds[0] == OWL.AnnotationProperty:
@@ -293,7 +293,7 @@ def check_rule_3(data, shapes, cfg):
     by_ns = defaultdict(list)
     for prefix, ns in cfg.prefixes.items():
         by_ns[ns].append(prefix)
-    fails += [("rule-3", f"Rule 3: the namespace {ns} has {len(ps)} prefixes: {', '.join(sorted(ps))}")
+    fails += [("rule-3", f"Rule 3: the namespace {ns} has {q(len(ps))} prefixes: {', '.join(sorted(ps))}")
               for ns, ps in sorted(by_ns.items()) if len(ps) > 1]
     return fails
 
@@ -458,7 +458,7 @@ def main(argv):
         a = args.pop(0)
         if a in ("--config", "--shapes", "--releases"):
             if not args:
-                print(USAGE, file=sys.stderr)
+                print(q(USAGE), file=sys.stderr)
                 return 2
             value = args.pop(0)
             if a == "--config":
@@ -468,12 +468,12 @@ def main(argv):
             else:
                 releases = value
         elif a.startswith("-"):
-            print(USAGE, file=sys.stderr)
+            print(q(USAGE), file=sys.stderr)
             return 2
         else:
             data.append(a)
     if config is None or not data:
-        print(USAGE, file=sys.stderr)
+        print(q(USAGE), file=sys.stderr)
         return 2
     try:
         with open(config, encoding="utf-8") as f:
@@ -482,7 +482,7 @@ def main(argv):
         print(f"ERROR cannot use {q(config)}: {q(exc)}", file=sys.stderr)
         return 2
     if cfg.rule4 == "4b":
-        print(RULE_4B_STOP.format(script="check_projection_rules.py"), file=sys.stderr)
+        print(q(RULE_4B_STOP.format(script="check_projection_rules.py")), file=sys.stderr)
         return 2
     if releases is not None and not os.path.isdir(releases):
         print(f"ERROR {q(releases)} is not a folder", file=sys.stderr)
@@ -496,9 +496,9 @@ def main(argv):
     for name, message in fails:
         print(f"FAIL {q(name)}: {q(message)}")
     if fails:
-        print(f"{len(fails)} check(s) failed", file=sys.stderr)
+        print(f"{q(len(fails))} check(s) failed", file=sys.stderr)
         return 1
-    print(f"all projection rules pass ({len(data_graph)} triples, {len(cfg.exceptions)} listed release exception(s))")
+    print(f"all projection rules pass ({q(len(data_graph))} triples, {q(len(cfg.exceptions))} listed release exception(s))")
     return 0
 
 

@@ -42,18 +42,18 @@ def main(argv):
             else:
                 shapes.append(args.pop(0))
         elif a.startswith("-"):
-            print(USAGE, file=sys.stderr)
+            print(q(USAGE), file=sys.stderr)
             return 2
         else:
             data.append(a)
     if config is None or not shapes or not data:
-        print(USAGE, file=sys.stderr)
+        print(q(USAGE), file=sys.stderr)
         return 2
     try:
         with open(config, encoding="utf-8") as f:
             cfg = cpr.Config(json.load(f))
         if cfg.rule4 == "4b":
-            print(cpr.RULE_4B_STOP.format(script="validate_data.py"), file=sys.stderr)
+            print(q(cpr.RULE_4B_STOP.format(script="validate_data.py")), file=sys.stderr)
             return 2
         data_graph, shapes_graph = cpr.parse(data), cpr.parse(shapes)
     except (OSError, ValueError) as exc:
@@ -69,7 +69,7 @@ def main(argv):
         print(f"FAIL refusal: {q(message)}")
     if not conforms or refusals:
         return 1
-    print(f"the data conforms to every shape and nothing is refused ({len(data_graph)} triples)")
+    print(f"the data conforms to every shape and nothing is refused ({q(len(data_graph))} triples)")
     return 0
 
 

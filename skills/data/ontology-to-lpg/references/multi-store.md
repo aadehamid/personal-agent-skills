@@ -31,9 +31,9 @@ The diagram is `diagrams/data-flow.png` (source `diagrams/data-flow.eraser`; the
 
 **Serialise → Neo4j, local (Docker + n10s)** (green): "n10s load (SHORTEN, fixed order)" → "Gate: n10s listShapes() readback, one fail case per compiled constraint, round trip, determinism hash". What crosses: `loadable.nt`, `inferred.nt`, `merged.ttl` and the import-safe shapes, copied into the import folder by `load_verify.py`. The checks are V6 to V12 below. Built.
 
-**Jena ⇢ Gate, "three-way counts: files, store, Neo4j"** (dashed): `triplestore.py --projection-report` compares the store's per-predicate counts with the files' and with the report's `export_predicate_counts` (check V14). Built.
+**Jena ⇢ Gate, "three-way counts (--projection-report): files, store, Neo4j"** (dashed): `triplestore.py --projection-report <projection-report.json>` compares the store's per-predicate counts with the files' and with the report's `export_predicate_counts` (check V14). Built.
 
-**Gate → Neo4j Aura, "validated graph"**: "Copy over the driver; hash must match the local graph" → "GRAPH TYPE: schema enforced by the database". `copy_graph.py` (add-on I) copies the graph that passed V12 (check V13); `build.py graph-type` (add-on H) emits the statement applied after it (G1 to G4). Built; run on Aura Free.
+**Gate → Neo4j Aura, "validated graph"**: "Copy over the driver; hash must match the local graph" → "GRAPH TYPE: schema enforced by the database". `copy_graph.py` (add-on I) copies the graph that passed V12 (check V13); `build.py graph-type --output graph-type.cypher` (add-on H) writes the statement applied after it (G1 to G4). Built; run on Aura Free.
 
 **Databricks ⇢ Rebuild test ⇢ Check** (dashed, red group): "Empty local Neo4j and Aura, rebuild both from the Databricks export, compare with the released files: no loss end to end". What crosses: the store's export as N-Triples, which re-enters the skill at "Check" and runs the whole path again; the check is hop 6. Planned.
 
@@ -63,13 +63,13 @@ The diagram is `diagrams/validation-path.png` (source `diagrams/validation-path.
 | V9 | One fail case per compiled constraint, passing only on the right node, path and component; a committed mutant is caught, then restored to 0 violations | a check that cannot fire looks the same as a pass | `fail_cases`, `mutant`, `in_graph_mutant_violations` | `pipeline.md`, rules 14 and 15 |
 | V10 | Round trip: export back to RDF, schema rows left out, 0 triples lost, 0 added | a value changed or dropped by the load would go unseen | `roundtrip_lost`, `roundtrip_added`, `export_predicate_counts` | `pipeline.md`, rule 16 |
 | V11 | Determinism: a sorted and a shuffled load give one graph hash | the result could depend on load order | `determinism_hash_sorted`, `determinism_hash_shuffled` | `pipeline.md`, rule 17 |
-| V12 | The report is written only when V6 to V11 all passed; `check-report` then requires `passed: true` and fingerprints that match the manifest (V5) | a failed or stale run could be committed as a pass | `passed`; `build.py check-report` | `running.md`, rules 3 and 5 |
+| V12 | The report is written only when V6 to V11 all passed; `check-report` then requires fingerprints that match the manifest (V5) and rechecks the report itself: `passed: true`, the numbers, equal hashes, a non-empty `compiled` list (missing or empty fails) with a passing or no-op case for every row, and the mutant | a failed or stale run could be committed as a pass | `passed`; `build.py check-report` | `running.md`, rules 3 and 5 |
 
 **Delivery**
 
 | # | Checks | Without it | Command, record | Rule |
 |---|---|---|---|---|
-| V13 | Aura copy: the Aura hash equals the local hash and the report's `determinism_hash_sorted` | a copy that dropped or changed anything would go unseen | `copy_graph.py --report <projection-report.json>`; stops before touching the target unless the report earns its pass (it rechecks every field `check-report` checks except the fingerprints) and its hash matches the source; prints both hashes | `add-ons.md`, I |
+| V13 | Aura copy: the Aura hash equals the local hash and the report's `determinism_hash_sorted` | a copy that dropped or changed anything would go unseen | `copy_graph.py --report <projection-report.json>`; stops before touching the target unless the report earns its pass and the target is not the source database (same `db.info()` id) (it rechecks every field `check-report` checks except the fingerprints) and its hash matches the source; prints both hashes | `add-ons.md`, I |
 | V14 | Triple store: counts per graph and per predicate (files against store); the three-way check (files, store, the report's export) runs only with `--projection-report <projection-report.json>` | a store that lost triples would go unseen | `triplestore.py --projection-report <projection-report.json>`; its report, written only when every count matched (else `<report>.failed`, exit 1) | `add-ons.md`, J |
 
 **GRAPH TYPE on Aura** (Enterprise or Aura; Community refuses it)

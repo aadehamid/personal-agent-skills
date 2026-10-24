@@ -67,7 +67,7 @@ Copy from `templates/`: `projection-config.json` (the configuration), `projectio
 - `in_graph_shapes.py`: the import-safe shapes (only what would break n10s left out, each with its reason) and an advisory prediction of what n10s will compile; it gates nothing;
 - `load_verify.py`: the load and verify steps against the container, gated on what `listShapes()` reads back, ending in the report;
 - `copy_graph.py`: add-on I, copies the verified graph to another Neo4j and compares graph hashes;
-- `triplestore.py`: add-on J, loads the same files into a SPARQL 1.1 store and checks the counts;
+- `triplestore.py`: add-on J, loads the same files into a SPARQL 1.1 store and checks per-graph and per-predicate counts, and with `--projection-report` the three-way counts against the n10s export;
 - `docker/compose.yaml` and `docker/fuseki/Dockerfile` (beside `scripts/`): the default way to start Neo4j with the pinned n10s, and Fuseki for add-on J (`references/running.md`, rule 5);
 - `test_projection.py` and `test_engine_gate.py`: the tests of all of them (the parts that need no database or store), run by the repository's check script (`uv run --no-project --with rdflib --with pyshacl python3 -m unittest test_projection test_engine_gate`).
 
