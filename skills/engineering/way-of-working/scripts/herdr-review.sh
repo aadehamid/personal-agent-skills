@@ -38,11 +38,14 @@ set -euo pipefail
 # checkout can rewrite mid-review: on 2026-10-24 that killed a review. So the script runs
 # from a private copy, which it removes once running (bash keeps its own handle open).
 # HERDR_REVIEW_ORIGINAL names this file in the copy, for usage and Next lines. When no copy can
-# be made (an unwritable TMPDIR), it runs in place, and the report file's mktemp fails later,
-# inside on_exit's trap, so that run still ends with its reason and Next line.
+# be made (an unwritable TMPDIR), it runs in place, as it did before it had a copy: a failure
+# after that point exits through on_exit's trap with its reason and Next line, but a rewrite of
+# this file mid-run can again end the review.
 if [ -z "${HERDR_REVIEW_ORIGINAL:-}" ]; then
   copy=""
-  if copy=$(mktemp "${TMPDIR:-/tmp}/herdr-review.copy.XXXXXX" 2>/dev/null) && cp -- "$0" "$copy"; then
+  # Neither path starts with "-" (mktemp's is under TMPDIR; $0 is the path the script was run
+  # by), so cp needs no "--".
+  if copy=$(mktemp "${TMPDIR:-/tmp}/herdr-review.copy.XXXXXX" 2>/dev/null) && cp "$0" "$copy"; then
     HERDR_REVIEW_ORIGINAL=$0 exec bash "$copy" "$@"
   fi
   if [ -n "$copy" ]; then rm -f -- "$copy"; fi
