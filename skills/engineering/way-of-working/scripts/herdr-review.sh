@@ -22,6 +22,8 @@
 #   (HERDR_WORKSPACE_ID unset, a herdr error, no review tab or pane, an unwritable
 #   report folder) prints its error on stderr, then "No review: <step> failed; the error
 #   is above." and the Next line (on_exit).
+#   A run that fails or is killed after the prompt ends the same way, with Next set to
+#   wait for that review and print its report.
 # Exit 2: bad arguments.
 # Every outcome of the prompt (completed, stalled, blocked, timed out) goes through one
 # recovery: Enter for a Cursor prompt left pasted but unsent, a wait until the reviewer
@@ -64,6 +66,7 @@ on_exit() {
   exit 1
 }
 trap on_exit EXIT
+trap 'exit 1' TERM INT HUP   # a killed run (a harness timeout) also ends through on_exit
 if [ -z "${HERDR_WORKSPACE_ID:-}" ]; then
   echo "HERDR_WORKSPACE_ID is not set: this runs only inside a Herdr pane." >&2
   step="checking for a Herdr pane" next_on_failure="run it from a Herdr pane: $rerun"
@@ -183,8 +186,11 @@ for m in re.finditer(r"pane_id=([^\s,;]+).*?tab_id=([^\s,;]+).*?cwd=(.*?)[,;]?\s
         break
 PY
   }
-  started="" out="" holder_closed=""
-  for try in 1 2 3 4 5; do   # a just-created tab's shell may not be ready yet
+  # A busy pane gets five tries (a just-created tab's shell may not be ready yet). Closing
+  # a name holder restarts that count, so its one retry always runs.
+  started="" out="" holder_closed="" try=0
+  while [ "$try" -lt 5 ]; do
+    try=$((try + 1))
     if out=$(herdr agent start "$name" --kind "$kind" --pane "$review_pane" -- "${agent_args[@]}" 2>&1); then
       started=1; break
     fi
@@ -196,9 +202,15 @@ PY
         read -r holder_tab holder_pane holder_status <<<"$holder"
         case "$holder_status" in
           idle|done)
-            herdr tab close "$holder_tab" >/dev/null
-            echo "Closed $holder_tab, a finished review that held the name $name; starting again." >&2
-            holder_closed=1
+            # Idle counts as finished: a reviewer is idle only once it finished or gave
+            # up, and this script never leaves one idle mid-review (SOURCES.md 1j). A
+            # failed close shows herdr's error; the retry runs either way.
+            if close_out=$(herdr tab close "$holder_tab" 2>&1); then
+              echo "closed $holder_tab (status $holder_status)" >&2
+            else
+              printf '%s\n' "$close_out" >&2
+            fi
+            holder_closed=1 try=0
             [ "$holder_tab" != "$review_tab" ] || create_review_tab ;;
           *)
             printf '%s\n' "$out"
@@ -300,6 +312,8 @@ PY
 # agent_prompt_stalled, agent_blocked or timeout. A completed prompt with the report
 # written is the common case; every other outcome goes to the recovery below.
 step="waiting for the review"
+# From here the review may be running, so a failure (or a kill) points at its report.
+next_on_failure="herdr agent wait $review_pane --until idle --until done --timeout 3600000 && cat '$report'"
 prompt_ok="" prompt_out=""
 if prompt_out=$(herdr agent prompt "$review_pane" "$prompt" --wait --timeout 3600000 2>&1); then prompt_ok=1; fi
 if [ -n "$prompt_ok" ] && [ -s "$report" ]; then cat "$report"; exit 0; fi

@@ -41,6 +41,7 @@ FAKE = textwrap.dedent(r'''
             tabs = [t for t in tabs if t["workspace_id"] == ws]
         out({"result": {"tabs": tabs}})
     if cmd == "tab close":
+        if "closefail" in s: err("tab_not_found")
         open(os.path.join(state, "closed-" + args[2]), "w").write("")
         out({"result": {}})
     if cmd == "tab create":
@@ -59,6 +60,10 @@ FAKE = textwrap.dedent(r'''
         # Herdr refuses a name a live agent already holds; "defaultlive" means the
         # default reviewer rev-repo is running in its own tab.
         if "defaultlive" in s and args[2] == "rev-repo": err("agent_name_taken")
+        n_path = os.path.join(state, "starts")
+        n = int(open(n_path).read()) + 1 if os.path.exists(n_path) else 1
+        open(n_path, "w").write(str(n))
+        if "busyall" in s or ("busy2" in s and n <= 2) or ("busy4" in s and n <= 4): err("agent_pane_busy")
         # "taken<status>": an earlier review in this work tree (cwd, possibly with spaces)
         # holds the name in tab w2:tEH until that tab is closed; "takenelsewhere": the
         # holder is in another directory.
@@ -72,10 +77,6 @@ FAKE = textwrap.dedent(r'''
             status = "Working" if taken[0] == "elsewhere" else taken[0][3 if own else 0:].capitalize()
             err("agent_name_taken", "agent name %s is already used; candidates: name=%s kind=cursor "
                 "pane_id=%s tab_id=%s cwd=%s status=%s" % (args[2], args[2], hpane, htab, cwd, status))
-        n_path = os.path.join(state, "starts")
-        n = int(open(n_path).read()) + 1 if os.path.exists(n_path) else 1
-        open(n_path, "w").write(str(n))
-        if "busyall" in s or ("busy2" in s and n <= 2): err("agent_pane_busy")
         if "notready" in s: err("agent_not_ready")
         out({"result": {"agent": {"name": args[2]}}})
     pending = os.path.join(state, "pending")
@@ -114,6 +115,11 @@ FAKE = textwrap.dedent(r'''
         out({"result": {"agent": {"agent_status": "blocked" if "noreport" in s else "idle"}}})
     if cmd == "agent get":
         if "getfail" in s: err("agent_not_found")
+        if "slowget" in s:
+            # The wait is under way; the test kills the script now.
+            open(os.path.join(state, "waiting"), "w").write("")
+            import time; time.sleep(1)
+            out({"result": {"agent": {"agent_status": "working"}}})
         if held:
             # "latepaste13": the poll right after the Enter still reads idle.
             lag = os.path.join(state, "lag")
@@ -680,6 +686,53 @@ class HerdrReview(unittest.TestCase):
         lines = r.stdout.splitlines()
         self.assertEqual(lines[-2], "Reviewer did not start: another review is running in w2:t3; wait for it or close it.")
         self.assertRegex(lines[-1], r"^Next: herdr agent wait w2:p3 --until idle --until done --timeout 3600000 && ")
+
+    def test_a_failed_close_shows_herdrs_error_and_still_retries(self):
+        r, calls = self.run_case("newtab,fresh,takendone,closefail")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("tab_not_found", r.stderr)
+        self.assertEqual(calls.count("agent start"), 2)
+        lines = r.stdout.splitlines()
+        self.assertTrue(lines[-2].startswith("Reviewer did not start: the error is above"), lines[-2])
+        self.assertRegex(lines[-1], r"^Next: \S*herdr-review\.sh ")
+
+    def test_the_name_holder_retry_runs_after_the_busy_tries(self):
+        r, calls = self.run_case("newtab,fresh,busy4,takendone")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(calls.count("agent start"), 6)
+        self.assertIn("closed w2:tEH (status done)", r.stderr)
+
+    def test_a_kill_during_the_wait_points_at_the_running_review(self):
+        # run_case waits for the script, so this one drives the process itself.
+        r = self.run_killed("newtab,fresh,timeout,slowget")
+        lines = r[0].splitlines()
+        self.assertEqual(r[1], 1, r)
+        self.assertEqual(lines[-2], "No review: waiting for the review failed; the error is above.")
+        self.assertRegex(lines[-1], r"^Next: herdr agent wait w2:p3 --until idle --until done --timeout 3600000 && cat '\S+review-\w+'$")
+
+    def run_killed(self, scenario):
+        import signal, time as t
+        state, bindir = tempfile.mkdtemp(), tempfile.mkdtemp()
+        with open(os.path.join(bindir, "herdr"), "w") as f:
+            f.write(FAKE)
+        os.chmod(os.path.join(bindir, "herdr"), 0o755)
+        with open(os.path.join(bindir, "sleep"), "w") as f:
+            f.write("#!/bin/sh\nexit 0\n")
+        os.chmod(os.path.join(bindir, "sleep"), 0o755)
+        repo = os.path.join(tempfile.mkdtemp(), "repo")
+        os.mkdir(repo)
+        tmp = tempfile.mkdtemp()
+        env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"], HERDR_REVIEW_DIR=tmp,
+                   FAKE_HERDR=scenario, FAKE_STATE=state, HERDR_WORKSPACE_ID="w2", TMPDIR=tmp,
+                   HERDR_REVIEW_ARTIFACT_ROOTS=tmp)
+        p = subprocess.Popen(["bash", SCRIPT, "--branch", "b", "--verify", "v"], cwd=repo, env=env,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        deadline = t.time() + 20
+        while not os.path.exists(os.path.join(state, "waiting")) and t.time() < deadline:
+            t.sleep(0.05)
+        p.send_signal(signal.SIGTERM)
+        out, err = p.communicate(timeout=30)
+        return out, p.returncode, err
 
     def test_a_name_holder_in_another_directory_is_left_alone(self):
         r, calls = self.run_case("newtab,fresh,takenelsewhere")
