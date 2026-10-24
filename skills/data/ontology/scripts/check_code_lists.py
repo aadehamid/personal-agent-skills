@@ -102,9 +102,11 @@ def label(constraint):
 
 
 def fired(data, shapes):
-    """(source shape, source constraint component) of every validation result, nested ones included."""
+    """(source shape, source constraint component, focus node, value) of every validation result,
+    nested ones included."""
     _, report, _ = validate(data, shacl_graph=shapes, advanced=True)
-    return {(report.value(r, SH.sourceShape), report.value(r, SH.sourceConstraintComponent))
+    return {(report.value(r, SH.sourceShape), report.value(r, SH.sourceConstraintComponent),
+             report.value(r, SH.focusNode), report.value(r, SH.value))
             for r in report.subjects(RDF.type, SH.ValidationResult)}
 
 
@@ -141,9 +143,12 @@ def check(data, shapes, excluded=frozenset()):
         mutated += data
         mutated.remove((s, prop, o))
         mutated.add((s, prop, witnesses[0]))
-        after = fired(mutated, shapes)
+        # A bite is a result that is new after the move, comes from the constraint's own shape and
+        # component, and names the moved value (as its focus for a scheme pin, as its value for sh:in).
+        # A result the same shape already gave for another node proves nothing.
+        new = fired(mutated, shapes) - fired(data, shapes)
         for c in cons:
-            if not c[2] & after:
+            if not any((shape, comp) in c[2] and witnesses[0] in (focus, value) for shape, comp, focus, value in new):
                 fails.append(("bites", f"{prop}: moving {s}'s value to {witnesses[0]} does not fire the shape for {label(c)}"))
     return fails
 

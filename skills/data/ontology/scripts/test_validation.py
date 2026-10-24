@@ -571,6 +571,16 @@ class CodeLists(Files):
         self.assertEqual(code, 1)
         self.assertIn("does not fire the shape for https://id.example.org/library/Format", out)
 
+    def test_a_result_the_shape_already_gave_is_not_a_bite(self):
+        # The sh:in shape targets only emma, whose genre is already wrong; moving dune's value reaches no
+        # shape, so the result the shape already reports for emma must not count as the bite.
+        only_emma = ("lib:EmmaGenre a sh:NodeShape ; sh:targetNode lib:emma ;\n"
+                     "    sh:property [ sh:path lib:genre ; sh:in ( lib:fiction lib:poetry ) ] .\n")
+        data = CODED + "lib:emma a lib:Book ; lib:genre lib:hardback .\n"
+        code, out = self.check(data, only_emma + FORMAT_SHAPE)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL bites: https://id.example.org/library/genre: moving https://id.example.org/library/dune's value", out)
+
     def test_a_rule_in_the_shapes_fails(self):
         rule = ("lib:Fix a sh:NodeShape ; sh:targetClass lib:Book ;\n"
                 "    sh:rule [ a sh:TripleRule ; sh:subject sh:this ; sh:predicate lib:genre ; sh:object lib:fiction ] .\n")
