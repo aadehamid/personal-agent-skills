@@ -124,6 +124,8 @@ FAKE = textwrap.dedent(r'''
     if cmd == "agent get":
         if "getfail" in s: err("agent_not_found")
         if "slowprompt" in s:
+            if "hangcheck" in s and os.path.exists(os.path.join(state, "waiting")):
+                import time; time.sleep(60)
             if "slowcheck" in s:
                 # The exit-time status check is under way; the test signals again now.
                 open(os.path.join(state, "checking"), "w").write("")
@@ -729,6 +731,16 @@ class HerdrReview(unittest.TestCase):
         out, code, err = self.run_killed("newtab,fresh,slowprompt,delivered,slowcheck", again="checking")
         self.assertEqual(code, 1, (out, err))
         self.assertRegex(out.splitlines()[-1], r"^Next: herdr agent wait w2:p3 ")
+
+    def test_a_status_check_that_hangs_at_exit_is_cut_off(self):
+        import time as t
+        began = t.time()
+        out, code, err = self.run_killed("newtab,fresh,slowprompt,delivered,hangcheck")
+        self.assertLess(t.time() - began, 15)
+        self.assertEqual(code, 1, (out, err))
+        lines = out.splitlines()
+        self.assertEqual(lines[-2], "No review: waiting for the review failed; the error is above.")
+        self.assertRegex(lines[-1], r"^Next: \S*herdr-review\.sh --branch b --verify v $")
 
     def run_killed(self, scenario, again=None):
         import signal, time as t

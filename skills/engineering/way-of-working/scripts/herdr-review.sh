@@ -68,7 +68,10 @@ on_exit() {
   [ -z "$prompt_file" ] || rm -f "$prompt_file"
   [ "$code" -ne 0 ] && [ -z "$trailer" ] || return 0
   if [ -n "$prompt_sent" ] && [ -z "$delivered" ]; then
-    st=$(herdr agent get "$review_pane" 2>/dev/null | jget result.agent.agent_status 2>/dev/null || true)
+    # The check gets the default signal handling back and 5 seconds (perl's alarm, since
+    # macOS has no timeout); a check that does not answer leaves the status unknown.
+    st=$( (trap - TERM INT HUP; exec perl -e 'alarm shift; exec @ARGV' 5 herdr agent get "$review_pane") 2>/dev/null \
+          | jget result.agent.agent_status 2>/dev/null || true)
     [ "$st" != working ] || delivered=1
   fi
   if [ -n "$delivered" ]; then
