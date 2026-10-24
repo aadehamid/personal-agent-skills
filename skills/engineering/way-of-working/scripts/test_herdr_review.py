@@ -124,6 +124,10 @@ FAKE = textwrap.dedent(r'''
     if cmd == "agent get":
         if "getfail" in s: err("agent_not_found")
         if "slowprompt" in s:
+            if "slowcheck" in s:
+                # The exit-time status check is under way; the test signals again now.
+                open(os.path.join(state, "checking"), "w").write("")
+                import time; time.sleep(1)
             out({"result": {"agent": {"agent_status": "working" if "delivered" in s else "idle"}}})
         if "slowget" in s:
             # The wait is under way; the test kills the script now.
@@ -721,7 +725,12 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(lines[-2], "No review: waiting for the review failed; the error is above.")
         self.assertRegex(lines[-1], r"^Next: herdr agent wait w2:p3 --until idle --until done --timeout 3600000 && cat '\S+review-\w+'$")
 
-    def run_killed(self, scenario):
+    def test_a_second_signal_during_the_exit_check_still_prints_next(self):
+        out, code, err = self.run_killed("newtab,fresh,slowprompt,delivered,slowcheck", again="checking")
+        self.assertEqual(code, 1, (out, err))
+        self.assertRegex(out.splitlines()[-1], r"^Next: herdr agent wait w2:p3 ")
+
+    def run_killed(self, scenario, again=None):
         import signal, time as t
         state, bindir = tempfile.mkdtemp(), tempfile.mkdtemp()
         with open(os.path.join(bindir, "herdr"), "w") as f:
@@ -743,6 +752,11 @@ class HerdrReview(unittest.TestCase):
             t.sleep(0.05)
         t.sleep(0.2)
         p.send_signal(signal.SIGTERM)
+        if again:
+            # A second signal while the exit trap is still working.
+            while not os.path.exists(os.path.join(state, again)) and t.time() < deadline:
+                t.sleep(0.05)
+            p.send_signal(signal.SIGTERM)
         out, err = p.communicate(timeout=10)
         return out, p.returncode, err
 
@@ -754,7 +768,7 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(calls.count("agent start"), 1)
         lines = r.stdout.splitlines()
         self.assertEqual(lines[-2], "Reviewer did not start: the review tab w2:t3 holds the name rev-repo and could not be closed (error above).")
-        self.assertRegex(lines[-1], r"^Next: herdr tab close w2:t3 && \S*herdr-review\.sh --branch b --verify v $")
+        self.assertRegex(lines[-1], r"^Next: herdr tab close w2:t3; \S*herdr-review\.sh --branch b --verify v $")
 
     def test_a_kill_during_the_prompt_wait_points_at_the_delivered_review(self):
         out, code, err = self.run_killed("newtab,fresh,slowprompt,delivered")

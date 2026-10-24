@@ -64,6 +64,7 @@ esac
 step="starting" trailer="" next_on_failure="$rerun" prompt_sent="" delivered="" prompt_file=""
 on_exit() {
   local code=$? st
+  trap '' TERM INT HUP   # a second signal must not cut the two closing lines short
   [ -z "$prompt_file" ] || rm -f "$prompt_file"
   [ "$code" -ne 0 ] && [ -z "$trailer" ] || return 0
   if [ -n "$prompt_sent" ] && [ -z "$delivered" ]; then
@@ -199,7 +200,8 @@ for m in re.finditer(r"pane_id=([^\s,;]+).*?tab_id=([^\s,;]+).*?cwd=(.*?)[,;]?\s
 PY
   }
   # A busy pane gets five tries (a just-created tab's shell may not be ready yet). Closing
-  # a name holder restarts that count, so its one retry always runs.
+  # a name holder restarts that count, so its one retry always runs; only a failed close
+  # of the review tab itself stops instead (below).
   started="" out="" holder_closed="" try=0
   while [ "$try" -lt 5 ]; do
     try=$((try + 1))
@@ -226,7 +228,7 @@ PY
               if [ "$holder_tab" = "$review_tab" ]; then
                 trailer=1
                 echo "Reviewer did not start: the review tab $review_tab holds the name $name and could not be closed (error above)."
-                echo "Next: herdr tab close $review_tab && $rerun"
+                echo "Next: herdr tab close $review_tab; $rerun"
                 exit 1
               fi
             fi
