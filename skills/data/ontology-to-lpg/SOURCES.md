@@ -50,6 +50,7 @@ Last full review: 2026-10-23. Check the sources below every three months, and wh
 | Neo4j 2025.06.2, https://github.com/neo4j/neo4j (tag `2025.06.2`, "Release 2025.06.2") | tagged 2025-07-11 | `pipeline.md`; `running.md` | The tested database version; the Docker image installs APOC through `NEO4J_PLUGINS`. |
 | Cypher Manual, "String operators", https://neo4j.com/docs/cypher-manual/current/expressions/predicates/string-operators/ | Cypher 25 manual, read 2026-10-23 | `pipeline.md`, rule 13 | `=~` takes a Java regular expression; the manual's examples prefix `.*` to match the end of a string (`n.email =~ '.*\\.se'`), because `=~` matches the whole string. |
 | Cypher Manual, "Set graph types" and "Syntax", https://neo4j.com/docs/cypher-manual/current/schema/graph-types/set-graph-types/ and https://neo4j.com/docs/cypher-manual/current/schema/syntax/ | Cypher 25 manual, read 2026-10-23 | `add-ons.md`, add-on H; `scripts/build.py graph-type` | `ALTER CURRENT GRAPH TYPE SET`: Cypher 25 only, Enterprise Edition, introduced in Neo4j 2026.02; node element types `(:Label => {p :: TYPE NOT NULL})` and relationship element types `(:A)-[:TYPE =>]->(:B)`. |
+| Runs on Aura Free, 2026-10-23 | server `5.27-aura`, Enterprise, Cypher 5 and 25 | `add-ons.md`, add-ons H and I | `copy_graph.py` copied a verified multi-module graph (3,925 nodes, 20,015 relationships) with equal hashes; a `GRAPH TYPE` statement was accepted, enforced (`ConstraintValidationFailed` on a wrong type) and cleared. All test data was then deleted. |
 | A parse test on `neo4j:2026.06` Community, 2026-10-23 | server 2026.06.0, image digest `sha256:42fd5b9ead4dd4211f6f91bd831c358e4e2117367d04633fbf88682ca4792b30` | `add-ons.md`, add-on H | The library statement was refused only with `51N27 ... not supported in community edition`; a misspelt type was refused as a syntax error first. |
 | Neo4j agent skills, https://github.com/neo4j-contrib/neo4j-skills | plugin 1.0.1, commit `39247b9` (2026-10-21), read 2026-10-23 | `SKILL.md`, "Related Neo4j skills"; `design-rules.md` | The five skills named there, and that none of them mentions RDF, SHACL or n10s (searched). |
 | APOC, https://neo4j.com/docs/apoc/current/ | bundled with the neo4j:2025.06.2 image | `pipeline.md`, rules 10 and 12 | `apoc.coll.sort`, `apoc.merge.relationship`, `apoc.map.removeKeys`. |
@@ -92,6 +93,16 @@ Last full review: 2026-10-23. Check the sources below every three months, and wh
 |---|---|---|---|
 | Rabbani, Lissandrini, Bonifati, Hose, "Transforming RDF Graphs to Property Graphs using Standardized Schemas" (S3PG), *Proceedings of the ACM on Management of Data* 2(6), article 242, https://doi.org/10.1145/3698817 | December 2024, read 2026-10-23 | `design-rules.md`; `learning-path.md`, item 13 | Background only: S3PG converts RDF to property graphs from SHACL shapes and PG-Schema, and its abstract reports full preservation where existing methods lose up to 70% of query answers. |
 | Angles and others, "PG-Schema: Schemas for Property Graphs", *Proceedings of the ACM on Management of Data* 1(2), article 198, https://doi.org/10.1145/3589778 | June 2023, read 2026-10-23 | `design-rules.md`; `learning-path.md`, item 13 | Background only: a schema language for property graphs, motivated by the ISO GQL work. |
+
+## 9. The multi-store plan
+
+| Source | Version and date | Used in | What the skill took |
+|---|---|---|---|
+| The owner's plan, decided 2026-10-23 | — | `references/multi-store.md` | The six hops and their checks. |
+| RDF 1.1 Concepts, §3.5 "Replacing Blank Nodes with IRIs", https://www.w3.org/TR/rdf11-concepts/#section-skolemization | W3C Recommendation, 25 February 2014, read 2026-10-23 | `multi-store.md` | Skolem IRIs, and the `/.well-known/genid/` path for recognisable ones (quoted). |
+| Databricks Free Edition limitations, https://docs.databricks.com/aws/en/getting-started/free-edition-limitations | read 2026-10-23 | `multi-store.md`; `add-ons.md`, K | Serverless only; "One SQL warehouse, limited to a 2X-Small cluster size"; "outbound internet access is restricted to a limited set of trusted domains" (quoted). |
+| What is serverless egress control?, https://docs.databricks.com/aws/en/security/network/serverless-network-security/network-policies | read 2026-10-23 | `multi-store.md` | In paid workspaces a network policy gives serverless workloads full access or restricted access to listed destinations. Classic compute egress is not covered (unverified). |
+| OntoBricks, https://github.com/databrickslabs/ontobricks | 0.9.0, commit `97b27c7` (2026-10-22), read 2026-10-23 | `multi-store.md` | A Databricks Labs app that works per domain: an ontology, R2RML mappings from Unity Catalog tables, and a graph materialised from them (Lakebase, Delta triple tables or Neo4j). |
 
 ## 8. Triple stores
 

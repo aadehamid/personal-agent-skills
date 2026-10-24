@@ -1,0 +1,30 @@
+# Multi-store: one source, several stores, nothing lost
+
+Read it when the same released ontology must live in triple stores and in Neo4j or Aura, and you must prove each copy holds exactly the source. It is the plan the skill's owner decided on 2026-10-23. Hops 1 to 5 can be run with this skill's scripts today. Hop 3's Databricks store (add-on K) and hop 6's rebuild are planned, not built.
+
+## The flow
+
+| Hop | What happens | The check | Status |
+|---|---|---|---|
+| 1. Source | The released packages and their data files are the master copy (`inputs.md`, rule 1). | `check_projection_rules.py` and `validate_data.py` pass (SKILL.md steps 2 and 3). | Built |
+| 2. Skolemize | Replace every blank node with a Skolem IRI once, before any load, and keep that file beside the release as the derived copy every store reads; the release stays the master copy. | The skolemized file has no blank node and the same number of triples; a reverse map from Skolem IRI to blank node turns it back into a graph isomorphic to the original (rdflib `to_isomorphic`). | Planned: no script yet |
+| 3. Triple stores | Load the skolemized files into each store, one named graph per file. Any SPARQL 1.1 store through add-on J. Databricks through add-on K: a Delta table in Unity Catalog with the columns `subject`, `predicate`, `object`, `datatype`, `lang`, `graph`. | Counts per graph and per predicate equal the files' (`triplestore.py`). Then export each store back to N-Triples and diff it with the source: zero lost, zero added. | J built and tested on Jena Fuseki 6.2.0 (counts only, on the library and a multi-module ontology; the export diff is planned). K planned |
+| 4. Local Neo4j | Project with n10s: SKILL.md steps 4 to 6. | `check-report` passes: what n10s compiled, one fail case per row, the round trip and two equal hashes (`pipeline.md`, rules 13 to 17). | Built |
+| 5. Aura or any Neo4j | Copy the verified graph with add-on I. | The target's graph hash equals the local one and the report's. | Built; run against a local second Neo4j and Aura Free |
+| 6. Rebuild | Delete the local Neo4j and the Aura data. Rebuild both, taking a store's export (for example the Databricks Delta table) as the source of hops 4 and 5. | The rebuilt graph's hash equals the hash from hop 4, and its round trip against the original source files loses and adds nothing. That proves source → store → Neo4j and Aura loses nothing. | Planned |
+
+## Why each step is there
+
+- **Skolemize first.** Blank nodes have no identity outside one file: "Blank nodes do not have identifiers in the RDF abstract syntax" (RDF 1.1 Concepts, §3.5, https://www.w3.org/TR/rdf11-concepts/#section-skolemization). Each store would relabel them, and the stores could then be compared only by graph isomorphism, not triple by triple. §3.5 allows systems to "replace some or all of the blank nodes in an RDF graph with IRIs" (quoted), and says Skolem IRIs meant to be recognised outside the system "SHOULD use a well-known IRI ... with the registered name genid", a path starting `/.well-known/genid/` (quoted). Mint them under a base you document, such as `https://id.example.org/.well-known/genid/`, from a stable hash of the blank node's own triples, so a rerun mints the same IRIs. Design rule 3 (`design-rules.md`) already keeps blank nodes out of the data; the files still hold them in OWL axioms and RDF lists, and those are what skolemizing fixes for the stores. A Skolem IRI minted from the node's triples is not an IRI "generated per run", which rule 3 forbids: the same input always gives the same IRI.
+- **Export back, not only count.** Matching counts can hide a changed value; a diff of the export against the source cannot.
+- **Neo4j stays the projection.** The triple stores hold the same triples as the source; Neo4j holds the projection that n10s, the shapes and the round trip verified. The rebuild of hop 6 tests that a store's copy is a valid source for the projection.
+
+## Databricks: two modes for add-on K
+
+Add-on K must run on both editions. The no-loss checks are the same in both; only where the transfer runs differs.
+
+- **Free Edition.** It is serverless only, with "One SQL warehouse, limited to a 2X-Small cluster size", and "outbound internet access is restricted to a limited set of trusted domains" (quoted from Databricks Free Edition limitations, https://docs.databricks.com/aws/en/getting-started/free-edition-limitations, read 2026-10-23). So every transfer runs from your machine: write and read the Delta table over the Databricks SQL connector, write N-Triples locally, and load Neo4j or Aura from there. Never push from a notebook to Aura.
+- **Enterprise (paid) workspaces.** The same machine-driven path works. The load, or the rebuild of hop 6, may also run inside the workspace, as a job or a notebook, when the workspace's network rules allow the destination: a serverless network policy is either full access or restricted to listed destinations (Databricks, "What is serverless egress control?", https://docs.databricks.com/aws/en/security/network/serverless-network-security/network-policies, read 2026-10-23). Check that Aura's host is allowed before you plan an in-workspace copy. A graph written to Aura from the workspace skips the local n10s gate, so it counts only when its hash equals the hash of hop 4. Classic compute's egress depends on the workspace's own network setup; this is not verified here.
+
+- **No built-in triple store.** Add-on K is a plain Delta table, written and read with SQL, and checked like any store in hop 3.
+- **OntoBricks is a later tool, not the store.** OntoBricks (Databricks Labs, https://github.com/databrickslabs/ontobricks, read at commit `97b27c7`) works per domain: an ontology, R2RML mappings from Unity Catalog tables, and a graph it materialises from those tables. It builds instances only from the tables through the mappings, so it cannot hold the released files triple for triple. Use it later to link Unity Catalog data and metric views to the ontology.
