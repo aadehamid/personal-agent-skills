@@ -5,6 +5,20 @@
 #     git config core.hooksPath scripts/hooks
 #
 # It runs the same script CI runs, so a push that passes here passes there.
+# A push that only deletes remote refs sends no commits, so it skips the checks. Git gives
+# one line per ref, "<local ref> <local sha> <remote ref> <remote sha>", and a delete's
+# local sha is all zeros. No lines at all (`git hook run pre-push`) runs the checks.
 set -euo pipefail
+
+refs=0
+deletes=0
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+  refs=$((refs + 1))
+  if [[ $local_sha =~ ^0+$ ]]; then deletes=$((deletes + 1)); fi
+done
+if [ "$refs" -gt 0 ] && [ "$refs" -eq "$deletes" ]; then
+  echo "pre-push: only deletes remote refs; no commits to check"
+  exit 0
+fi
 
 exec "$(git rev-parse --show-toplevel)/scripts/check.sh"

@@ -34,8 +34,21 @@
 # Tests: test_herdr_review.py, run by the repository's scripts/check.sh.
 set -euo pipefail
 
+# Bash reads a script while it runs, and this file sits in a working tree that a commit or
+# checkout can rewrite mid-review: on 2026-10-24 that killed a review. So the script runs
+# from a private copy, which it removes once running (bash keeps its own handle open).
+# HERDR_REVIEW_ORIGINAL names this file in the copy, for usage and Next lines.
+if [ -z "${HERDR_REVIEW_ORIGINAL:-}" ]; then
+  copy=$(mktemp "${TMPDIR:-/tmp}/herdr-review.copy.XXXXXX")
+  cp -- "$0" "$copy"
+  HERDR_REVIEW_ORIGINAL=$0 exec bash "$copy" "$@"
+fi
+self=$HERDR_REVIEW_ORIGINAL
+unset HERDR_REVIEW_ORIGINAL
+case "$0" in "${TMPDIR:-/tmp}"/herdr-review.copy.*) rm -f -- "$0" ;; esac
+
 started_at=$(python3 -c 'import time; print(time.time())')   # the skill-report fallback takes only files newer than this
-rerun=$(printf '%q ' "$0" "$@")
+rerun=$(printf '%q ' "$self" "$@")
 
 branch="" verify="" kind="codex" model=""
 while [ $# -gt 0 ]; do
@@ -47,7 +60,7 @@ while [ $# -gt 0 ]; do
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
-[ -n "$branch" ] && [ -n "$verify" ] || { echo "usage: $0 --branch <branch> --verify <text>" >&2; exit 2; }
+[ -n "$branch" ] && [ -n "$verify" ] || { echo "usage: $self --branch <branch> --verify <text>" >&2; exit 2; }
 case "$kind" in
   codex) model="${model:-gpt-6.1-sol}" ;;
   kimi) model="${model:-kimi-code/k3}" ;;
