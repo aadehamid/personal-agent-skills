@@ -51,6 +51,15 @@ Search all four for the domain's main nouns and record each search in the regist
 7. **Cite each mapped source with its version or version IRI and the date you checked it.** *Why:* external ontologies change, and a mapping is correct only against the version you read.
 8. **Record a gap as a finding when nothing covers an area; never stretch a neighbouring ontology to fill it.** *Why:* public ontologies often cover one part of a sector well and leave the rest bare, and a stretched mapping misleads.
 
+## Record mappings as SSSOM
+
+Keep every mapping to another vocabulary as a row in an SSSOM/TSV file (Simple Standard for Sharing Ontology Mappings, `SOURCES.md`), beside the module it maps from, and emit the `skos:*Match` triples from that file. Start from `templates/mappings.sssom.tsv`.
+
+9. **One row per mapping, with its justification and who made it:** `subject_id`, `predicate_id`, `object_id` and `mapping_justification` on every row, `author_id` as a role, `confidence` from 0 to 1, and a `comment` that says what tells the two terms apart when the match is not exact; `scripts/check_sssom.py` fails a non-exact match without one. *Why:* a mapping without its justification and confidence reads as certain, and SSSOM posits there can be no mapping without a justification.
+10. **Use the SKOS mapping relations and `rdfs:seeAlso` only.** `owl:equivalentClass` and `owl:sameAs` import the other ontology's logic, which "map, don't import" rules out; `scripts/check_sssom.py` refuses them unless `--allow-predicate` names one, and that needs a decision record. Record a rejected candidate as a row with `predicate_modifier: Not`, so nobody proposes it again.
+11. **Say how each mapping was found:** `semapv:ManualMappingCuration` for a person's judgement; a matcher's justification (`semapv:LexicalMatching`, or with `sssom_version: 1.1` a value such as `semapv:StructuralMatching`) for a candidate a tool proposed, then `semapv:MappingReview` once a person has checked it. A candidate a language model proposed has no released justification of its own yet (the development branch's `semapv:LLMBasedMatching` is in no release), so record it as `semapv:UnspecifiedMatching` with the model named in `mapping_tool`. *Why:* a tool's candidate is not a decision; the human gate in `quality.md` applies to mappings too.
+12. **Pin the other vocabulary's version** in `object_source_version`, in the metadata block or on every row (rule 7; the check fails a set that states it in neither), and run `scripts/check_sssom.py` on every `*.sssom.tsv` the project keeps from its check script; `templates/check.sh`, section 2b, has the lines.
+
 ## Done when
 
-Every registry in "The registries to search" has a row in the register's registry-search table with its query terms and its hits or "no hits", every surveyed source has a recorded treatment, licence, version and target step, and every gap is recorded as a finding.
+Every registry in "The registries to search" has a row in the register's registry-search table with its query terms and its hits or "no hits", every surveyed source has a recorded treatment, licence, version and target step, every gap is recorded as a finding, and every applied mapping is a row in a mapping set that passes `scripts/check_sssom.py`.

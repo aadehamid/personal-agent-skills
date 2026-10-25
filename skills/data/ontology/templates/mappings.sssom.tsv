@@ -1,0 +1,13 @@
+#curie_map:
+#  lib: https://id.example.org/library/
+#  ext: https://id.example.org/other-vocabulary/
+#  role: https://id.example.org/library/role/
+#mapping_set_id: https://id.example.org/library/mappings/lending-to-other-vocabulary.sssom.tsv
+#mapping_set_description: Template. Mappings from the library lending module to another vocabulary, one row per mapping, each with its justification and the role that made it. Replace the example prefixes and rows with your own.
+#license: https://id.example.org/library/licence
+#mapping_date: 2026-10-24
+#object_source_version: "2026-01"
+subject_id	subject_label	predicate_id	object_id	object_label	mapping_justification	author_id	confidence	comment
+lib:Loan	Loan	skos:exactMatch	ext:Lending	Lending	semapv:ManualMappingCuration	role:modeller	0.95	Both name one agreement for one copy until a due date.
+lib:renewal	Renewal	skos:closeMatch	ext:LoanExtension	Loan extension	semapv:ManualMappingCuration	role:modeller	0.8	"The other vocabulary also counts a staff-initiated extension; ours is at the member's request."
+lib:circulation	Circulation	skos:broadMatch	ext:LibraryServices	Library services	semapv:ManualMappingCuration	role:modeller	0.9	Library services also covers reference and events; circulation is the lending part of it.

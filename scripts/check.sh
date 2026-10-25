@@ -61,6 +61,7 @@ python3 skills/engineering/way-of-working/scripts/test_pr_scripts.py
 echo
 echo "== ontology skill scripts =="
 (cd skills/data/ontology/scripts && uv run --no-project --with rdflib --with pyyaml --with pyshacl python3 -m unittest discover -q -p "test_*.py")
+(cd skills/data/ontology && uv run --no-project --with pyyaml python3 scripts/check_sssom.py templates/mappings.sssom.tsv)
 
 echo
 echo "== ontology-to-lpg skill scripts =="
