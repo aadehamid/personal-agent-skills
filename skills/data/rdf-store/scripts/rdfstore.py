@@ -4,38 +4,57 @@
 Run: uv run --no-project --with pyoxigraph python3 rdfstore.py <command> ...
      (add --with databricks-sql-connector for --store databricks)
 
+Inputs: Turtle (.ttl), N-Triples (.nt) or N-Quads (.nq). A Turtle or N-Triples file is one named
+graph: the owl:versionIRI of its one owl:Ontology (exactly one distinct value), else that ontology's
+IRI; --graph FILE=IRI names it when the file has neither, or overrides it. An N-Quads file keeps its
+own graph names and takes no --graph. A default-graph quad is refused: every quad has a named graph.
+Blank nodes are standardized apart per input file, so two files that both say _:b0 mean two nodes.
+
 Commands:
-  skolemize --authority <https://host> --out <dir> <file.ttl>...
-      Replace every blank node with an IRI <authority>/.well-known/genid/<id> (RDF 1.1 Concepts, 3.5).
-      The id is a hash of the file's graph IRI and the node's RDFC-1.0 canonical label, so the same
-      release always gives the same IRIs. Writes <dir>/<file name> as N-Triples-in-Turtle.
-  pack [--graph FILE=IRI]... --out <dataset.nq> <file.ttl>...
-      One named graph per file, written as N-Quads. A file's graph is the owl:versionIRI of its one
-      owl:Ontology, else that ontology's IRI; --graph names it when the file has neither, or to override.
-  roundtrip --store fuseki|databricks [store options] [--graph FILE=IRI]... [--report <json>] <file>...
-      pack, clear the store's copy, load, export everything back, and compare (below).
+  skolemize --authority <https://host> --out <dir> [--graph FILE=IRI]... <file.ttl|.nt>...
+      Replace every blank node with <authority>/.well-known/genid/<id> (RDF 1.1 Concepts, 3.5). The id
+      hashes the file's graph IRI and the node's RDFC-1.0 label, so the same release always gives the
+      same IRIs. Refuses an id that the file already uses as an IRI, and an output path that is an
+      input or that two inputs share. Writes <dir>/<file name> as sorted N-Triples.
+  pack --out <dataset.nq> [--graph FILE=IRI]... <file>...
+      The dataset as sorted N-Quads.
+  roundtrip --store fuseki|databricks <store options> [--report <json>] [--graph FILE=IRI]... <file>...
+      Publish the dataset to the store, export everything the store holds, and compare (below).
+  export --store fuseki|databricks <store options> --out <dataset.nq> [--ttl-dir <dir>]
+      Write everything the store holds as sorted N-Quads, and with --ttl-dir one Turtle file per
+      named graph (graph-<n>.ttl, listed in <dir>/graphs.tsv with its graph IRI).
   compare <expected.nq> <actual.nq>
       Exit 0 when the two datasets have the same RDFC-1.0 hash, 1 with a readable diff otherwise.
 
 Store options:
   fuseki      --gsp <Graph Store URL> --query <SPARQL query URL> [--update <SPARQL update URL>]
+              With --update the whole dataset is published in one SPARQL Update request, which
+              SPARQL 1.1 Update says "SHOULD be treated atomically"; without it each
+              graph is replaced by its own HTTP PUT, and a failure part way leaves a mixed store.
   databricks  --env <file> [--table <name>]   the file holds DATABRICKS_HOST, DATABRICKS_TOKEN,
-              DATABRICKS_HTTP_PATH, DATABRICKS_CATALOG, DATABRICKS_SCHEMA (the token is never printed);
-              --table defaults to rdf_quads.
+              DATABRICKS_HTTP_PATH, DATABRICKS_CATALOG, DATABRICKS_SCHEMA. --table defaults to
+              rdf_quads. The rows go to <table>__staging, which is exported and compared first; only
+              a staging copy with the same hash replaces <table>, in one CREATE OR REPLACE ... AS
+              SELECT, so a failure before that leaves the previous table as it was. The token is
+              never printed: it is removed from every error message.
 
 The proof is the hash (references/no-loss.md): each dataset is canonicalized with RDFC-1.0
 (pyoxigraph's implementation), its quads are written in canonical N-Quads form and sorted, and the
 SHA-256 of that text is the dataset's hash. Equal hashes mean isomorphic datasets, blank nodes
-included. Counts per graph and per predicate are reported as a quick check only: they can match
-while a value differs.
+included. Counts per graph and per predicate are reported as a quick check only.
 
-Exit 0 on a pass, 1 when the round trip or a store request failed, 2 on bad input.
+Reports are fail-closed: --report is deleted before anything else is done; it is written, by a
+rename, when the comparison ran (passed true or false, with the diff); a failed request leaves none.
+
+Exit 0 on a pass, 1 when the round trip or a store request failed, 2 on bad input. Bad input is
+found before any store is touched.
 """
 import base64
 import hashlib
 import json
 import os
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -46,7 +65,6 @@ import pyoxigraph as ox
 OWL = "http://www.w3.org/2002/07/owl#"
 RDF_TYPE = ox.NamedNode("http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
 XSD_STRING = "http://www.w3.org/2001/XMLSchema#string"
-RDF_LANGSTRING = "http://www.w3.org/1999/02/22-rdf-syntax-ns#langString"
 GENID = "/.well-known/genid/"
 
 
@@ -56,62 +74,111 @@ class BadInput(Exception):
 
 # ---- reading and naming ------------------------------------------------------------------
 
-def read_triples(path):
-    fmt = ox.RdfFormat.N_TRIPLES if path.endswith(".nt") else ox.RdfFormat.TURTLE
+def read_quads(path):
+    """The file's statements. Triples come back with the default graph; N-Quads keep theirs."""
+    if path.endswith(".nq"):
+        fmt = ox.RdfFormat.N_QUADS
+    elif path.endswith(".nt"):
+        fmt = ox.RdfFormat.N_TRIPLES
+    else:
+        fmt = ox.RdfFormat.TURTLE
     with open(path, "rb") as f:
-        return list(ox.parse(f, format=fmt))
+        out = []
+        for s in ox.parse(f, format=fmt):
+            g = s.graph_name if isinstance(s, ox.Quad) else ox.DefaultGraph()
+            out.append(ox.Quad(s.subject, s.predicate, s.object, g))
+        return out
 
 
-def graph_iri(triples, path):
-    """The owl:versionIRI of the file's one owl:Ontology, else that ontology's IRI."""
-    ontologies = sorted({t.subject.value for t in triples
-                         if t.predicate == RDF_TYPE and t.object == ox.NamedNode(OWL + "Ontology")
-                         and isinstance(t.subject, ox.NamedNode)})
+def graph_iri(quads, path):
+    """The one distinct owl:versionIRI of the file's one owl:Ontology, else that ontology's IRI."""
+    ontologies = sorted({q.subject.value for q in quads
+                         if q.predicate == RDF_TYPE and q.object == ox.NamedNode(OWL + "Ontology")
+                         and isinstance(q.subject, ox.NamedNode)})
     if len(ontologies) != 1:
         raise BadInput(f"{path} has {len(ontologies)} owl:Ontology headers; name its graph with --graph FILE=IRI")
-    versions = [t.object.value for t in triples if t.subject.value == ontologies[0]
-                and t.predicate == ox.NamedNode(OWL + "versionIRI") and isinstance(t.object, ox.NamedNode)]
-    return versions[0] if len(versions) == 1 else ontologies[0]
+    versions = sorted({q.object.value for q in quads if q.subject.value == ontologies[0]
+                       and q.predicate == ox.NamedNode(OWL + "versionIRI") and isinstance(q.object, ox.NamedNode)})
+    if len(versions) > 1:
+        raise BadInput(f"{path} gives {len(versions)} owl:versionIRI values; name its graph with --graph FILE=IRI")
+    return versions[0] if versions else ontologies[0]
 
 
-def parse_graph_options(values):
+def parse_graph_options(values, files):
+    """--graph FILE=IRI, each FILE one of the inputs (same real path), at most once, not N-Quads."""
+    inputs = {os.path.realpath(f): f for f in files}
     named = {}
     for value in values:
         path, sep, iri = value.partition("=")
         if not sep or not iri:
             raise BadInput(f"--graph takes FILE=IRI, got {value}")
-        named[os.path.abspath(path)] = iri
+        real = os.path.realpath(path)
+        if real not in inputs:
+            raise BadInput(f"--graph names {path}, which is not one of the input files")
+        if real in named:
+            raise BadInput(f"--graph names {path} twice")
+        if path.endswith(".nq"):
+            raise BadInput(f"{path} is N-Quads and keeps its own graph names; --graph does not apply")
+        named[real] = iri
     return named
 
 
+def apart(node, scope):
+    """A blank node renamed into its input's own scope, so labels from two inputs never meet."""
+    return ox.BlankNode(f"f{scope}x{node.value}") if isinstance(node, ox.BlankNode) else node
+
+
+def check_term(q):
+    """Refuse what the stores here cannot hold: RDF 1.2 triple terms and directional literals."""
+    for node in (q.subject, q.object):
+        if isinstance(node, ox.Triple):
+            raise BadInput(f"a triple term cannot be stored: {q}")
+        if isinstance(node, ox.Literal) and getattr(node, "direction", None):
+            raise BadInput(f"a literal with a base direction cannot be stored: {q}")
+
+
 def pack(paths, named=None):
-    """A dataset with one named graph per file."""
+    """A dataset with one named graph per Turtle or N-Triples file; N-Quads files keep their graphs."""
     named = named or {}
     dataset, seen = ox.Dataset(), {}
-    for path in paths:
-        triples = read_triples(path)
-        iri = named.get(os.path.abspath(path)) or graph_iri(triples, path)
-        if iri in seen:
-            raise BadInput(f"{path} and {seen[iri]} both map to graph {iri}; name one with --graph")
-        seen[iri] = path
-        g = ox.NamedNode(iri)
-        for t in triples:
-            dataset.add(ox.Quad(t.subject, t.predicate, t.object, g))
+    for scope, path in enumerate(paths):
+        quads = read_quads(path)
+        if path.endswith(".nq"):
+            graphs = {q.graph_name.value for q in quads if isinstance(q.graph_name, ox.NamedNode)}
+            if any(isinstance(q.graph_name, ox.DefaultGraph) for q in quads):
+                raise BadInput(f"{path} has default-graph quads; give every quad a named graph")
+        else:
+            graphs = {named.get(os.path.realpath(path)) or graph_iri(quads, path)}
+        for g in sorted(graphs):
+            if g in seen:
+                raise BadInput(f"{path} and {seen[g]} both write graph {g}; name one with --graph")
+            seen[g] = path
+        target = None if path.endswith(".nq") else ox.NamedNode(next(iter(graphs)))
+        for q in quads:
+            check_term(q)
+            dataset.add(ox.Quad(apart(q.subject, scope), q.predicate, apart(q.object, scope), target or q.graph_name))
     return dataset
 
 
 # ---- skolemization -----------------------------------------------------------------------
 
-def skolemize(triples, graph, authority):
-    """Blank nodes to <authority>/.well-known/genid/<id>, with ids that depend only on the graph."""
-    ds = ox.Dataset(ox.Quad(t.subject, t.predicate, t.object, ox.DefaultGraph()) for t in triples)
+def skolemize(quads, graph, authority):
+    """Blank nodes to <authority>/.well-known/genid/<id>, with ids that depend only on the graph.
+    Refuses an id the input already uses as an IRI, and two blank nodes that would share one."""
+    ds = ox.Dataset(ox.Quad(q.subject, q.predicate, q.object, ox.DefaultGraph()) for q in quads)
     ds.canonicalize(ox.CanonicalizationAlgorithm.RDFC_1_0)
+    taken = {n.value for q in quads for n in (q.subject, q.predicate, q.object, q.graph_name) if isinstance(n, ox.NamedNode)}
+    minted = {}
 
     def term(node):
-        if isinstance(node, ox.BlankNode):
-            digest = hashlib.sha256(f"{graph}\n{node.value}".encode()).hexdigest()[:32]
-            return ox.NamedNode(authority.rstrip("/") + GENID + digest)
-        return node
+        if not isinstance(node, ox.BlankNode):
+            return node
+        iri = authority.rstrip("/") + GENID + hashlib.sha256(f"{graph}\n{node.value}".encode()).hexdigest()[:32]
+        if iri in taken:
+            raise BadInput(f"the skolem IRI {iri} is already used in the input; pick another --authority")
+        if minted.setdefault(iri, node.value) != node.value:
+            raise BadInput(f"two blank nodes map to {iri}")
+        return ox.NamedNode(iri)
     return [ox.Triple(term(q.subject), q.predicate, term(q.object)) for q in ds]
 
 
@@ -124,8 +191,12 @@ def canonical_lines(dataset):
     return sorted(f"{q} .\n" for q in ds)
 
 
+def lines_hash(lines):
+    return hashlib.sha256("".join(lines).encode("utf-8")).hexdigest()
+
+
 def dataset_hash(dataset):
-    return hashlib.sha256("".join(canonical_lines(dataset)).encode("utf-8")).hexdigest()
+    return lines_hash(canonical_lines(dataset))
 
 
 def counts(dataset):
@@ -137,23 +208,24 @@ def counts(dataset):
     return dict(sorted(graphs.items())), dict(sorted(predicates.items()))
 
 
-def diff(expected, actual, limit=20):
+def diff(exp_lines, act_lines, limit=20):
     """Lines missing from and extra in the store's copy. Exact when neither side has blank nodes;
     with blank nodes the labels come from each side's own canonicalization, so a changed blank-node
     neighbourhood can show as one line missing and one extra."""
-    exp, act = set(canonical_lines(expected)), set(canonical_lines(actual))
+    exp, act = set(exp_lines), set(act_lines)
     missing, extra = sorted(exp - act), sorted(act - exp)
     out = [f"{len(missing)} quads missing from the store's copy, {len(extra)} extra"]
     out += ["- " + line.rstrip("\n") for line in missing[:limit]]
     out += ["+ " + line.rstrip("\n") for line in extra[:limit]]
     if len(missing) > limit or len(extra) > limit:
         out.append(f"(first {limit} of each shown)")
-    return out
+    return out, len(missing), len(extra)
 
 
 def compare(expected, actual):
-    """(passed, report) for two datasets."""
-    he, ha = dataset_hash(expected), dataset_hash(actual)
+    """(passed, report) for two datasets; each side is canonicalized once."""
+    el, al = canonical_lines(expected), canonical_lines(actual)
+    he, ha = lines_hash(el), lines_hash(al)
     ge, pe = counts(expected)
     ga, pa = counts(actual)
     report = {"expected_hash": he, "actual_hash": ha, "hashes_equal": he == ha,
@@ -162,7 +234,7 @@ def compare(expected, actual):
               "predicate_counts_differ": {p: [pe.get(p, 0), pa.get(p, 0)]
                                           for p in sorted(set(pe) | set(pa)) if pe.get(p, 0) != pa.get(p, 0)}}
     if he != ha:
-        report["diff"] = diff(expected, actual)
+        report["diff"], report["missing"], report["extra"] = diff(el, al)
     return he == ha, report
 
 
@@ -171,6 +243,10 @@ def compare(expected, actual):
 def nt_bytes(dataset, graph):
     return ox.serialize((ox.Triple(q.subject, q.predicate, q.object) for q in dataset.quads_for_graph_name(graph)),
                         format=ox.RdfFormat.N_TRIPLES)
+
+
+def named_graphs(dataset):
+    return sorted({q.graph_name.value for q in dataset if isinstance(q.graph_name, ox.NamedNode)})
 
 
 class FusekiStore:
@@ -185,8 +261,9 @@ class FusekiStore:
         with urllib.request.urlopen(req, timeout=self.timeout) as resp:
             return resp.status, resp.read()
 
-    def _graph_url(self, iri):
-        return self.gsp + ("&" if "?" in self.gsp else "?") + urllib.parse.urlencode({"graph": iri})
+    def _graph_url(self, iri=None):
+        sep = "&" if "?" in self.gsp else "?"
+        return self.gsp + sep + ("default" if iri is None else urllib.parse.urlencode({"graph": iri}))
 
     def graphs(self):
         body = urllib.parse.urlencode({"query": "SELECT DISTINCT ?g WHERE { GRAPH ?g { ?s ?p ?o } }"}).encode()
@@ -194,30 +271,29 @@ class FusekiStore:
                                                                "Accept": "application/sparql-results+json"})
         return sorted(b["g"]["value"] for b in json.loads(data)["results"]["bindings"])
 
-    def clear(self, iris):
-        for iri in iris:
-            try:
-                self._request(self._graph_url(iri), "DELETE")
-            except urllib.error.HTTPError as exc:
-                if exc.code != 404:   # a graph that is not there is already clear
-                    raise
-
-    def load(self, dataset):
-        for g in sorted({q.graph_name.value for q in dataset if isinstance(q.graph_name, ox.NamedNode)}):
+    def publish(self, dataset):
+        """Replace each of the dataset's graphs. With an update endpoint, one request does all of them."""
+        if self.update_url:
+            ops = []
+            for g in named_graphs(dataset):
+                body = "".join(f"{q.subject} {q.predicate} {q.object} .\n" for q in dataset.quads_for_graph_name(ox.NamedNode(g)))
+                ops.append(f"DROP SILENT GRAPH <{g}> ;\nINSERT DATA {{ GRAPH <{g}> {{\n{body}}} }}")
+            self._request(self.update_url, "POST", " ;\n".join(ops).encode("utf-8"),
+                          {"Content-Type": "application/sparql-update"})
+            return
+        for g in named_graphs(dataset):
             self._request(self._graph_url(g), "PUT", nt_bytes(dataset, ox.NamedNode(g)),
                           {"Content-Type": "application/n-triples"})
 
     def export(self):
-        """Every named graph the store holds, and its default graph, as one dataset."""
+        """Every named graph the store holds, and its default graph, as one dataset. Each graph is
+        its own document, so its blank nodes are standardized apart from every other graph's."""
         out = ox.Dataset()
-        for iri in self.graphs():
+        sources = [(iri, ox.NamedNode(iri)) for iri in self.graphs()] + [(None, ox.DefaultGraph())]
+        for scope, (iri, g) in enumerate(sources):
             _, data = self._request(self._graph_url(iri), "GET", headers={"Accept": "application/n-triples"})
             for t in ox.parse(data, format=ox.RdfFormat.N_TRIPLES):
-                out.add(ox.Quad(t.subject, t.predicate, t.object, ox.NamedNode(iri)))
-        default = self.gsp + ("&" if "?" in self.gsp else "?") + "default"
-        _, data = self._request(default, "GET", headers={"Accept": "application/n-triples"})
-        for t in ox.parse(data, format=ox.RdfFormat.N_TRIPLES):
-            out.add(ox.Quad(t.subject, t.predicate, t.object, ox.DefaultGraph()))
+                out.add(ox.Quad(apart(t.subject, scope), t.predicate, apart(t.object, scope), g))
         return out
 
 
@@ -235,20 +311,18 @@ def term_text(node):
 def to_rows(dataset):
     rows = []
     for q in dataset:
+        check_term(q)
         o = q.object
         if isinstance(o, ox.Literal):
-            if getattr(o, "direction", None):
-                raise BadInput(f"a literal with a base direction cannot be stored in the table: {q}")
             kind, lang = "literal", o.language
             datatype = None if lang else o.datatype.value
         elif isinstance(o, ox.BlankNode):
             kind, datatype, lang = "bnode", None, None
-        elif isinstance(o, ox.NamedNode):
-            kind, datatype, lang = "iri", None, None
         else:
-            raise BadInput(f"a quoted triple cannot be stored in the table: {q}")
+            kind, datatype, lang = "iri", None, None
         graph = q.graph_name.value if isinstance(q.graph_name, ox.NamedNode) else None
-        rows.append((term_text(q.subject), q.predicate.value, o.value, kind, datatype, lang, graph))
+        rows.append((term_text(q.subject), q.predicate.value, term_text(o) if kind == "bnode" else o.value,
+                     kind, datatype, lang, graph))
     return sorted(rows, key=lambda r: tuple("" if v is None else v for v in r))
 
 
@@ -307,64 +381,107 @@ class DatabricksStore:
     connector, so it works on Free Edition's serverless warehouse with its outbound limits."""
 
     BATCH = 2000
+    secrets = ()
 
     def __init__(self, connection, table):
         self.connection, self.table = connection, table
+        self.staging = table + "__staging"
 
-    @classmethod
-    def from_env(cls, env_path, table):
+    @staticmethod
+    def check_env(env_path, table):
         env = read_env_file(env_path)
         missing = [k for k in ("DATABRICKS_HOST", "DATABRICKS_TOKEN", "DATABRICKS_HTTP_PATH",
                                "DATABRICKS_CATALOG", "DATABRICKS_SCHEMA") if not env.get(k)]
         if missing:
             raise BadInput(f"{env_path} lacks {', '.join(missing)}")
-        from databricks import sql
-        connection = sql.connect(server_hostname=env["DATABRICKS_HOST"].removeprefix("https://").rstrip("/"),
-                                 http_path=env["DATABRICKS_HTTP_PATH"], access_token=env["DATABRICKS_TOKEN"])
         for part in (env["DATABRICKS_CATALOG"], env["DATABRICKS_SCHEMA"], table):
             if not part.replace("_", "").isalnum():
                 raise BadInput(f"catalog, schema and table names must be letters, digits and _: {part}")
-        return cls(connection, f"{env['DATABRICKS_CATALOG']}.{env['DATABRICKS_SCHEMA']}.{table}")
+        return env
 
-    def clear(self, iris=None):
-        with self.connection.cursor() as cur:
-            cur.execute(create_sql(self.table))
+    @classmethod
+    def from_env(cls, env, table):
+        from databricks import sql
+        connection = sql.connect(server_hostname=env["DATABRICKS_HOST"].removeprefix("https://").rstrip("/"),
+                                 http_path=env["DATABRICKS_HTTP_PATH"], access_token=env["DATABRICKS_TOKEN"])
+        store = cls(connection, f"{env['DATABRICKS_CATALOG']}.{env['DATABRICKS_SCHEMA']}.{table}")
+        store.secrets = (env["DATABRICKS_TOKEN"],)
+        return store
 
-    def load(self, dataset):
-        rows = to_rows(dataset)
+    def _export(self, table):
         with self.connection.cursor() as cur:
+            cur.execute(f"SELECT {', '.join(COLUMNS)} FROM {table}")
+            return from_rows(tuple(r) for r in cur.fetchall())
+
+    def stage(self, rows):
+        with self.connection.cursor() as cur:
+            cur.execute(create_sql(self.staging))
             for start in range(0, len(rows), self.BATCH):
-                cur.execute(insert_sql(self.table, rows[start:start + self.BATCH]))
+                cur.execute(insert_sql(self.staging, rows[start:start + self.BATCH]))
+
+    def promote(self):
+        with self.connection.cursor() as cur:
+            cur.execute(f"CREATE OR REPLACE TABLE {self.table} AS SELECT * FROM {self.staging}")
+            cur.execute(f"DROP TABLE IF EXISTS {self.staging}")
 
     def export(self):
-        with self.connection.cursor() as cur:
-            cur.execute(f"SELECT {', '.join(COLUMNS)} FROM {self.table}")
-            return from_rows(tuple(r) for r in cur.fetchall())
+        return self._export(self.table)
 
 
 # ---- the round trip ----------------------------------------------------------------------
 
 def roundtrip(store, dataset):
-    """(passed, report): clear the graphs, load, export everything, compare."""
+    """(passed, report). Validates the whole dataset before the store is touched."""
     started = time.time()
-    store.clear(sorted({q.graph_name.value for q in dataset if isinstance(q.graph_name, ox.NamedNode)}))
-    store.load(dataset)
+    report = {}
+    if isinstance(store, DatabricksStore):
+        rows = to_rows(dataset)   # BadInput here leaves the store untouched
+        store.stage(rows)
+        passed, staged = compare(dataset, store._export(store.staging))
+        report["staging"] = {"hashes_equal": passed, **({"diff": staged["diff"]} if not passed else {})}
+        if not passed:
+            report.update(staged)
+            report["published"] = False
+            return False, report
+        store.promote()
+    else:
+        for q in dataset:
+            check_term(q)
+        store.publish(dataset)
     loaded = time.time()
-    exported = store.export()
-    passed, report = compare(dataset, exported)
+    passed, result = compare(dataset, store.export())
+    report.update(result)
+    report["published"] = True
     report["seconds"] = {"load": round(loaded - started, 1), "export_and_compare": round(time.time() - loaded, 1)}
     return passed, report
 
 
-def options(argv, multi=("--graph",)):
-    opts, files, i = {k: [] for k in multi}, [], 0
+# ---- the command line --------------------------------------------------------------------
+
+ALLOWED = {
+    "skolemize": {"--authority", "--out", "--graph"},
+    "pack": {"--out", "--graph"},
+    "roundtrip": {"--store", "--gsp", "--query", "--update", "--env", "--table", "--report", "--graph"},
+    "export": {"--store", "--gsp", "--query", "--update", "--env", "--table", "--out", "--ttl-dir"},
+    "compare": set(),
+}
+
+
+def options(command, argv):
+    if command not in ALLOWED:
+        raise BadInput(f"unknown command {command}")
+    opts, files, i = {"--graph": []}, [], 0
     while i < len(argv):
         arg = argv[i]
         if arg.startswith("--"):
+            if arg not in ALLOWED[command]:
+                raise BadInput(f"{command} does not take {arg}")
             if i + 1 >= len(argv):
                 raise BadInput(f"{arg} needs a value")
-            if arg in multi:
+            if arg == "--graph":
                 opts[arg].append(argv[i + 1])
+            elif arg in opts:
+                raise BadInput(f"{arg} given twice")
             else:
                 opts[arg] = argv[i + 1]
             i += 2
@@ -374,13 +491,62 @@ def options(argv, multi=("--graph",)):
     return opts, files
 
 
+def redact(text, secrets):
+    for s in secrets:
+        if s:
+            text = text.replace(s, "[redacted]")
+    return text
+
+
+def write_atomically(path, data):
+    folder = os.path.dirname(os.path.abspath(path))
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".rdfstore.")
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+    os.replace(tmp, path)
+
+
+def refuse_aliases(outputs, protected):
+    """Every output path is distinct, and none is an input or the credential file."""
+    real_out = [os.path.realpath(p) for p in outputs]
+    if len(set(real_out)) != len(real_out):
+        raise BadInput("two outputs share one path; give the inputs distinct file names or separate runs")
+    clash = set(real_out) & {os.path.realpath(p) for p in protected}
+    if clash:
+        raise BadInput(f"an output would overwrite an input or the credential file: {sorted(clash)[0]}")
+
+
+def store_from(opts):
+    kind = opts.get("--store")
+    if kind == "fuseki":
+        if "--gsp" not in opts or "--query" not in opts or "--env" in opts or "--table" in opts:
+            raise BadInput("--store fuseki takes --gsp, --query and optionally --update")
+        return kind, lambda: FusekiStore(opts["--gsp"], opts["--query"], opts.get("--update")), ()
+    if kind == "databricks":
+        if "--env" not in opts or any(k in opts for k in ("--gsp", "--query", "--update")):
+            raise BadInput("--store databricks takes --env and optionally --table")
+        env = DatabricksStore.check_env(opts["--env"], opts.get("--table", "rdf_quads"))
+        return kind, lambda: DatabricksStore.from_env(env, opts.get("--table", "rdf_quads")), (env["DATABRICKS_TOKEN"],)
+    raise BadInput("--store must be fuseki or databricks")
+
+
+def nquads_text(dataset):
+    return "".join(sorted(f"{q} .\n" for q in dataset)).encode("utf-8")
+
+
 def main(argv):
     if not argv:
         print(__doc__, file=sys.stderr)
         return 2
     command, rest = argv[0], argv[1:]
+    secrets, report_path = (), None
     try:
-        opts, files = options(rest)
+        opts, files = options(command, rest)
+        report_path = opts.get("--report")
+        if report_path:
+            refuse_aliases([report_path], files + ([opts["--env"]] if "--env" in opts else []))
+            if os.path.exists(report_path):
+                os.remove(report_path)
         if command == "compare":
             if len(files) != 2:
                 raise BadInput("compare takes two N-Quads files")
@@ -388,56 +554,75 @@ def main(argv):
             passed, report = compare(*sides)
             print(json.dumps(report, indent=2))
             return 0 if passed else 1
-        if not files:
-            raise BadInput(f"{command} needs input files")
+        if command == "export":
+            if files or "--out" not in opts:
+                raise BadInput("export takes --out and no input files")
+            kind, make, secrets = store_from(opts)
+            refuse_aliases([opts["--out"]], [opts["--env"]] if "--env" in opts else [])
+        else:
+            if not files:
+                raise BadInput(f"{command} needs input files")
+            named = parse_graph_options(opts["--graph"], files)
         if command == "skolemize":
             if "--authority" not in opts or "--out" not in opts:
                 raise BadInput("skolemize needs --authority and --out")
-            named = parse_graph_options(opts["--graph"])
+            outs = [os.path.join(opts["--out"], os.path.basename(p)) for p in files]
+            refuse_aliases(outs, files)
+            minted = []
+            for path, out in zip(files, outs):
+                if path.endswith(".nq"):
+                    raise BadInput(f"skolemize takes Turtle or N-Triples, one graph per file: {path}")
+                quads = read_quads(path)
+                g = named.get(os.path.realpath(path)) or graph_iri(quads, path)
+                minted.append((out, skolemize(quads, g, opts["--authority"])))
             os.makedirs(opts["--out"], exist_ok=True)
-            for path in files:
-                triples = read_triples(path)
-                g = named.get(os.path.abspath(path)) or graph_iri(triples, path)
-                out = os.path.join(opts["--out"], os.path.basename(path))
-                with open(out, "wb") as f:
-                    f.write(ox.serialize(sorted(skolemize(triples, g, opts["--authority"]), key=str),
-                                         format=ox.RdfFormat.N_TRIPLES))
+            for out, triples in minted:
+                write_atomically(out, ox.serialize(sorted(triples, key=str), format=ox.RdfFormat.N_TRIPLES))
                 print(f"wrote {out}")
             return 0
-        dataset = pack(files, parse_graph_options(opts["--graph"]))
         if command == "pack":
             if "--out" not in opts:
                 raise BadInput("pack needs --out")
-            with open(opts["--out"], "wb") as f:
-                f.write("".join(sorted(f"{q} .\n" for q in dataset)).encode("utf-8"))
+            refuse_aliases([opts["--out"]], files)
+            dataset = pack(files, named)
+            write_atomically(opts["--out"], nquads_text(dataset))
             print(f"wrote {opts['--out']}: {len(dataset)} quads in {len(counts(dataset)[0])} graphs")
             return 0
-        if command != "roundtrip":
-            raise BadInput(f"unknown command {command}")
-        kind = opts.get("--store")
-        if kind == "fuseki":
-            if "--gsp" not in opts or "--query" not in opts:
-                raise BadInput("--store fuseki needs --gsp and --query")
-            store = FusekiStore(opts["--gsp"], opts["--query"], opts.get("--update"))
-        elif kind == "databricks":
-            if "--env" not in opts:
-                raise BadInput("--store databricks needs --env")
-            store = DatabricksStore.from_env(opts["--env"], opts.get("--table", "rdf_quads"))
-        else:
-            raise BadInput("--store must be fuseki or databricks")
+        if command == "roundtrip":
+            kind, make, secrets = store_from(opts)
+            dataset = pack(files, named)
+            if kind == "databricks":
+                to_rows(dataset)
     except (BadInput, OSError, SyntaxError, ValueError) as exc:
-        print(f"ERROR {exc}", file=sys.stderr)
+        print(f"ERROR {redact(str(exc), secrets)}", file=sys.stderr)
         return 2
     try:
+        store = make()
+        if command == "export":
+            exported = store.export()
+            write_atomically(opts["--out"], nquads_text(exported))
+            if opts.get("--ttl-dir"):
+                os.makedirs(opts["--ttl-dir"], exist_ok=True)
+                index = []
+                for n, g in enumerate(named_graphs(exported), 1):
+                    name = f"graph-{n}.ttl"
+                    triples = [ox.Triple(q.subject, q.predicate, q.object) for q in exported.quads_for_graph_name(ox.NamedNode(g))]
+                    write_atomically(os.path.join(opts["--ttl-dir"], name), ox.serialize(triples, format=ox.RdfFormat.TURTLE))
+                    index.append(f"{name}\t{g}\n")
+                write_atomically(os.path.join(opts["--ttl-dir"], "graphs.tsv"), "".join(index).encode("utf-8"))
+            print(f"wrote {opts['--out']}: {len(exported)} quads in {len(counts(exported)[0])} graphs")
+            return 0
         passed, report = roundtrip(store, dataset)
+    except BadInput as exc:
+        print(f"ERROR {redact(str(exc), secrets)}", file=sys.stderr)
+        return 2
     except Exception as exc:  # a failed request: the store, the network or the warehouse
-        print(f"FAIL a store request failed: {type(exc).__name__}: {exc}")
+        print(f"FAIL a store request failed: {type(exc).__name__}: {redact(str(exc), secrets)}. No report was written.")
         return 1
     report["store"] = kind
-    if opts.get("--report"):
-        with open(opts["--report"], "w", encoding="utf-8") as f:
-            json.dump(report, f, indent=2)
-    print(json.dumps({k: v for k, v in report.items() if k not in ("graph_counts",)}, indent=2))
+    if report_path:
+        write_atomically(report_path, json.dumps(report, indent=2).encode("utf-8"))
+    print(json.dumps({k: v for k, v in report.items() if k != "graph_counts"}, indent=2))
     print("PASS the store's copy has the same RDFC-1.0 hash" if passed else "FAIL the store's copy differs")
     return 0 if passed else 1
 
