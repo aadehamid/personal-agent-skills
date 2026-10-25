@@ -613,12 +613,12 @@ class Driver:
         return ["--uri", f"bolt://127.0.0.1:{self.cfg['neo4j']['bolt_port']}"], {**os.environ, "NEO4J_PASSWORD": self.password()}
 
     # Fuseki
-    def fuseki_up(self, compose, project, port, port_var, build=True):
+    def fuseki_up(self, compose, project, port, port_var, profile=None):
         env = {**os.environ, port_var: str(port)}
-        base = ["docker", "compose", "-f", compose, "-p", project]
+        base = ["docker", "compose", "-f", compose, "-p", project] + (["--profile", profile] if profile else [])
         self.run(base + ["down", "-v"], env=env, capture=True)
         self.fusekis.append((base, env))
-        self.call("docker compose up (Fuseki)", base + ["up", "-d"] + (["--build"] if build else []), env=env)
+        self.call("docker compose up (Fuseki)", base + ["up", "-d", "--build"], env=env)
         ask = f"http://127.0.0.1:{port}/ds/query?" + urllib.parse.urlencode({"query": "ASK {}"})
         for _ in range(60):
             if self.ready(ask):
@@ -628,8 +628,9 @@ class Driver:
 
     def fuseki_down(self, base_env):
         base, env = base_env
+        if base_env in self.fusekis:
+            self.fusekis.remove(base_env)
         self.run(base + ["down", "-v"], env=env, capture=True)
-        self.fusekis.remove(base_env)
 
     def rdf_store_fuseki(self, key):
         c = self.cfg[key]
@@ -726,7 +727,7 @@ class Driver:
     def step_triplestore(self):
         self.need("inferred.nt", "projection-report.json")
         c = self.cfg["triplestore_fuseki"]
-        ds = self.fuseki_up(self.compose, c["compose_project"], c["port"], "LPG_FUSEKI_PORT")
+        ds = self.fuseki_up(self.compose, c["compose_project"], c["port"], "LPG_FUSEKI_PORT", profile="fuseki")
         try:
             self.py("triplestore.py", "triplestore.py", "--gsp", ds, "--query", ds + "/query",
                     "--inferred", self.out_file("inferred.nt"), "--projection-report", self.out_file("projection-report.json"),
@@ -857,10 +858,16 @@ class Driver:
             raise Failed("the inputs differ from the ones out/run-manifest.json records: run project again first")
 
     def finish(self):
-        for base_env in list(self.fusekis):
-            self.fuseki_down(base_env)
+        """Removes every container this run started, each attempt independent of the others, so one
+        failed removal leaves no other running; a failure is said and does not hide the step's own."""
+        teardowns = [lambda b=base_env: self.fuseki_down(b) for base_env in list(self.fusekis)]
         if self.local_up and not self.cfg.get("keep_neo4j"):
-            self.neo4j_down()
+            teardowns.append(self.neo4j_down)
+        for teardown in teardowns:
+            try:
+                teardown()
+            except Exception as exc:  # noqa: BLE001 (any failure; the next removal still runs)
+                self.log(f"WARNING {q(error_line('a container could not be removed', exc))}")
 
     def run_steps(self, steps):
         try:

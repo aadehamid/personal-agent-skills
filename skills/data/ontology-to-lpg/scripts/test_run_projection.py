@@ -196,6 +196,13 @@ class Steps(Base):
             "docker down", "docker down"])            # then Jena's Fuseki and the local Neo4j
         self.assertEqual(d.passed, ["project", "load", "review", "tags", "copy", "jena", "explore"])
 
+    def test_the_triplestore_fuseki_comes_from_the_skills_compose_profile(self):
+        fake = FakeRun()
+        d = self.driver(self.run_config(), fake)
+        d.run_steps(["project", "load", "triplestore"])
+        up = next(cmd for cmd, _, _ in fake.calls if "up" in cmd and "lpg-triplestore" in cmd)
+        self.assertEqual(up[up.index("--profile") + 1], "fuseki")
+
     def test_no_command_carries_the_password_and_every_path_is_absolute(self):
         fake = FakeRun()
         d = self.driver(self.run_config(), fake)
@@ -229,6 +236,21 @@ class Steps(Base):
         with self.assertRaises(rp.Failed):
             d.run_steps(["load"])
         self.assertEqual(fake.scripts()[-2:], ["load_verify.py", "docker down"])
+        self.assertFalse(d.local_up)
+
+    def test_one_failed_removal_does_not_stop_the_others(self):
+        class Breaking(FakeRun):
+            def __call__(self, cmd, cwd=None, env=None, capture=False):
+                if "down" in cmd and "lpg-jena" in cmd and any("roundtrip" in c for c, _, _ in self.calls):
+                    self.calls.append((list(cmd), cwd, None))
+                    raise OSError("docker went away")
+                return super().__call__(cmd, cwd, env, capture)
+        fake = Breaking()
+        d = self.driver(self.run_config(), fake)
+        d.run_steps(["project", "load", "jena"])
+        last = [cmd for cmd, _, _ in fake.calls[-2:]]
+        self.assertIn("lpg-jena", last[0])
+        self.assertIn("lpg-local", last[1])   # the local Neo4j still removed
         self.assertFalse(d.local_up)
 
     def test_a_step_that_needs_the_local_neo4j_says_so(self):
