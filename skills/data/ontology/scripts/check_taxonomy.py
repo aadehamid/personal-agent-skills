@@ -46,8 +46,9 @@ issues", has the table and the deliberate differences):
   language       a concept with any language-tagged literal has one in every language another
                  concept's literals use (Incomplete Language Coverage, No Common Language)
   label          (also) no skos:prefLabel, skos:altLabel or skos:hiddenLabel is empty after removing
-                 whitespace (Empty Labels); each concept scheme and collection has a skos:prefLabel,
-                 rdfs:label or dcterms:title (Missing Labels)
+                 whitespace, nor is a concept scheme's or collection's rdfs:label or dcterms:title (Empty
+                 Labels); each concept scheme and collection has a skos:prefLabel, rdfs:label or
+                 dcterms:title (Missing Labels)
   label-chars    no SKOS label holds a character of Unicode category Zl, Zp or C, such as a newline
                  (Unprintable Characters in Labels)
   collision      (also) no two concepts share a preferred, alternative or hidden label, ignoring the
@@ -331,6 +332,11 @@ def qskos(g, concepts, short):
         for s in sorted(g.subjects(RDF.type, kind)):
             if not any((s, pred, None) in g for pred in (SKOS.prefLabel, RDFS.label, DCTERMS.title)):
                 fails.append(("label", f"{short(s)} is a {short(kind)} with no skos:prefLabel, rdfs:label or dcterms:title"))
+            # Empty Labels covers every predicate Missing Labels accepts; skos:prefLabel is checked above.
+            for pred in (RDFS.label, DCTERMS.title):
+                for lab in g.objects(s, pred):
+                    if isinstance(lab, Literal) and not str(lab).strip():
+                        fails.append(("label", f"{short(s)} has an empty {short(pred)}"))
 
     for s in sorted({s for pred in LABELS for s in g.subjects(pred, None)}):
         seen = defaultdict(list)

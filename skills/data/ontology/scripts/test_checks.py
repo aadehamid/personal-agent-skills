@@ -18,7 +18,7 @@ import unittest
 
 import yaml
 from rdflib import BNode, Graph, Literal, URIRef
-from rdflib.namespace import OWL, RDF, RDFS, SH, SKOS, XSD
+from rdflib.namespace import DCTERMS, OWL, RDF, RDFS, SH, SKOS, XSD
 
 import check_requirements
 import check_taxonomy
@@ -586,6 +586,14 @@ class QskosRoundTwo(OneBreak, unittest.TestCase):
     def test_siblings_under_a_parent_stated_by_narrower_transitive(self):
         fails = self.transitive_siblings(lambda g, c: g.add((lib("circulation"), SKOS.narrowerTransitive, c)))
         self.assertIn(("related", "lib:hold-request and lib:renewal are siblings and also skos:related"), fails)
+
+    def test_scheme_with_an_empty_rdfs_label(self):
+        self.broken(lambda g: g.add((lib("loan-state"), RDFS.label, Literal("  ", lang="en"))),
+                    "label", "lib:loan-state has an empty rdfs:label")
+
+    def test_scheme_with_an_empty_dcterms_title(self):
+        self.broken(lambda g: g.add((lib("loan-state"), DCTERMS.title, Literal(" ", lang="en"))),
+                    "label", "lib:loan-state has an empty dcterms:title")
 
     def test_two_preferred_labels_whose_tags_differ_only_in_case(self):
         g = skeleton()
