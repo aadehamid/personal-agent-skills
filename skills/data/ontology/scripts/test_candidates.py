@@ -98,6 +98,20 @@ class CheckCandidates(unittest.TestCase):
         self.assertOnly(check_candidates.check_register(register, document(), "lending-policy-excerpt.txt"),
                         "candidate", "only the human gate approves")
 
+    def test_an_unsupported_definition_beside_a_valid_passage_still_passes(self):
+        # The limit of the script: meaning is checked by a person at the human gate, not here.
+        register = load(REGISTER)
+        register["candidates"][0]["proposed_definition"] = "A fine charged for every day a copy is late."
+        self.assertEqual(check_candidates.check_register(register, document(), "lending-policy-excerpt.txt"), [])
+
+    def test_a_term_its_passage_never_names_is_a_warning_not_a_failure(self):
+        register = load(REGISTER)
+        register["candidates"][1]["term"] = "reservation"
+        self.assertEqual(check_candidates.check_register(register, document(), "lending-policy-excerpt.txt"), [])
+        self.assertEqual(check_candidates.term_warnings(register),
+                         [("term", "'reservation': its passage never uses reservation")])
+        self.assertEqual(check_candidates.term_warnings(load(REGISTER)), [])
+
     def test_main_exit_codes(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):

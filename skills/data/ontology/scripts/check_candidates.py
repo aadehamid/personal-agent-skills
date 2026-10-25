@@ -19,7 +19,16 @@ Checks:
               line breaks included, count as one space)
   candidate   every candidate's status is "candidate": approval happens at the human gate, not here
 
-Prints one FAIL line per failure. Exit 0 when nothing fails, 1 when anything fails, 2 when a file cannot be read
+Warning, not a failure:
+  term        each content word of the candidate's term (four letters or more) occurs in its passage; a term
+              the passage never names is likely a model's paraphrase, and the reviewer should look first
+
+What this proves, and what it does not: the passage is in the document and each candidate is well formed. It
+cannot tell whether the proposed definition says what the passage says; that re-check of meaning (governance
+rule 19) is a person's step at the human gate (references/quality.md). A definition rewritten into a claim the
+passage does not support, next to an unchanged valid passage, passes this script; test_candidates.py shows it.
+
+Prints one FAIL line per failure and one WARN line per warning. Exit 0 when nothing fails (warnings included), 1 when anything fails, 2 when a file cannot be read
 or parsed, or the arguments are wrong.
 """
 import argparse
@@ -57,6 +66,19 @@ def check_result(result, document):
             if squash(found).casefold() != squash(label).casefold():
                 fails.append(("grounded", f"entity {label!r}: span {span} reads {found!r}"))
     return fails
+
+
+def term_warnings(register):
+    """WARN for each candidate whose term has a content word its passage never uses."""
+    warnings = []
+    for row in register.get("candidates") or [] if isinstance(register, dict) else []:
+        if not isinstance(row, dict) or not row.get("term") or not row.get("source_passage"):
+            continue
+        passage = squash(str(row["source_passage"])).casefold()
+        missing = [w for w in re.findall(r"[A-Za-z]{4,}", str(row["term"])) if w.casefold() not in passage]
+        if missing:
+            warnings.append(("term", f"{row['term']!r}: its passage never uses {', '.join(missing)}"))
+    return warnings
 
 
 def check_register(register, document, document_name):
@@ -102,17 +124,22 @@ def main(argv):
     except (OSError, yaml.YAMLError) as exc:
         print(f"ERROR cannot read the input: {exc}", file=sys.stderr)
         return 2
-    fails = []
+    fails, warnings = [], []
     for kind, path, data in loaded:
+        if kind == "candidates":
+            warnings += [(name, f"{path}: {message}") for name, message in term_warnings(data)]
         found = check_result(data, document) if kind == "ontogpt" else \
             check_register(data, document, os.path.basename(args.source))
         fails += [(name, f"{path}: {message}") for name, message in found]
+    for name, message in warnings:
+        print(f"WARN {name}: {message}")
     for name, message in fails:
         print(f"FAIL {name}: {message}")
     if fails:
         print(f"{len(fails)} check(s) failed", file=sys.stderr)
         return 1
-    print(f"every candidate is grounded in {args.source} and still a candidate")
+    print(f"every passage is in {args.source} and every candidate is well formed and still a candidate; "
+          f"a person still checks each definition against its passage")
     return 0
 
 
