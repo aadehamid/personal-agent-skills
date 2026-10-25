@@ -70,3 +70,10 @@ Consumers who need the current meaning use the ontology IRI; consumers who need 
 ## When the reference framework changes
 
 23. **Leave your IRIs where they are, review each `dcterms:references` link against the new version, send newly relevant elements through the scope review (`foundations.md`, Step 8), and record the framework version on the release.** This is a minor release at most, usually a patch. *Why:* the framework is the check, not the source of truth.
+
+## Documentation pages
+
+24. **Build each released package's pages with Widoco, from the package's own Turtle:** `scripts/build_docs.py --jar <widoco.jar> --releases releases --docs docs/ontology`, one page set per package at `docs/ontology/<module>/<version>/`. Widoco runs locally on Java, so nothing leaves the machine. *Why:* a reader gets classes, properties, definitions and metadata as a web page without reading Turtle.
+25. **Keep the pages beside the packages, never inside them.** *Why:* a released package never changes (rule 10), and adding pages would change its manifest; the pages change on their own schedule (a new Widoco version, a style fix) and are fully derived from the package.
+26. **Record what each page set was built from, and check it:** `build_docs.py` writes `docs-source.json` with the SHA-256 of the package's `manifest.json`, and `scripts/check_docs.py --releases releases --docs docs/ontology` fails when a released package has no pages, when a page set's recorded hash no longer matches its manifest, or when pages exist for a package that is not released. Run it in the check script. The pages themselves are not compared, because Widoco writes the generation date into them. *Why:* the hash says which package the pages describe, which a byte comparison of generated HTML cannot.
+27. **Publishing the pages waits for the hosting decision** (rule 20); until then they are read from the repository.
