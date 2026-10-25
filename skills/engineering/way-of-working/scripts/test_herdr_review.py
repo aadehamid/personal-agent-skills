@@ -50,6 +50,8 @@ FAKE = textwrap.dedent(r'''
         open(os.path.join(state, "closed-" + args[2]), "w").write("")
         out({"result": {}})
     if cmd == "tab create":
+        # "oldagent": the existing tab w2:t3 belongs to an old reviewer, and a new tab is w2:t5.
+        if "oldagent" in s: out({"result": {"tab": {"tab_id": "w2:t5"}, "root_pane": {"pane_id": "w2:p5"}}})
         # Once the review tab w2:t3 is closed, a new tab gets new ids.
         new = os.path.exists(os.path.join(state, "closed-w2:t3"))
         root = None if "noroot" in s else {"pane_id": "w2:p4" if new else "w2:p3"}
@@ -62,6 +64,7 @@ FAKE = textwrap.dedent(r'''
         if "paneerr" in s: err("pane_not_found")
         if "errpayload0" in s: out({"error": {"code": "pane_not_found"}}, 0)
         if "nullpane" in s: out({"result": {"pane": None}})
+        if "oldagent" in s: out({"result": {"pane": {"agent": "codex" if args[2] == "w2:p3" else None}}})
         out({"result": {"pane": {"agent": None if "fresh" in s else "codex"}}})
     if cmd == "agent start":
         pane_tab = {"w2:p3": "w2:t3", "w2:pJB": "w2:tEH"}.get(args[args.index("--pane") + 1])
@@ -488,16 +491,19 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(start[start.index("-m") + 1], "gpt-6-astra")
 
     def test_a_new_default_model_does_not_reuse_the_old_default_tab(self):
-        # The old default ran in an unhashed review-repo tab, started on gpt-6.1-sol. A
-        # reused pane keeps the model it started with, so the new default must not take it.
-        r, _ = self.run_case("fresh", env_extra={"FAKE_LABEL": "review-repo"})
+        # The old default ran as rev-repo in an unhashed review-repo tab, whose pane still
+        # holds that Codex (started on gpt-6.1-sol). A reused pane keeps the model it started
+        # with, so the new default must start its own reviewer in its own tab, not prompt it.
+        r, calls = self.run_case("ok,oldagent", env_extra={"FAKE_LABEL": "review-repo", "FAKE_NAME": "rev-repo"})
         self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("Review tab: w2:t3 (reused)", r.stderr)
         created = [a for a in self.argv if a[:2] == ["tab", "create"]]
         self.assertEqual(len(created), 1, "the old review-repo tab was reused")
         self.assertEqual(created[0][created[0].index("--label") + 1], DEFAULT_LABEL)
-        start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
-        self.assertEqual(start[2], DEFAULT_NAME)
-        self.assertEqual(start[start.index("-m") + 1], "gpt-6-luna")
+        starts = [a for a in self.argv if a[:2] == ["agent", "start"]]
+        self.assertEqual(len(starts), 1, "the old reviewer in review-repo was prompted, not a new one started")
+        self.assertEqual(starts[0][2], DEFAULT_NAME)
+        self.assertEqual(starts[0][starts[0].index("-m") + 1], "gpt-6-luna")
 
     def test_another_model_starts_beside_a_live_default_reviewer(self):
         r, calls = self.run_case("fresh,defaultlive", extra=("--model", "gpt-6-astra"))
