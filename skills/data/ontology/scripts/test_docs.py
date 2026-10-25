@@ -15,6 +15,7 @@ import os
 import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 import build_docs
 import check_docs
@@ -160,6 +161,24 @@ class Docs(unittest.TestCase):
         self.assertEqual(code, 0, out)
         with open(os.path.join(self.docs, "lending", "1.1.0", "index-en.html")) as f:
             self.assertEqual(f.read(), "NEW\n")
+        self.assertEqual(check_docs.check(self.releases, self.docs), [])
+        self.assertEqual(self.leftovers(), [])
+
+    def test_a_failed_promotion_puts_the_previous_pages_back(self):
+        self.write_old_pages()
+        real_rename = os.rename
+
+        def rename(src, dst):
+            if os.path.basename(src).startswith(".1.1.0.building-") and not src.endswith(".old"):
+                raise OSError("injected failure promoting the new pages")
+            return real_rename(src, dst)
+
+        with mock.patch("build_docs.os.rename", side_effect=rename):
+            code, out = self.build_with_fake_java("ok", "lending/1.1.0")
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL promote: lending 1.1.0: injected failure", out)
+        with open(os.path.join(self.docs, "lending", "1.1.0", "index-en.html")) as f:
+            self.assertEqual(f.read(), "OLD")
         self.assertEqual(check_docs.check(self.releases, self.docs), [])
         self.assertEqual(self.leftovers(), [])
 

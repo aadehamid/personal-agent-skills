@@ -71,7 +71,13 @@ def build(jar, releases, docs, module, version):
         if os.path.isdir(out):
             old = staging + ".old"
             os.rename(out, old)
-        os.rename(staging, out)
+        try:
+            os.rename(staging, out)
+        except OSError as exc:
+            if old:
+                os.rename(old, out)   # the previous pages go back where check_docs.py looks for them
+            print(f"FAIL promote: {module} {version}: {exc}; the previous pages are unchanged")
+            return False
         staging = None
         if old:
             shutil.rmtree(old)
