@@ -10,6 +10,7 @@
 - [ ] **Regression passes.** Every competency question passes on the released packages, or is partial, parked or waiting by a recorded decision that names what it waits for (the Step 11 gate in `SKILL.md`; `regression.md`, rule 11): <the command and commit that computed the counts>.
 - [ ] **Catalog rebuilt.** The combined catalog lists the release and its `--verify` passes (`release.md`, rule 19).
 - [ ] **Changelog written.** One entry per change: what, why, who approved, classification (`release.md`, rule 18).
+- [ ] **Known gaps stated.** The changelog's "Known gaps" section lists each gap with `Reason:` and `Record:`, or says "None."; `scripts/check_changelogs.py` passes (`release.md`, rule 18): <gaps, or none>.
 - [ ] **Candidate cut.** The candidate label, `dcterms:issued` and the candidate package are handled as `release.md` rules 14 and 15 say.
 - [ ] **Check script passes** on the head, and the review ran with every finding fixed or answered (`governance.md`, rules 15 and 20).
 - [ ] **Tag after merge.** Tag the merge commit `<module>-v<version>` once the PR has merged; until then, records say the tag comes at merge (`release.md`, rule 16).
