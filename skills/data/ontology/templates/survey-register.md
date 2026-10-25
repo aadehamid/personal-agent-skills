@@ -1,4 +1,4 @@
-<!-- Copy at Step 0. Rules: references/foundations.md, "Step 0", and references/external-ontologies.md. A row is done only when every cell holds a fact you read in the publisher's own copy; write "not checked" rather than a guess, and the gate stays open. Delete every comment. -->
+<!-- Copy at Step 0. Rules: references/foundations.md, "Step 0", and references/external-ontologies.md. In the framework, boundary and survey tables, a row is done only when every cell holds a fact you read in the publisher's own copy; write "not checked" rather than a guess, and the gate stays open. The registry-search table records your own searches instead (its note says how). Delete every comment. -->
 
 # Step 0: reference framework and survey
 
@@ -28,7 +28,7 @@ Checked <YYYY-MM-DD>.
 
 ## Registry searches
 
-<!-- One row per registry in references/external-ontologies.md, "The registries to search", and one per further search you ran. A search with no hits is recorded as "no hits", never left out. -->
+<!-- One row per registry in references/external-ontologies.md, "The registries to search", and one per further search you ran. These cells record what you did, not a publisher's fact: the date, the exact query terms, and the hits by name as the registry listed them. "no hits" is a complete answer for a search that found nothing; never leave the row out. A search you could not run is "not run", with the reason, and the gate stays open. -->
 
 | Registry | Date | Query terms | Hits (names), or "no hits" |
 |---|---|---|---|
