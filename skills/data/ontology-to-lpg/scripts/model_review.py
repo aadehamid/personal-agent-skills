@@ -27,8 +27,9 @@ The rules, from the skill, each one finding per offender:
                                    median of one of its labels and at least --min-degree (default 50)
                                    ("degree >> median for its label"; a performance risk)
 and one local heuristic, not from the skill (design-rules.md says why):
-  reciprocal-type         INFO     one relationship type used from label A to B and from B to A, A and B
-                                   different: often one ontology property stated both ways
+  reciprocal-type         INFO     one relationship type used from label A to B and from B to A, where A
+                                   is on one end and not the other and B the reverse: often one ontology
+                                   property stated both ways
 
 Degree is total degree, both directions. Only domain labels count: n10s's own (Resource, the
 configuration labels, n4sch__*) are left out before any degree rule, and a node with no domain label
@@ -64,13 +65,18 @@ OFFENDERS = (f"MATCH (n) WITH n, {DOMAIN} AS dl WHERE size(dl) > 0 "
              "WHERE degree > $max_degree OR (degree >= $min_degree AND any(l IN dl WHERE "
              "degree >= $factor * CASE WHEN coalesce($medians[l], 0) < 1 THEN 1 ELSE $medians[l] END)) "
              "RETURN n.uri AS uri, dl AS labels, degree ORDER BY degree DESC, uri LIMIT $limit")
-# One row per (type, label, label) the graph uses, a set the size of the schema, not of the data; each
-# ordered pair with a < b is kept only when an edge of that type also runs from b to a (an existence
-# check with dynamic labels and type, Cypher 5.26 and later; run on Neo4j 2025.06.2 on 2026-10-25).
+# One row per (type, label, label) the graph uses, a set the size of the schema, not of the data. A pair
+# counts only with labels that tell the two ends apart: x on the source and not the target, y on the
+# target and not the source, so one edge between two nodes that share labels (two concepts that are
+# both skos:Concept and a narrower class) is never read as both directions. Each pair with x < y is
+# kept only when an edge of that type also runs from a y-and-not-x node to an x-and-not-y node (an
+# existence check with dynamic labels and type, Cypher 5.26 and later; run on Neo4j 2025.06.2 on
+# 2026-10-25).
 RECIPROCAL = ("MATCH (a)-[r]->(b) "
               f"WITH DISTINCT type(r) AS t, {DOMAIN.replace('(n)', '(a)')} AS la, {DOMAIN.replace('(n)', '(b)')} AS lb "
+              "WITH t, [x IN la WHERE NOT x IN lb] AS la, [y IN lb WHERE NOT y IN la] AS lb "
               "UNWIND la AS x UNWIND lb AS y WITH DISTINCT t, x, y WHERE x < y "
-              "AND EXISTS { MATCH (:$(y))-[:$(t)]->(:$(x)) } "
+              "AND EXISTS { MATCH (b2:$(y))-[:$(t)]->(a2:$(x)) WHERE NOT x IN labels(b2) AND NOT y IN labels(a2) } "
               "RETURN t AS type, x AS a, y AS b ORDER BY type, a, b LIMIT $limit")
 
 

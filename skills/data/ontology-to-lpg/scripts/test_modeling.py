@@ -64,12 +64,13 @@ def fake(labels=("Resource", "lib__Work", "lib__Person"), types=("lib__createdBy
                         d >= params["factor"] * max(m.get(lb, 0), 1) for lb in dl))]
             return sorted(hits, key=lambda r: (-r["degree"], r["uri"]))[:params["limit"]]
         if stmt == mr.RECIPROCAL:
+            # A pair (x, y) of one edge: x on its source and not its target, y the reverse.
             pairs = {}
             for t, a, b in edges:
-                for x in emulated_domain(a, skipped):
-                    for y in emulated_domain(b, skipped):
-                        if x != y:
-                            pairs.setdefault(t, set()).add((x, y))
+                da, db = emulated_domain(a, skipped), emulated_domain(b, skipped)
+                for x in (lb for lb in da if lb not in db):
+                    for y in (lb for lb in db if lb not in da):
+                        pairs.setdefault(t, set()).add((x, y))
             return [{"type": t, "a": x, "b": y} for t, ps in sorted(pairs.items()) for x, y in sorted(ps)
                     if x < y and (y, x) in ps][:params["limit"]]
         raise AssertionError("unexpected statement " + stmt)
@@ -177,10 +178,34 @@ class Review(unittest.TestCase):
     def test_the_reciprocal_query_checks_existence_and_is_limited(self):
         calls = []
         mr.review(fake(calls=calls), limit=7)
-        self.assertIn("EXISTS { MATCH (:$(y))-[:$(t)]->(:$(x)) }", mr.RECIPROCAL)
+        self.assertIn("EXISTS { MATCH (b2:$(y))-[:$(t)]->(a2:$(x))", mr.RECIPROCAL)
         self.assertNotIn("collect(", mr.RECIPROCAL)
         self.assertIn("LIMIT $limit", mr.RECIPROCAL)
         self.assertEqual(next(p for stmt, p in calls if stmt == mr.RECIPROCAL)["limit"], 7)
+
+    def test_one_edge_between_nodes_that_share_two_labels_is_not_reciprocal(self):
+        # The Cursor review of 5869898: a projection loads inferred types, so two concepts can both be
+        # skos:Concept and a narrower class; one skos:broader edge between them is one direction.
+        edges = [("skos__broader", ["Resource", "skos__Concept", "lib__Narrower"],
+                  ["Resource", "skos__Concept", "lib__Narrower"])]
+        self.assertEqual(mr.review(fake(edges=edges))[0], [])
+        self.assertIn("NOT x IN lb", mr.RECIPROCAL)
+        self.assertIn("NOT x IN labels(b2) AND NOT y IN labels(a2)", mr.RECIPROCAL)
+
+    def test_a_real_reciprocal_pair_with_a_shared_superclass_is_still_found(self):
+        edges = [("lib__about", ["Resource", "lib__Agent", "lib__Work"], ["Resource", "lib__Agent", "lib__Person"]),
+                 ("lib__about", ["Resource", "lib__Agent", "lib__Person"], ["Resource", "lib__Agent", "lib__Work"])]
+        found, _ = mr.review(fake(edges=edges))
+        self.assertEqual([f["message"].split(";")[0] for f in found],
+                         ["lib__about runs from lib__Person to lib__Work and from lib__Work to lib__Person"])
+
+    def test_skill_md_runs_the_tests_with_the_pin_check_sh_uses(self):
+        # The Cursor review of 5869898: SKILL.md's test command lacked the package the parity test imports.
+        skill = open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read()
+        check = open(os.path.join(HERE, "..", "..", "..", "..", "scripts", "check.sh"), encoding="utf-8").read()
+        pin = "--with mcp-neo4j-data-modeling==0.8.2"
+        self.assertIn(pin, next(line for line in check.splitlines() if "test_modeling" in line))
+        self.assertIn(pin, next(line for line in skill.splitlines() if "test_modeling" in line and "uv run" in line))
 
     def test_a_type_between_nodes_of_one_label_is_not_reciprocal(self):
         edges = [("skos__broader", ["Resource", "skos__Concept"], ["Resource", "skos__Concept"])]
