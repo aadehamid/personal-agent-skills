@@ -54,9 +54,10 @@ def check_text(text, where):
     fails = []
     for bullet in bullets:
         for label in ("Reason:", "Record:"):
-            # The value runs from the label to the next label or the end, and must hold more than space and dots.
+            # The value runs from the label to the next label or the end, and must hold a letter or a digit:
+            # space and punctuation alone ("—", "?", "...") say nothing.
             value = re.search(re.escape(label) + r"(.*?)(?=Reason:|Record:|$)", bullet)
-            if not value or not value.group(1).strip(" \t.;,"):
+            if not value or not re.search(r"[^\W_]", value.group(1)):
                 fails.append(("gap", f"{where}: {bullet[:80]!r} has no {label} value"))
     return fails
 

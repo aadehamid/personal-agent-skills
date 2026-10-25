@@ -65,6 +65,13 @@ class CheckChangelogs(unittest.TestCase):
         self.assertOnly(GOOD.replace("Record: open question Q7 to the ontology owner.", "Record:"), "gap",
                         "has no Record: value")
 
+    def test_a_reason_of_punctuation_only(self):
+        self.assertOnly(GOOD.replace("Reason: no holds export exists yet.", "Reason: —"), "gap", "has no Reason: value")
+
+    def test_a_record_of_punctuation_only(self):
+        self.assertOnly(GOOD.replace("Record: open question Q7 to the ontology owner.", "Record: ?"), "gap",
+                        "has no Record: value")
+
     def test_the_next_section_is_not_read_as_gaps(self):
         text = GOOD.replace("## Approval\nThe module owner, 2026-10-24.", "## Approval\n- The module owner, 2026-10-24.")
         self.assertEqual(check_changelogs.check_text(text, "lending 1.1.0"), [])
