@@ -3,21 +3,25 @@
 #
 # Usage: rex-review.sh --branch <branch> --verify "<claims to verify>" [--kind codex|kimi|cursor] [--model <model>]
 #   herdr-review.sh hands off to this script inside Rex (REX_SESSION set, HERDR_WORKSPACE_ID
-#   unset) or with --host rex, so the commands the docs name stay the same. Reviewers, models
-#   and flags are herdr-review.sh's; test_rex_review.py checks that the two scripts agree.
+#   unset) or with --host rex, so the commands the docs name stay the same. Reviewers, models,
+#   flags and prompt are herdr-review.sh's; test_rex_review.py runs both scripts and compares
+#   what each launches and sends. The two stay separate files because each runs from a private
+#   copy of itself, which sourcing a shared sibling would undo.
 #   The first reviewer opens as a split beside this agent's pane (REX_BLOCK); when that window
 #   already holds two panes, it opens in a new tab (the owner's layout, 2026-10-24). Each
-#   reviewer's pane is labelled review-<repo>-<kind>-<hash of kind:model> and reused while its
-#   reviewer runs.
+#   reviewer's pane is labelled review-<repo>-<kind>-<hash of kind:model>-<hash of the work
+#   tree's path>, and is reused only while that reviewer runs there.
 #   A review takes longer than a foreground tool call allows: run this as a background
 #   job the harness reports back on, with its exit status (Claude Code: run_in_background).
 # Exit 0: the report is on stdout, and nothing else is.
 # Exit 1: no report. Every exit 1 ends stdout with two lines, the reason and "Next: <command>".
 # Exit 2: bad arguments.
 # Rex does not know what an agent is doing: it shows the status a program reports (OSC 7501),
-# and none of the reviewer CLIs reported one on 2026-10-24. So the status comes from the
-# screen (pane_status below): the input line still holding the prompt, a question, a busy
-# marker, or a screen that changed since the last look. A reported status wins when present.
+# and none of the reviewer CLIs reported one on 2026-10-24. So the status comes from the pane's
+# process and the bottom of its screen (pane_status below). Nothing is typed into the pane
+# unless the screen positively shows the reviewer's own input line, or Kimi's folder-trust
+# dialog for this work tree; any other screen that stays put is a question, and the script
+# stops there.
 # Tests: test_rex_review.py, run by the repository's scripts/check.sh.
 set -euo pipefail
 
@@ -37,18 +41,26 @@ case "$0" in "${TMPDIR:-/tmp}"/rex-review.copy.*) rm -f -- "$0" ;; esac
 started_at=$(python3 -c 'import time; print(time.time())')
 rerun=$(printf '%q ' "$self" "$@")
 
+usage="usage: $self --branch <branch> --verify <text> [--kind codex|kimi|cursor] [--model <model>]"
 branch="" verify="" kind="codex" model=""
 while [ $# -gt 0 ]; do
+  # Every option takes a value; a missing one is a bad argument, not a later unbound variable.
   case "$1" in
-    --branch) branch="$2"; shift 2 ;;
-    --verify) verify="$2"; shift 2 ;;
-    --model) model="$2"; shift 2 ;;
-    --kind) kind="$2"; shift 2 ;;
-    --host) shift 2 ;;   # herdr-review.sh's choice of host; this script is the Rex one
-    *) echo "unknown argument: $1" >&2; exit 2 ;;
+    --branch|--verify|--model|--kind|--host)
+      [ $# -ge 2 ] || { echo "$1 needs a value" >&2; echo "$usage" >&2; exit 2; } ;;
+    *) echo "unknown argument: $1" >&2; echo "$usage" >&2; exit 2 ;;
   esac
+  case "$1" in
+    --branch) branch="$2" ;;
+    --verify) verify="$2" ;;
+    --model) model="$2" ;;
+    --kind) kind="$2" ;;
+    # herdr-review.sh's choice of host; this script is the Rex one.
+    --host) [ "$2" = rex ] || { echo "rex-review.sh runs only with --host rex, got: $2" >&2; exit 2; } ;;
+  esac
+  shift 2
 done
-[ -n "$branch" ] && [ -n "$verify" ] || { echo "usage: $self --branch <branch> --verify <text>" >&2; exit 2; }
+[ -n "$branch" ] && [ -n "$verify" ] || { echo "$usage" >&2; exit 2; }
 case "$kind" in
   codex) model="${model:-gpt-6-luna}" ;;
   kimi) model="${model:-kimi-code/k3.1-pro}" ;;
@@ -56,11 +68,11 @@ case "$kind" in
   *) echo "--kind must be codex, kimi or cursor, got: $kind" >&2; exit 2 ;;
 esac
 
-step="starting" trailer="" next_on_failure="$rerun" review_pane=""
+step="starting" trailer="" next_on_failure="$rerun" review_pane="" last_screen=""
 on_exit() {
   local code=$?
   trap '' TERM INT HUP
-  [ -z "${last_screen:-}" ] || rm -f "$last_screen"
+  [ -z "$last_screen" ] || rm -f "$last_screen"
   [ "$code" -ne 0 ] && [ -z "$trailer" ] || return 0
   echo "No review: $step failed; the error is above."
   echo "Next: $next_on_failure"
@@ -73,7 +85,8 @@ if [ -z "${REX_SESSION:-}" ]; then
   step="checking for a Rex pane" next_on_failure="run it from a Rex pane: $rerun"
   exit 1
 fi
-reviewer_hash=$(printf '%s' "$kind:$model" | shasum | cut -c1-8)
+# Ends the run with its reason and Next line.
+stop() { trailer=1; echo "$1"; echo "Next: $2"; exit 1; }
 # rex with this session: -s goes after the command's words (split, block ls, block call).
 rx() {
   local n=1
@@ -83,38 +96,87 @@ rx() {
 
 step="finding the review pane"
 top=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+top=$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$top")
 head_sha=$(git -C "$top" rev-parse HEAD 2>/dev/null || true)
 repo=$(basename "$top")
-label="review-$repo-$kind-$reviewer_hash"
-# One line: the pane labelled $label (empty if none), and the number of panes in the window
-# that holds this agent's pane (0 if REX_BLOCK is unset or not in this session).
-read -r review_pane own_window_panes < <(rx block ls --json | python3 -c '
+reviewer_hash=$(printf '%s' "$kind:$model" | shasum | cut -c1-8)
+tree_hash=$(printf '%s' "$top" | shasum | cut -c1-6)
+label="review-$repo-$kind-$reviewer_hash-$tree_hash"
+# The reviewer's program names, as the process listing shows them (name, argv0 or file name).
+case "$kind" in
+  kimi) expected="kimi kimi-code" ;;
+  cursor) expected="cursor-agent agent" ;;
+  codex) expected="codex" ;;
+esac
+
+# One word for what runs in a pane, from its process record: reviewer (this kind's program,
+# started in this work tree), shell (a shell or the login wrapper: still starting, or the
+# reviewer left), exited (the program ended; the pane stays open), other (another program, or
+# this program in another directory), or unreadable (rex gave no answer it could parse). Only a
+# shell or exited pane is ever closed.
+proc_state() {
+  local out
+  out=$(rx block call -b "$1" process 2>/dev/null) || { echo unreadable; return; }
+  printf '%s' "$out" | python3 -c '
+import json, os, sys
+expected, top = sys.argv[1].split(), sys.argv[2]
+try:
+    p = json.load(sys.stdin)
+    assert isinstance(p, dict)
+except (ValueError, AssertionError):
+    print("unreadable"); sys.exit()
+child = p.get("child")
+if not child:
+    print("exited" if p.get("last_exit") is not None else "unreadable"); sys.exit()
+names = {child.get("name") or "", child.get("argv0") or ""} | {os.path.basename(child.get(k) or "") for k in ("path", "invoked_path")}
+names = {n.lstrip("-") for n in names if n}
+if names & set(expected):
+    cwd = child.get("cwd") or ""
+    print("reviewer" if cwd and os.path.realpath(cwd) == top else "other")
+elif names & {"zsh", "bash", "sh", "fish", "login"}:
+    print("shell")
+else:
+    print("other")' "$expected" "$top"
+}
+
+# The pane labelled $label (empty if none), and the number of panes in the window that holds
+# this agent's pane (0 if REX_BLOCK is unset or not in this session).
+read -r found own_window_panes < <(rx block ls --json | python3 -c '
 import json, os, sys
 label, mine = sys.argv[1], os.environ.get("REX_BLOCK", "")
 blocks = json.load(sys.stdin)["blocks"]
 pane = next((b["block_id"] for b in blocks if b.get("label") == label), "-")
 win = next((b["window_id"] for b in blocks if b["block_id"] == mine), None)
 print(pane, sum(1 for b in blocks if win and b["window_id"] == win))' "$label")
-[ "$review_pane" != "-" ] || review_pane=""
+[ "$found" != "-" ] || found=""
 
-# The reviewer runs while the pane's foreground program is not a shell.
-reviewer_running() {
-  rx block call -b "$review_pane" process 2>/dev/null | python3 -c '
-import json, sys
-fg = (json.load(sys.stdin).get("foreground") or {}).get("name", "")
-sys.exit(0 if fg and fg.lstrip("-") not in ("zsh", "bash", "sh", "fish", "login") else 1)'
-}
-if [ -n "$review_pane" ] && ! reviewer_running; then
-  # Its reviewer exited: the pane is closed and a fresh one opened.
-  rx block close "$review_pane" >/dev/null 2>&1 || true
-  echo "closed $review_pane (its reviewer had exited)" >&2
-  review_pane=""
+created=""
+if [ -n "$found" ]; then
+  case "$(proc_state "$found")" in
+    reviewer)
+      review_pane=$found
+      echo "Review pane: $review_pane (reused)" >&2
+      echo "Reusing the running reviewer in $review_pane: it keeps the flags it started with. To apply this script's current flags, close the pane once (rex block close -s $REX_SESSION $review_pane) and run again." >&2 ;;
+    shell|exited)
+      # Its reviewer left: the pane is closed and a fresh one opened. A failed close stops,
+      # so two panes never share the label.
+      if ! close_out=$(rx block close "$found" 2>&1); then
+        printf '%s\n' "$close_out" >&2
+        stop "Reviewer did not start: the pane $found holds the label $label and could not be closed (error above)." \
+             "rex block close -s $REX_SESSION $found; $rerun"
+      fi
+      echo "closed $found (its reviewer had exited)" >&2 ;;
+    unreadable)
+      stop "Reviewer did not start: rex cannot read the process of the pane $found, which holds the label $label." \
+           "rex block call -s $REX_SESSION -b $found process; then run: $rerun" ;;
+    *)
+      # Another program, or a reviewer in another directory: left alone, and not reused.
+      stop "Reviewer did not start: the pane $found holds the label $label but runs something else; it was left alone." \
+           "close it if it is yours (rex block close -s $REX_SESSION $found), then run: $rerun" ;;
+  esac
 fi
 
-if [ -n "$review_pane" ]; then
-  echo "Review pane: $review_pane (reused)" >&2
-  echo "Reusing the running reviewer in $review_pane: it keeps the flags it started with. To apply this script's current flags, close the pane once (rex block close -s $REX_SESSION $review_pane) and run again." >&2
-else
+if [ -z "$review_pane" ]; then
   step="starting the reviewer"
   if [ "$kind" = kimi ]; then
     agent_cmd=(kimi) agent_args=(-m "$model" -y)
@@ -139,93 +201,125 @@ else
 fi
 [ -n "$review_pane" ] || { echo "rex gave no review pane" >&2; exit 1; }
 answer="answer it (rex send-key -s $REX_SESSION -b $review_pane <key>)"
+show_pane() { rx capture -b "$review_pane" --trim 2>/dev/null | tail -n "$1" || true; }
 
-# One word for what the reviewer is doing: unsent (the input line still holds the prompt),
-# trust (Kimi asks to trust the folder, with "Trust and continue" selected), blocked (another
-# question is on screen), working (a busy marker), changing (the screen moved
-# since the last look), idle, or gone (the reviewer exited). A status the program reports
-# through OSC 7501 wins over the screen. Only the bottom of the screen is read for the input
-# line and for questions, so the same words quoted higher up, such as in a diff, count for
-# nothing.
+# One word for what the reviewer is doing, checked in this order, so nothing is typed while a
+# question shows or the program says it is busy:
+#   gone        the pane's program exited, or something else now runs there
+#   starting    the login shell that starts the reviewer is still in front (startup only)
+#   unreadable  rex could not give the process or the screen
+#   blocked     the program reports blocked (OSC 7501), or a question is on the bottom lines
+#   working     the program reports working, or a busy marker shows
+#   trust       Kimi asks to trust this work tree, with "Trust and continue" selected
+#   unsent      the reviewer's own input line still holds the prompt
+#   changing    the screen moved since the last look
+#   idle        the reviewer's own input line shows, empty, and nothing moved
+#   unknown     the screen stayed put without the reviewer's input line: an unknown screen
+# Only the bottom lines are read, so the same words quoted higher up, such as in a diff, count
+# for nothing. A failed look leaves the last screen as it was.
 last_screen=$(mktemp "${TMPDIR:-/tmp}/rex-review.screen.XXXXXX")
 pane_status() {
-  local reported screen
-  if ! reviewer_running; then echo gone; return; fi
+  local proc reported screen
+  proc=$(proc_state "$review_pane")
+  case "$proc" in
+    exited|other) echo gone; return ;;
+    shell) echo starting; return ;;
+    unreadable) echo unreadable; return ;;
+  esac
   reported=$(rx block call -b "$review_pane" program_status 2>/dev/null | python3 -c '
 import json, sys
 try:
     recs = json.load(sys.stdin).get("records") or []
-except ValueError:
+except (ValueError, AttributeError):
     recs = []
-root = next((r for r in recs if "id" not in r), None)
-state = (root or {}).get("state", "")
-print({"working": "working", "blocked": "blocked"}.get(state, "idle" if state else ""))' || true)
-  screen=$(rx capture -b "$review_pane" --trim 2>/dev/null | tail -n 40 || true)
+root = next((r for r in recs if isinstance(r, dict) and "id" not in r), None)
+print((root or {}).get("state", ""))' || true)
+  screen=$(rx capture -b "$review_pane" --trim 2>/dev/null) || { echo unreadable; return; }
   printf '%s' "$screen" | python3 -c '
-import re, sys
-reported, last_path = sys.argv[1], sys.argv[2]
-screen = sys.stdin.read()
-bottom = "\n".join(screen.splitlines()[-12:])
+import os, re, sys
+kind, reported, last_path, top = sys.argv[1:5]
+lines = sys.stdin.read().splitlines()[-40:]
+screen = "\n".join(lines)
+bottom = "\n".join(lines[-12:])
+dialog = lines[-20:]
 last = open(last_path).read()
 open(last_path, "w").write(screen)
-if re.search(r"(?m)^\s*(│\s*)?[>›→]\s*(\[Pasted text|Read AGENTS\.md)", bottom):
-    print("unsent")
-elif re.search(r"(?m)^\s*❯\s*Trust and continue\s*$", bottom):
+# Each reviewer'"'"'s own input line: empty when ready, holding the prompt when unsent.
+editor = {
+    "kimi": r"^\s*│\s*>\s*(?P<text>.*?)\s*│?\s*$",
+    "cursor": r"^\s*→\s*(?P<text>.*?)\s*$",
+    "codex": r"^\s*›\s*(?P<text>.*?)\s*$",
+}[kind]
+ready_text = {"kimi": ("",), "cursor": ("Plan, search, build anything", "Add a follow-up"), "codex": None}[kind]
+question = re.search(r"Run this command\?|Skip & tell the agent|Press enter to confirm|Hooks need review|"
+                     r"\(y/n\)|\[y/N\]|Allow once|Trust this folder\?", "\n".join(dialog))
+trust = (kind == "kimi" and any(l.strip() == "Trust this folder?" for l in dialog)
+         and any(re.match(r"^\s*❯\s*Trust and continue\s*$", l) for l in dialog)
+         and any(l.strip().startswith("/") and os.path.realpath(l.strip()) == top for l in dialog))
+inputs = [m.group("text") for m in (re.match(editor, l) for l in lines[-12:]) if m]
+held = any(t.startswith(("Read AGENTS.md", "Write your final review report", "[Pasted text")) for t in inputs)
+# Codex: its idle placeholder text was not checked live (its hook-review prompt stood in the
+# way on 2026-10-24), so any input line not holding the prompt counts as ready.
+ready = any(t in ready_text for t in inputs) if ready_text is not None else bool(inputs) and not held
+if kind == "kimi" and ready:
+    ready = "context:" in bottom
+if reported == "blocked":
+    print("blocked")
+elif reported == "working":
+    print("working")
+elif trust:
     print("trust")
-elif reported:
-    print(reported)
-elif re.search(r"Run this command\?|Skip & tell the agent|Press enter to confirm|Hooks need review|Trust this folder\?|\(y/n\)|\[y/N\]|Allow once", bottom):
+elif question:
     print("blocked")
 elif re.search(r"ctrl\+c to stop|esc to interrupt|Press Ctrl\+B to run in background", bottom):
     print("working")
+elif held:
+    print("unsent")
 elif screen != last:
     print("changing")
+elif ready:
+    print("idle")
 else:
-    print("idle")' "$reported" "$last_screen"
+    print("unknown")' "$kind" "$reported" "$last_screen" "$top"
 }
 
-# A fresh reviewer gets the prompt once its screen has settled: two looks alike, or a
-# question that has to be answered first. Just after the pane opens, its foreground program
-# is still the login shell that starts the reviewer, so "gone" counts only after ten looks
-# in a row (2026-10-24: one look too early read a starting Kimi as exited).
-if [ "${created:-}" ]; then
-  step="waiting for the reviewer to start"
-  settled=0 gone_looks=0 trusted=0
-  for _ in $(seq 1 60); do
-    st=$(pane_status)
-    if [ "$st" = gone ]; then
-      gone_looks=$((gone_looks + 1))
-      if [ "$gone_looks" -lt 10 ]; then sleep 2; continue; fi
-    else
-      gone_looks=0
-    fi
-    case "$st" in
-      idle|unsent) settled=1; break ;;
-      trust)
-        # The owner, 2026-10-24: "it is okay to always trust the folder and continue". Folder
-        # trust only: Codex's hook review approves code and stays a question.
-        if [ "$trusted" -lt 2 ]; then
-          rx send-key -b "$review_pane" enter >/dev/null
-          trusted=$((trusted + 1))
-          echo "Kimi asked to trust $top; chose Trust and continue." >&2
-        fi ;;
-      blocked)
-        rx capture -b "$review_pane" --trim | tail -n 30 || true
-        trailer=1
-        echo "Reviewer did not start: it is waiting on a question."
-        echo "Next: $answer, then run: $rerun"
-        exit 1 ;;
-      gone)
-        rx capture -b "$review_pane" --trim | tail -n 30 || true
-        trailer=1
-        echo "Reviewer did not start: it exited."
-        echo "Next: $rerun"
-        exit 1 ;;
-    esac
-    sleep 2
-  done
-  [ "$settled" = 1 ] || { echo "the reviewer's screen never settled" >&2; exit 1; }
-fi
+# Every prompt waits for the reviewer's own empty input line, in a new pane or a reused one.
+# A starting pane counts as exited only after ten looks in a row (2026-10-24: one look too
+# early read a starting Kimi as exited). Kimi's folder trust for this work tree is answered
+# once (the owner, 2026-10-24: "it is okay to always trust the folder and continue"); Codex's
+# hook review approves code, not a folder, and stays a question, like any screen that holds
+# without the input line.
+step="waiting for the reviewer to be ready"
+settled=0 starting=0 unread=0 unknown=0 trusted=0
+for _ in $(seq 1 90); do
+  st=$(pane_status)
+  [ "$st" = starting ] || starting=0
+  [ "$st" = unreadable ] || unread=0
+  [ "$st" = unknown ] || unknown=0
+  case "$st" in
+    idle) settled=1; break ;;
+    starting)
+      starting=$((starting + 1))
+      if [ "$starting" -ge 10 ]; then show_pane 30; stop "Reviewer did not start: it exited." "$rerun"; fi ;;
+    gone) show_pane 30; stop "Reviewer did not start: it exited." "$rerun" ;;
+    unreadable)
+      unread=$((unread + 1))
+      if [ "$unread" -ge 10 ]; then stop "Reviewer did not start: rex cannot read its pane." "rex capture -s $REX_SESSION -b $review_pane --trim | tail -n 30; then run: $rerun"; fi ;;
+    trust)
+      if [ "$trusted" -ge 1 ]; then show_pane 30; stop "Reviewer did not start: Kimi still asks to trust $top after Trust and continue." "$answer, then run: $rerun"; fi
+      rx send-key -b "$review_pane" enter >/dev/null
+      trusted=1
+      echo "Kimi asked to trust $top; chose Trust and continue." >&2 ;;
+    blocked|unsent)
+      show_pane 30
+      stop "Reviewer did not start: it is waiting on a question or an unknown screen." "$answer, then run: $rerun" ;;
+    unknown)
+      unknown=$((unknown + 1))
+      if [ "$unknown" -ge 5 ]; then show_pane 30; stop "Reviewer did not start: it is waiting on a question or an unknown screen." "$answer, then run: $rerun"; fi ;;
+  esac
+  sleep 2
+done
+[ "$settled" = 1 ] || { show_pane 30; stop "Reviewer did not start: its screen never settled on its input line." "$rerun"; }
 
 step="creating the report file"
 report_dir="${TMPDIR:-/tmp}"
@@ -237,7 +331,7 @@ prompt="Read AGENTS.md and the repository's review standards file (for example R
 
 # Text first, then Enter as its own key, a moment later: an Enter sent with the text can
 # land as a new line in the input box (Kimi, 2026-10-24). The poll below sends up to three
-# more while the input line still shows the prompt.
+# more while the input line still holds the prompt.
 send_prompt() {
   rx send -b "$review_pane" "$1" >/dev/null
   sleep 1
@@ -283,38 +377,49 @@ step="waiting for the review"
 send_prompt "$prompt"
 next_on_failure="rex capture -s $REX_SESSION -b $review_pane --trim | tail -n 60; cat '$report'"
 
-# Poll every 5 seconds, within 60 minutes of the start. The report counts once two looks in
-# a row see it at the same size while no busy marker shows; a screen that only changes (a
-# spinner, a rotating tip) does not hold it back. A reviewer idle without the report, after
-# it has worked, is asked once for it. Each counter ends the wait with its reason.
-asked="" worked="" last_size="" idle_unworked=0 blocked=0 enters=0
+# Poll every 5 seconds, within 60 minutes of the start. The report counts once two looks in a
+# row see it at the same size while the reviewer is neither working nor blocked; a screen that
+# only changes (a spinner, a rotating tip) does not hold it back. Asking for the report, or
+# deciding it never comes, waits for six idle looks in a row (30 seconds), because a reviewer
+# can work quietly. ended says why the loop stopped: only a finished or timed-out wait may
+# fall back to the file or the review skill's report; blocked, gone, unsent and unreadable end
+# with their reason even when a file exists.
+asked="" worked="" last_size="" idle_streak=0 idle_unworked=0 blocked=0 enters=0 unread=0
+ended="timeout"
 reason="no report within 60 minutes; the review may still be running"
 next="$next_on_failure"
 for _ in $(seq 1 720); do
   [ "$SECONDS" -lt 3600 ] || break
   status=$(pane_status)
+  [ "$status" = idle ] && idle_streak=$((idle_streak + 1)) || idle_streak=0
+  [ "$status" = blocked ] || blocked=0
+  [ "$status" = unreadable ] || unread=0
   case "$status" in
     unsent)
-      if [ "$enters" -lt 3 ]; then
-        rx send-key -b "$review_pane" enter >/dev/null || true
-        enters=$((enters + 1)) idle_unworked=0
-        echo "The prompt sat unsent on the input line; sent Enter." >&2
+      if [ "$enters" -ge 3 ]; then
+        ended="unsent" reason="the prompt stayed unsent after three Enters" next="$rerun"; break
       fi
+      rx send-key -b "$review_pane" enter >/dev/null || true
+      enters=$((enters + 1)) idle_unworked=0
+      echo "The prompt sat unsent on the input line; sent Enter." >&2
       ;;
-    gone)
-      reason="the reviewer exited"; next="$rerun"; break ;;
-    blocked)
+    gone|starting)
+      ended="gone" reason="the reviewer exited" next="$rerun"; break ;;
+    unreadable)
+      unread=$((unread + 1))
+      if [ "$unread" -ge 12 ]; then ended="unreadable" reason="rex cannot read the reviewer's pane"; break; fi
+      ;;
+    blocked|trust|unknown)
       blocked=$((blocked + 1))
       if [ "$blocked" -ge 24 ]; then
-        reason="the reviewer is waiting on a question"
+        ended="blocked" reason="the reviewer is waiting on a question"
         next="$answer, then run: $next_on_failure"
         break
       fi
       ;;
     working)
-      worked=1 blocked=0 idle_unworked=0 last_size="" ;;
+      worked=1 idle_unworked=0 last_size="" ;;
     idle|changing)
-      blocked=0
       [ "$status" = idle ] || worked=1
       if [ -s "$report" ]; then
         size=$(wc -c < "$report")
@@ -323,6 +428,7 @@ for _ in $(seq 1 720); do
       elif [ -z "$worked" ]; then
         idle_unworked=$((idle_unworked + 1))
         if [ "$idle_unworked" -ge 60 ]; then
+          ended="idle"
           if [ -n "$asked" ]; then
             reason="the reviewer did not act on the request to write the report"
           else
@@ -330,38 +436,43 @@ for _ in $(seq 1 720); do
           fi
           next="$rerun"; break
         fi
-      elif [ "$status" = idle ] && [ -z "$asked" ]; then
+      elif [ "$idle_streak" -ge 6 ] && [ -z "$asked" ]; then
         send_prompt "Write your final review report as Markdown to exactly this path: $report. Then reply with that path."
-        asked=1 worked="" idle_unworked=0
-      elif [ "$status" = idle ]; then
-        reason="the reviewer finished without writing the report, even when asked"
-        next="$rerun"; break
+        asked=1 worked="" idle_unworked=0 idle_streak=0
+      elif [ "$idle_streak" -ge 6 ]; then
+        ended="idle" reason="the reviewer finished without writing the report, even when asked" next="$rerun"; break
       fi
       ;;
   esac
   sleep 5
 done
 
-print_if_stable
-if [ -s "$report" ]; then
-  reason="$reason; the file at the report path is still changing"
-  next="cat '$report'"
-else
-  skill_reports=$(find_skill_reports)
-  matches=$(printf '%s' "$skill_reports" | grep -c . || true)
-  if [ "$matches" = 1 ]; then
-    cp "$skill_reports" "$report"
-    echo "The reviewer did not write $report; copied the review skill's report from this run: $skill_reports" >&2
-    cat "$report"; exit 0
-  elif [ "$matches" -gt 1 ]; then
-    reason="$reason; several skill reports match this run; read them and pick: $(printf '%s' "$skill_reports" | tr '\n' ' ')"
-    next="cp <the chosen report.md> '$report' && cat '$report'"
-  else
-    reason="$reason; no skill report for this run"
-  fi
-fi
+case "$ended" in
+  timeout|idle)
+    print_if_stable
+    if [ -s "$report" ]; then
+      reason="$reason; the file at the report path is still changing"
+      next="cat '$report'"
+    else
+      skill_reports=$(find_skill_reports)
+      matches=$(printf '%s' "$skill_reports" | grep -c . || true)
+      if [ "$matches" = 1 ]; then
+        cp "$skill_reports" "$report"
+        echo "The reviewer did not write $report; copied the review skill's report from this run: $skill_reports" >&2
+        cat "$report"; exit 0
+      elif [ "$matches" -gt 1 ]; then
+        reason="$reason; several skill reports match this run; read them and pick: $(printf '%s' "$skill_reports" | tr '\n' ' ')"
+        next="cp <the chosen report.md> '$report' && cat '$report'"
+      else
+        reason="$reason; no skill report for this run"
+      fi
+    fi ;;
+  *)
+    # A file the reviewer left while blocked or after it exited may be partial: not printed.
+    [ ! -s "$report" ] || reason="$reason; the file at the report path may be partial and was not printed" ;;
+esac
 trailer=1
-rx capture -b "$review_pane" --trim 2>/dev/null | tail -n 60 || true
+show_pane 60
 echo "No report at $report: $reason."
 echo "Next: $next"
 exit 1

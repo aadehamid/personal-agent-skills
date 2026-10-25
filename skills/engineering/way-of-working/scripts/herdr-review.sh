@@ -65,6 +65,11 @@ rerun=$(printf '%q ' "$self" "$@")
 args=("$@")   # rex-review.sh gets them all, once the loop below has shifted them off
 branch="" verify="" kind="codex" model="" host=""
 while [ $# -gt 0 ]; do
+  # Every option takes a value; a missing one is a bad argument, not a later unbound variable.
+  case "$1" in
+    --branch|--verify|--model|--kind|--host)
+      [ $# -ge 2 ] || { echo "$1 needs a value" >&2; echo "usage: $self --branch <branch> --verify <text>" >&2; exit 2; } ;;
+  esac
   case "$1" in
     --branch) branch="$2"; shift 2 ;;
     --verify) verify="$2"; shift 2 ;;

@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Run rex-review.sh against a fake rex, once per case met when reviews ran in Rex by hand.
+"""Run rex-review.sh against a fake rex, once per case met when reviews ran in Rex by hand,
+and once per case the first independent review of the script found.
 
-The fake rex on PATH reads the scenario from FAKE_REX, draws the reviewer's screen from
-its state, and records each call, so a test can check the exit status and the rex calls.
+The fake rex on PATH reads the scenario from FAKE_REX, draws the reviewer's screen from its
+state (each reviewer kind's own input line), and records each call, so a test can check the
+exit status and the rex calls.
 """
 import hashlib
+import importlib.util
 import json
 import os
 import re
-import stat
 import subprocess
 import tempfile
 import textwrap
@@ -23,6 +25,7 @@ FAKE = textwrap.dedent(r'''
     import json, os, re, sys
     s = os.environ["FAKE_REX"].split(",")
     state = os.environ["FAKE_STATE"]
+    kind, top = os.environ["FAKE_KIND"], os.environ["FAKE_TOP"]
     args = sys.argv[1:]
     def path(name): return os.path.join(state, name)
     def read(name, default=""):
@@ -38,26 +41,48 @@ FAKE = textwrap.dedent(r'''
     with open(path("calls"), "a") as f: f.write(cmd + "\n")
     with open(path("argv"), "a") as f: f.write(json.dumps(args) + "\n")
     def out(obj): print(json.dumps(obj)); sys.exit(0)
+    def fail(): print("rex: connection refused", file=sys.stderr); sys.exit(1)
     label = os.environ["FAKE_LABEL"]
-    phase = read("phase", "start")
+    reused = any(x.startswith("reuse") for x in s)
+    phase = read("phase", ("startq" if "reuseq" in s else "ready") if reused else "start")
     report = read("report_path")
+    BIN = {"kimi": "kimi", "cursor": "cursor-agent", "codex": "codex"}[kind]
+    def editor(text=""):
+        # Each reviewer's input line as it looked on 2026-10-24 (Codex's placeholder is a stand-in).
+        if kind == "kimi":
+            return " ╭──╮\n │ > %s │\n ╰──╯\n  K3.1 Pro  context: 0%%" % text
+        if kind == "cursor":
+            return "  → %s\n\n  Auto" % (text or "Plan, search, build anything")
+        return "  › %s\n\n  100%% context left" % (text or "Ask Codex to do anything")
+    PROMPT_LINE = "Read AGENTS.md and the repository's review standards file"
     if cmd == "block ls":
         blocks = [{"block_id": "block:me", "window_id": "win:1", "label": "shell"}]
         if "full" in s: blocks.append({"block_id": "block:other", "window_id": "win:1", "label": "shell"})
-        if ("reuse" in s or "exited" in s) and not os.path.exists(path("closed")):
+        if (reused or "exited" in s) and not os.path.exists(path("closed")):
             blocks.append({"block_id": "block:rev", "window_id": "win:2", "label": label})
         out({"blocks": blocks})
     if cmd in ("split", "run"):
-        write("phase", "startq" if "startq" in s else "trustq" if "trustq" in s else "ready")
+        first = "startq" if "startq" in s else "unknownq" if "unknownq" in s else \
+            "trustq" if any(x.startswith("trust") for x in s) else "ready"
+        write("phase", first)
         out({"block_ids": ["block:new"], **({"window_id": "win:3"} if cmd == "run" else {})})
     if cmd == "block close":
+        if "closefail" in s: fail()
         write("closed", args[-1]); out({})
     if cmd == "block call process":
-        # "slowstart": the new pane's foreground is the login shell for the first three looks.
-        starting = "slowstart" in s and opt("-b") == "block:new" and count("process_looks") <= 3
-        dead = starting or ("exited" in s and opt("-b") == "block:rev") or ("dies" in s and phase == "working") \
-            or ("diesatstart" in s and opt("-b") == "block:new")
-        out({"foreground": {"name": "zsh" if dead else "kimi"}})
+        b = opt("-b")
+        if "procfailreuse" in s and b == "block:rev": fail()
+        if "procfailmid" in s and phase == "working": fail()
+        if "procmalformed" in s and phase == "working": print("garbage"); sys.exit(0)
+        child = {"name": BIN, "argv0": BIN, "path": "/opt/bin/" + BIN, "cwd": top}
+        if "reuseelsewhere" in s and b == "block:rev": child["cwd"] = "/elsewhere/repo"
+        if ("slowstart" in s and b == "block:new" and count("process_looks") <= 3) or \
+                ("diesatstart" in s and b == "block:new"):
+            child = {"name": "zsh", "argv0": "-zsh", "path": "/bin/zsh", "cwd": top}
+        if ("exited" in s and b == "block:rev") or ("dies" in s and phase == "working") or \
+                ("gonepartial" in s and phase == "working" and int(read("work", "9")) <= 0):
+            out({"child": None, "last_exit": {"code": 1}})
+        out({"child": child, "foreground": child, "last_exit": None})
     if cmd == "block call program_status":
         if "reported" in s and phase in ("working", "idle"):
             out({"records": [{"state": "working" if phase == "working" else "idle"}]})
@@ -67,6 +92,7 @@ FAKE = textwrap.dedent(r'''
         m = re.search(r"exactly this path: (\S+)\. ", text)
         if text.startswith("Read AGENTS.md"):
             write("report_path", m.group(1)); write("phase", "sent"); write("enters", "0")
+            write("prompt", text)
         elif text.startswith("Write your final review"):
             write("phase", "asked")
         out({})
@@ -74,78 +100,108 @@ FAKE = textwrap.dedent(r'''
         if phase == "trustq":
             write("phase", "ready"); out({})
         if phase in ("sent", "asked"):
-            need = 2 if ("unsent" in s and phase == "sent") else 1
+            need = 99 if ("neverenter" in s or "mixed" in s) else 2 if ("unsent" in s and phase == "sent") else 1
             if count("enters") >= need:
                 if phase == "asked":
                     write("asked", "")
-                write("phase", "working"); write("work", "1" if phase == "asked" else "2")
+                write("phase", "working")
+                write("work", "1" if phase == "asked" else "4" if "quietwork" in s else "2")
         out({})
     if cmd == "capture":
         n = count("captures")
+        if "capfail" in s and phase == "working": fail()
         if phase == "startq":
             print("  Hooks need review\n  Press enter to confirm or esc to go back"); sys.exit(0)
+        if phase == "unknownq":
+            print("  Migrate kimi-cli data to Kimi Code?\n  1. Migrate   2. Skip"); sys.exit(0)
         if phase == "trustq":
-            # Kimi's dialog: the question sits above the bottom twelve lines, its choices inside them.
-            print("  Trust this folder?\n" + "  .\n" * 12 + "   \u276f Trust and continue\n     Exit"); sys.exit(0)
+            if "trustspoof" in s:
+                print("  some text\n   ❯ Trust and continue\n     Exit"); sys.exit(0)
+            where = "/elsewhere/repo" if "trustelsewhere" in s else top
+            print(" ───\n  Trust this folder?\n  ↑↓ navigate · Enter select · Esc exit\n \n"
+                  "  %s\n \n  No project integrations or instructions to activate.\n \n"
+                  "  Trust is remembered for this folder.\n  Tool approvals follow your permission settings.\n \n"
+                  "   ❯ Trust and continue\n     Exit\n ───" % where); sys.exit(0)
         if phase in ("start", "ready"):
-            print("  Reviewer ready\n\n │ >"); sys.exit(0)
-        if phase == "sent":
-            print(" │ > Read AGENTS.md and the repository's review standards file"); sys.exit(0)
+            print("  Reviewer ready\n\n" + editor()); sys.exit(0)
+        if phase in ("sent", "asked"):
+            pending = PROMPT_LINE if phase == "sent" else "Write your final review report"
+            print(("  Run this command?\n" if "mixed" in s else "") + editor(pending)); sys.exit(0)
         if phase == "working":
             if "question" in s:
                 print("  Run this command?\n  → Run (once) (y)"); sys.exit(0)
             left = int(read("work", "0")) - 1
             write("work", str(left))
-            if left <= 0:
+            if "blockedpartial" in s or "gonepartial" in s:
+                open(report, "w").write("PARTIAL\n")
+                if "blockedpartial" in s:
+                    print("  Run this command?\n  → Run (once) (y)"); sys.exit(0)
+            if left <= 0 and "gonepartial" not in s:
                 if "noreport" not in s or ("obeys" in s and os.path.exists(path("asked"))):
                     open(report, "w").write("REVIEW FINDINGS\n")
                 write("phase", "idle")
-            if "reported" in s:
-                print("  quiet\n │ >"); sys.exit(0)   # no busy marker: only the reported status says working
-            print("  thinking %d  ctrl+c to stop" % n); sys.exit(0)
+            if "reported" in s or "quietwork" in s:
+                print("  quiet\n" + editor()); sys.exit(0)   # no busy marker while it works
+            print("  thinking %d  ctrl+c to stop\n" % n + editor()); sys.exit(0)
         if phase == "idle":
             if "growing" in s and not os.path.exists(path("grew")):
                 write("grew", ""); open(report, "a").write("MORE\n")
-            print("  quiet\n │ >"); sys.exit(0)
+            print("  quiet\n" + editor()); sys.exit(0)
         print("?"); sys.exit(0)
     print("unexpected " + cmd, file=sys.stderr); sys.exit(1)
 ''').lstrip()
 
+KINDS = {"codex": "gpt-6-luna", "kimi": "kimi-code/k3.1-pro", "cursor": "cursor-grok-4.6-medium"}
 
-def label_for(kind_model, repo="repo"):
-    kind = kind_model.split(":")[0]
-    return "review-%s-%s-%s" % (repo, kind, hashlib.sha1(kind_model.encode()).hexdigest()[:8])
+
+def label_for(kind, model, top):
+    top = os.path.realpath(top)
+    return "review-%s-%s-%s-%s" % (os.path.basename(top), kind, hashlib.sha1(("%s:%s" % (kind, model)).encode()).hexdigest()[:8],
+                                   hashlib.sha1(top.encode()).hexdigest()[:6])
+
+
+def stub(bindir, name, text, mode=0o755):
+    with open(os.path.join(bindir, name), "w") as f:
+        f.write(text)
+    os.chmod(os.path.join(bindir, name), mode)
 
 
 class RexReview(unittest.TestCase):
-    def run_case(self, scenario, extra=(), script=SCRIPT, env_extra=None, kind_model="codex:gpt-6-luna"):
+    def run_case(self, scenario, extra=(), script=SCRIPT, env_extra=None, kind="codex", model=None,
+                 branch="b", verify="v", home=None):
         state = tempfile.mkdtemp()
         bindir = tempfile.mkdtemp()
-        with open(os.path.join(bindir, "rex"), "w") as f:
-            f.write(FAKE)
-        os.chmod(os.path.join(bindir, "rex"), 0o755)
-        with open(os.path.join(bindir, "sleep"), "w") as f:
-            f.write("#!/bin/sh\nexit 0\n")
-        os.chmod(os.path.join(bindir, "sleep"), 0o755)
+        stub(bindir, "rex", FAKE)
+        stub(bindir, "sleep", "#!/bin/sh\nexit 0\n")
         repo = os.path.join(tempfile.mkdtemp(), "repo")
         os.mkdir(repo)
+        self.top = os.path.realpath(repo)
         self.tmpdir = tempfile.mkdtemp()
         env = {k: v for k, v in os.environ.items() if not k.startswith(("REX_", "HERDR_", "GIT_"))}
         env.update(PATH=bindir + os.pathsep + os.environ["PATH"], FAKE_REX=scenario, FAKE_STATE=state,
-                   FAKE_LABEL=label_for(kind_model), REX_SESSION="session:s", REX_BLOCK="block:me",
+                   FAKE_KIND=kind, FAKE_TOP=self.top, FAKE_LABEL=label_for(kind, model or KINDS[kind], repo),
+                   REX_SESSION="session:s", REX_BLOCK="block:me",
                    TMPDIR=self.tmpdir, HERDR_REVIEW_ARTIFACT_ROOTS=self.tmpdir, HERDR_REVIEW_DIR=self.tmpdir,
-                   HOME=tempfile.mkdtemp())
+                   HOME=home or tempfile.mkdtemp())
         env.update(env_extra or {})
-        r = subprocess.run(["bash", script, "--branch", "b", "--verify", "v", *extra],
+        kind_args = () if kind == "codex" and "--kind" not in extra else ("--kind", kind)
+        model_args = ("--model", model) if model else ()
+        r = subprocess.run(["bash", script, "--branch", branch, "--verify", verify, *kind_args, *model_args, *extra],
                            cwd=repo, env=env, capture_output=True, text=True)
         calls_path = os.path.join(state, "calls")
         calls = open(calls_path).read().splitlines() if os.path.exists(calls_path) else []
         argv_path = os.path.join(state, "argv")
         self.argv = [json.loads(line) for line in open(argv_path)] if os.path.exists(argv_path) else []
+        self.state = state
         return r, calls
 
     def created_with(self, cmd):
         return next(a for a in self.argv if a[0] == cmd)
+
+    def keys(self):
+        return [a for a in self.argv if a[0] == "send-key"]
+
+    # Layout and reuse.
 
     def test_the_first_reviewer_opens_as_a_split_beside_this_pane(self):
         r, calls = self.run_case("ok")
@@ -153,7 +209,8 @@ class RexReview(unittest.TestCase):
         self.assertEqual(r.stdout, "REVIEW FINDINGS\n")
         self.assertNotIn("run", calls)
         a = self.created_with("split")
-        for pair in (["-b", "block:me"], ["--split=right"], ["--focus=false"], ["--label", label_for("codex:gpt-6-luna")]):
+        for pair in (["-b", "block:me"], ["--split=right"], ["--focus=false"],
+                     ["--label", label_for("codex", "gpt-6-luna", self.top)]):
             self.assertTrue(any(a[i:i + len(pair)] == pair for i in range(len(a))), (pair, a))
         self.assertIn("Review pane: block:new (created)", r.stderr)
 
@@ -176,11 +233,41 @@ class RexReview(unittest.TestCase):
         self.assertIn("block close", calls)
         self.assertLess(calls.index("block close"), calls.index("split"))
 
+    def test_a_failed_close_stops_with_the_reason(self):
+        r, calls = self.run_case("exited,closefail")
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("split", calls)
+        self.assertRegex(r.stdout.splitlines()[-2], r"could not be closed")
+
+    def test_a_reviewer_in_another_directory_is_neither_reused_nor_closed(self):
+        # Finding 12: the label alone does not prove the pane is this work tree's reviewer.
+        r, calls = self.run_case("reuseelsewhere")
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("block close", calls)
+        self.assertNotIn("send", calls)
+        self.assertNotIn("send-key", calls)
+        self.assertRegex(r.stdout.splitlines()[-2], r"runs something else; it was left alone")
+
+    def test_the_label_names_the_work_tree(self):
+        self.run_case("ok")
+        label = self.created_with("split")[self.created_with("split").index("--label") + 1]
+        self.assertTrue(label.endswith("-" + hashlib.sha1(self.top.encode()).hexdigest()[:6]), label)
+
+    def test_a_failed_process_query_on_a_labelled_pane_leaves_it_alone(self):
+        # Finding 3: a query that fails is not a reviewer that exited.
+        r, calls = self.run_case("reuse,procfailreuse")
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("block close", calls)
+        self.assertNotIn("split", calls)
+        self.assertRegex(r.stdout.splitlines()[-2], r"rex cannot read the process of the pane block:rev")
+
+    # Reviewer flags and the prompt.
+
     def test_each_kind_starts_with_herdr_reviews_flags(self):
-        self.run_case("ok", extra=("--kind", "kimi"), kind_model="kimi:kimi-code/k3.1-pro")
+        self.run_case("ok", kind="kimi")
         a = self.created_with("split")
         self.assertEqual(a[a.index("--") + 1:], ["kimi", "-m", "kimi-code/k3.1-pro", "-y"])
-        self.run_case("ok", extra=("--kind", "cursor"), kind_model="cursor:cursor-grok-4.6-medium")
+        self.run_case("ok", kind="cursor")
         a = self.created_with("split")
         self.assertEqual(a[a.index("--") + 1:], ["cursor-agent", "--model", "cursor-grok-4.6-medium",
                                                  "--sandbox", "enabled", "--force", "--trust"])
@@ -190,27 +277,61 @@ class RexReview(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         i = calls.index("send")
         self.assertEqual(calls[i + 1], "send-key")
-        self.assertEqual(self.argv[[a[0] for a in self.argv].index("send-key")][-1], "enter")
+        self.assertEqual(self.keys()[0][-1], "enter")
 
-    def test_a_prompt_left_on_the_input_line_gets_another_enter(self):
-        r, calls = self.run_case("unsent")
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(calls.count("send-key"), 2)
-        self.assertIn("The prompt sat unsent on the input line; sent Enter.", r.stderr)
+    def test_every_kind_finishes_a_review(self):
+        for kind in KINDS:
+            r, _ = self.run_case("ok", kind=kind)
+            self.assertEqual(r.returncode, 0, kind + ": " + r.stdout + r.stderr)
+
+    # Startup: nothing is typed unless the reviewer's own input line shows.
 
     def test_a_question_at_start_stops_before_the_prompt(self):
         r, calls = self.run_case("startq")
         self.assertEqual(r.returncode, 1)
         self.assertNotIn("send", calls)
+        self.assertNotIn("send-key", calls)
         lines = r.stdout.splitlines()
-        self.assertEqual(lines[-2], "Reviewer did not start: it is waiting on a question.")
+        self.assertEqual(lines[-2], "Reviewer did not start: it is waiting on a question or an unknown screen.")
         self.assertRegex(lines[-1], r"^Next: answer it \(rex send-key -s session:s -b block:new <key>\), then run: ")
 
-    def test_kimis_folder_trust_question_is_answered_with_trust_and_continue(self):
-        r, calls = self.run_case("trustq")
+    def test_an_unknown_setup_screen_gets_no_key(self):
+        # Finding 9: a stable screen without the input line is a question, not a ready reviewer.
+        r, calls = self.run_case("unknownq", kind="kimi")
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("send", calls)
+        self.assertNotIn("send-key", calls)
+        self.assertEqual(r.stdout.splitlines()[-2], "Reviewer did not start: it is waiting on a question or an unknown screen.")
+
+    def test_a_reused_pane_at_a_question_gets_no_prompt(self):
+        # Finding 5: the readiness check runs for a reused pane too.
+        r, calls = self.run_case("reuse,reuseq")
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("send", calls)
+        self.assertNotIn("send-key", calls)
+
+    def test_kimis_folder_trust_for_this_work_tree_is_answered_once(self):
+        r, calls = self.run_case("trustq", kind="kimi")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertLess(calls.index("send-key"), calls.index("send"))
+        self.assertEqual(len(self.keys()), 2)   # the trust answer and the prompt's Enter
         self.assertIn("chose Trust and continue", r.stderr)
+
+    def test_the_trust_dialog_under_another_kind_gets_no_key(self):
+        # Finding 2: only Kimi's folder trust is answered.
+        r, calls = self.run_case("trustq", kind="codex")
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("send-key", calls)
+
+    def test_trust_for_another_folder_gets_no_key(self):
+        r, calls = self.run_case("trustelsewhere", kind="kimi")
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("send-key", calls)
+
+    def test_a_spoofed_trust_choice_gets_no_key(self):
+        r, calls = self.run_case("trustspoof", kind="kimi")
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("send-key", calls)
 
     def test_codex_hook_review_is_not_answered(self):
         r, calls = self.run_case("startq")
@@ -227,12 +348,74 @@ class RexReview(unittest.TestCase):
         self.assertEqual(r.stdout.splitlines()[-2], "Reviewer did not start: it exited.")
         self.assertEqual(calls.count("block call process"), 10)
 
+    # The wait: precedence, bounds and the report.
+
+    def test_a_prompt_left_on_the_input_line_gets_another_enter(self):
+        r, calls = self.run_case("unsent")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(calls.count("send-key"), 2)
+        self.assertIn("The prompt sat unsent on the input line; sent Enter.", r.stderr)
+
+    def test_an_unsent_marker_beside_a_question_gets_no_key(self):
+        # Finding 1: a question on screen wins over the unsent prompt; no Enter answers it.
+        r, _ = self.run_case("mixed")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(len(self.keys()), 1)   # the prompt's own Enter only
+        self.assertRegex(r.stdout.splitlines()[-2], r"the reviewer is waiting on a question")
+
+    def test_a_prompt_that_stays_unsent_stops_after_three_enters(self):
+        # Finding 6.
+        r, _ = self.run_case("neverenter")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(len(self.keys()), 4)
+        lines = r.stdout.splitlines()
+        self.assertRegex(lines[-2], r"the prompt stayed unsent after three Enters")
+        self.assertRegex(lines[-1], "^Next: " + re.escape(SCRIPT) + " ")
+
     def test_a_question_after_the_prompt_ends_with_answer_then_wait(self):
         r, _ = self.run_case("question")
         self.assertEqual(r.returncode, 1)
         lines = r.stdout.splitlines()
-        self.assertRegex(lines[-2], r"^No report at \S+: the reviewer is waiting on a question; no skill report")
+        self.assertRegex(lines[-2], r"^No report at \S+: the reviewer is waiting on a question\.$")
         self.assertIn("Next: answer it (rex send-key", lines[-1])
+
+    def test_a_partial_report_left_while_blocked_is_not_printed(self):
+        # Finding 7.
+        r, _ = self.run_case("blockedpartial")
+        self.assertEqual(r.returncode, 1)
+        self.assertRegex(r.stdout.splitlines()[-2], r"waiting on a question; the file at the report path may be partial")
+        self.assertNotRegex(r.stdout, r"(?m)^PARTIAL$")
+
+    def test_a_partial_report_left_by_a_reviewer_that_exited_is_not_printed(self):
+        r, _ = self.run_case("gonepartial")
+        self.assertEqual(r.returncode, 1)
+        self.assertRegex(r.stdout.splitlines()[-2], r"the reviewer exited; the file at the report path may be partial")
+        self.assertNotRegex(r.stdout, r"(?m)^PARTIAL$")
+
+    def test_a_failed_process_query_mid_review_is_not_an_exit(self):
+        # Finding 3: twelve failed looks end the wait as unreadable, never as exited.
+        r, calls = self.run_case("procfailmid")
+        self.assertEqual(r.returncode, 1)
+        self.assertRegex(r.stdout.splitlines()[-2], r"rex cannot read the reviewer's pane")
+        self.assertNotIn("block close", calls)
+
+    def test_a_malformed_process_answer_is_unreadable(self):
+        r, _ = self.run_case("procmalformed")
+        self.assertEqual(r.returncode, 1)
+        self.assertRegex(r.stdout.splitlines()[-2], r"rex cannot read the reviewer's pane")
+
+    def test_a_failed_capture_is_unreadable_and_asks_for_nothing(self):
+        # Finding 4.
+        r, _ = self.run_case("capfail")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(len([a for a in self.argv if a[0] == "send"]), 1)
+        self.assertRegex(r.stdout.splitlines()[-2], r"rex cannot read the reviewer's pane")
+
+    def test_a_quiet_worker_is_not_asked_for_the_report_early(self):
+        # Finding 11: four quiet looks with no busy marker and no reported status.
+        r, _ = self.run_case("quietwork")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(len([a for a in self.argv if a[0] == "send"]), 1)
 
     def test_an_idle_reviewer_without_the_report_is_asked_once_for_it(self):
         r, calls = self.run_case("noreport,obeys")
@@ -254,7 +437,6 @@ class RexReview(unittest.TestCase):
         self.assertEqual(r.stdout, "REVIEW FINDINGS\nMORE\n")
 
     def test_a_reported_status_wins_over_a_quiet_screen(self):
-        # The screen shows no busy marker while working; the OSC 7501 status says working.
         r, calls = self.run_case("reported")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(len([a for a in self.argv if a[0] == "send"]), 1)
@@ -262,14 +444,29 @@ class RexReview(unittest.TestCase):
     def test_a_reviewer_that_exits_mid_review_says_run_again(self):
         r, _ = self.run_case("dies,noreport")
         self.assertEqual(r.returncode, 1)
-        lines = r.stdout.splitlines()
-        self.assertRegex(lines[-2], r"the reviewer exited")
+        self.assertRegex(r.stdout.splitlines()[-2], r"the reviewer exited")
+
+    # Arguments, the hand-off and the private copy.
 
     def test_outside_rex_it_stops_with_the_reason(self):
         r, calls = self.run_case("ok", env_extra={"REX_SESSION": ""})
         self.assertEqual(r.returncode, 1)
         self.assertEqual(calls, [])
         self.assertEqual(r.stdout.splitlines()[-2], "No review: checking for a Rex pane failed; the error is above.")
+
+    def test_an_option_without_a_value_is_a_bad_argument(self):
+        # Finding 17, in both entry points.
+        for script, env in ((SCRIPT, None), (HERDR_SCRIPT, {"HERDR_WORKSPACE_ID": "w2"})):
+            r, calls = self.run_case("ok", script=script, extra=("--model",), env_extra=env)
+            self.assertEqual(r.returncode, 2, script + ": " + r.stdout + r.stderr)
+            self.assertEqual(calls, [])
+            self.assertIn("--model needs a value", r.stderr)
+
+    def test_a_host_other_than_rex_is_a_bad_argument(self):
+        for script in (SCRIPT, HERDR_SCRIPT):
+            r, calls = self.run_case("ok", script=script, extra=("--host", "tmux"))
+            self.assertEqual(r.returncode, 2, script)
+            self.assertEqual(calls, [])
 
     def test_the_copy_is_removed(self):
         self.run_case("ok")
@@ -286,16 +483,43 @@ class RexReview(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("split", calls)
 
-    def test_prompt_and_reviewer_flags_match_herdr_review(self):
-        # One prompt and one set of flags: a change to either script must reach the other.
-        def lines(path, pattern):
-            return [l.strip() for l in open(path) if re.match(pattern, l.strip())]
-        for pattern in (r'^prompt="', r'^roots=', r'^-a never', r'^-c "sandbox_workspace_write\.writable_roots'):
-            self.assertEqual(lines(SCRIPT, pattern), lines(HERDR_SCRIPT, pattern), pattern)
-        for flags in ('(-m "$model" -y)', '(--model "$model" --sandbox enabled --force --trust)',
-                      '(-m "$model" -c model_reasoning_effort=medium'):
-            self.assertIn(flags, open(SCRIPT).read())
-            self.assertIn(flags, open(HERDR_SCRIPT).read())
+    def test_both_hosts_launch_and_prompt_alike(self):
+        # Finding 13: the two scripts stay separate files (each runs from a private copy of
+        # itself, which sourcing a shared sibling would undo), so this runs both and compares
+        # what each starts and sends, for every kind, a custom model and awkward arguments.
+        spec = importlib.util.spec_from_file_location("test_herdr_review", os.path.join(HERE, "test_herdr_review.py"))
+        herdr_tests = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(herdr_tests)
+        branch, verify = "feat/x y;$(echo no)", "claims with 'quotes', \"doubles\", & | * $HOME"
+        home = tempfile.mkdtemp()
+        norm = lambda text: re.sub(r"exactly this path: \S+\. ", "exactly this path: <report>. ", text)
+        for kind in KINDS:
+            model = "custom-model-" + kind
+            self.run_case("ok", kind=kind, model=model, branch=branch, verify=verify, home=home)
+            split = self.created_with("split")
+            rex_launch = split[split.index("--") + 1:]
+            rex_prompt = norm(next(a[-1] for a in self.argv if a[0] == "send"))
+
+            state, bindir = tempfile.mkdtemp(), tempfile.mkdtemp()
+            stub(bindir, "herdr", herdr_tests.FAKE)
+            stub(bindir, "sleep", "#!/bin/sh\nexit 0\n")
+            repo = os.path.join(tempfile.mkdtemp(), "repo")
+            os.mkdir(repo)
+            label, name = herdr_tests.default_identity("repo")
+            env = {k: v for k, v in os.environ.items() if not k.startswith(("REX_", "HERDR_", "GIT_"))}
+            env.update(PATH=bindir + os.pathsep + os.environ["PATH"], FAKE_HERDR="newtab,fresh", FAKE_STATE=state,
+                       FAKE_LABEL=label, FAKE_NAME=name, HERDR_WORKSPACE_ID="w2", HOME=home,
+                       TMPDIR=tempfile.mkdtemp(), HERDR_REVIEW_DIR=tempfile.mkdtemp())
+            r = subprocess.run(["bash", HERDR_SCRIPT, "--branch", branch, "--verify", verify, "--kind", kind,
+                                "--model", model], cwd=repo, env=env, capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            argv = [json.loads(line) for line in open(os.path.join(state, "argv"))]
+            start = next(a for a in argv if a[:2] == ["agent", "start"])
+            herdr_launch = start[start.index("--") + 1:]
+            herdr_prompt = norm(next(a for a in argv if a[:2] == ["agent", "prompt"])[3])
+            binary = {"codex": "codex", "kimi": "kimi", "cursor": "cursor-agent"}[kind]
+            self.assertEqual(rex_launch, [binary] + herdr_launch, kind)
+            self.assertEqual(rex_prompt, herdr_prompt, kind)
 
 
 if __name__ == "__main__":
