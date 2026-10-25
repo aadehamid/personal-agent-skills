@@ -6,7 +6,7 @@ Run (uv run --no-project --with rdflib --with pyyaml --with pyshacl python3 buil
   build_package.py build  <answers.yaml> --releases <dir>   write <dir>/<module>/<version>/, then check it
   build_package.py verify <answers.yaml> --releases <dir>   fail unless the written package equals a fresh
                                                              build (and, in git, its tag's copy)
-  build_package.py tag    <answers.yaml> --releases <dir>   git only: tag the committed package locally
+  build_package.py tag    <answers.yaml> --releases <dir>   git only: tag the package's commit locally
   build_package.py git    --releases <dir>                  say which of the three setups applies
 
 The answers file (templates/package-answers.yaml is a filled example) names one release of one module:
@@ -33,7 +33,7 @@ the triple count). The output is deterministic: dates come from the answers, nev
 A package is written to a staging folder, checked with check_packages.check_package and
 check_changelogs.check_text, and only then moved into place; a released folder is never overwritten
 (rule 10). Git is optional (release.md, "Without a remote"): with no git the manifest's hashes are the whole
-guarantee; with git, `tag` tags the committed package <module>-v<version> on HEAD and `verify` also compares
+guarantee; with git, `tag` tags <module>-v<version> on the commit that last changed the package and `verify` also compares
 the written files with the tag's copy; with a remote, `tag` and `git` say whether the tag is on the remote.
 Nothing here pushes.
 
@@ -286,22 +286,27 @@ def write(answers, releases):
         raise Refusal(f"{a['module']} {a['version']} is already released at {final}; a released package never "
                       "changes, so cut a new version (release.md, rule 10)")
     files = build(a, releases)
-    os.makedirs(os.path.dirname(final), exist_ok=True)
-    staging = tempfile.mkdtemp(prefix=f".{a['version']}.staging-", dir=os.path.dirname(final))
+    module_dir = os.path.dirname(final)
+    made_module_dir = not os.path.isdir(module_dir)
+    os.makedirs(module_dir, exist_ok=True)
+    staging = tempfile.mkdtemp(prefix=f".{a['version']}.staging-", dir=module_dir)
+    kept = False
     try:
         for name, body in files.items():
             with open(os.path.join(staging, name), "w", encoding="utf-8", newline="\n") as f:
                 f.write(body)
-        # check_package reads <releases>/<module>/<version>; check the staged copy under that name.
+        # check_package reads <releases>/<module>/<version>, so the staged copy is checked under that name;
+        # it stays only when both checks pass, and any failure or exception removes it.
         os.rename(staging, final)
         found = problems(releases, a["module"], a["version"], files)
-        if found:
-            shutil.rmtree(final)
-            return found
-        return []
+        kept = not found
+        return found
     finally:
-        if os.path.exists(staging):
-            shutil.rmtree(staging)
+        for path in (staging, final):
+            if not kept and os.path.exists(path):
+                shutil.rmtree(path)
+        if not kept and made_module_dir and os.path.isdir(module_dir) and not os.listdir(module_dir):
+            os.rmdir(module_dir)
 
 
 def git(*args, cwd):
@@ -378,14 +383,17 @@ def tag(answers, releases):
     if git("status", "--porcelain", "--", rel, cwd=top).stdout.strip():
         return 1, [f"commit the package first: {rel} has uncommitted changes"]
     name = tag_name(a)
+    # The tag goes on the commit that last changed the package, not on HEAD: a later, unrelated commit
+    # must not become the release's commit.
+    commit = git("log", "-1", "--format=%H", "--", rel, cwd=top).stdout.strip()
     lines = []
     if git("rev-parse", "-q", "--verify", f"refs/tags/{name}", cwd=top).returncode == 0:
         lines.append(f"{name} already exists; nothing tagged")
     else:
-        made = git("tag", name, cwd=top)
+        made = git("tag", name, commit, cwd=top)
         if made.returncode != 0:
             return 1, [f"git tag failed: {made.stderr.strip()}"]
-        lines.append(f"tagged {name} on HEAD (local)")
+        lines.append(f"tagged {name} on {commit[:7]}, the commit that holds the package (local)")
     if setup == "remote":
         held = tag_on_remotes(top, remotes, name)
         missing = [r for r in remotes if r not in held]

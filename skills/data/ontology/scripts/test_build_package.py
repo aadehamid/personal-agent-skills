@@ -201,6 +201,18 @@ class Build(Workspace):
         self.assertEqual(code, 2)
         self.assertIn("owl:imports", out)
 
+    def test_a_checker_that_raises_leaves_nothing_behind(self):
+        real = build_package.check_packages.check_package
+        def boom(*args):
+            raise OSError("unreadable")
+        build_package.check_packages.check_package = boom
+        try:
+            with self.assertRaises(OSError):
+                build_package.write(build_package.read_answers(self.write_answers()), self.releases)
+        finally:
+            build_package.check_packages.check_package = real
+        self.assertFalse(os.path.exists(os.path.join(self.releases, "lending")))
+
     def test_a_package_that_breaks_its_shapes_is_not_left_behind(self):
         with open(os.path.join(self.root, "ontology-skeleton.ttl"), "a", encoding="utf-8") as f:
             f.write("\nlib:loan-1 a lib:Loan .\n")   # a loan with no borrower breaks LoanShape-borrower
@@ -235,7 +247,7 @@ class Git(Workspace):
         self.commit_all()
         code, out = run(["tag", path, "--releases", self.releases])
         self.assertEqual(code, 0, out)
-        self.assertIn("tagged lending-v1.0.0 on HEAD (local)", out)
+        self.assertIn("the commit that holds the package (local)", out)
         self.assertEqual(run(["verify", path, "--releases", self.releases])[0], 0)
         # Rewrite the package and its sources the same way: a fresh build agrees, the tag does not.
         shutil.rmtree(os.path.join(self.releases, "lending", "1.0.0"))
@@ -245,6 +257,19 @@ class Git(Workspace):
         code, out = run(["verify", path, "--releases", self.releases])
         self.assertEqual(code, 1)
         self.assertIn("lending.ttl differs from the copy tagged lending-v1.0.0", out)
+
+    def test_the_tag_goes_on_the_package_commit_not_a_later_one(self):
+        git("init", "-q", cwd=self.root)
+        path = self.write_answers()
+        self.assertEqual(run(["build", path, "--releases", self.releases])[0], 0)
+        self.commit_all()
+        package_commit = git("rev-parse", "HEAD", cwd=self.root).stdout.strip()
+        with open(os.path.join(self.root, "notes.txt"), "w", encoding="utf-8") as f:
+            f.write("an unrelated change\n")
+        self.commit_all()
+        code, out = run(["tag", path, "--releases", self.releases])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(git("rev-list", "-n", "1", "lending-v1.0.0", cwd=self.root).stdout.strip(), package_commit)
 
     def test_with_a_remote_it_says_whether_the_tag_is_pushed_and_never_pushes(self):
         bare = tempfile.mkdtemp()
