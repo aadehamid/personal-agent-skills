@@ -19,7 +19,7 @@ When a playbook reaches a pull request (Opening a PR, Babysit, Shipping, Autopil
 - the checks that run before every push, and the sweep;
 - the independent reviewer and the PR reviewer the repository names, with its round limits;
 - the merge rule: merge on the PR reviewer's verdict for the current head, as the repository defines it;
-- stack depth: the repository's limit, or three unmerged stacked branches when it sets none, opening each stacked PR once its base has merged.
+- stacking: one branch per concern, stacked on another branch only when the item builds on that unmerged branch, as night-run's loop says, within any limit the repository sets. This replaces poteto-mode's preference for five narrow stacked PRs.
 
 A pstack PASS or FAIL verifier may run as extra evidence for the PR body. The repository's PR reviewer gives the merge verdict. Keep poteto-mode's bottom-up landing and its patch-id re-check of old verdicts, since both fit inside the merge rule.
 
@@ -30,6 +30,6 @@ Autonomous run, Orchestrate, Autopilot-full and Autopilot-stack, and any task th
 ## Substitutes for Cursor-only pieces
 
 - `/deslop` from `cursor-team-kit`: use `ce-simplify-code`.
-- `control-ui`: drive the browser with `chrome-devtools-axi`. `control-cli`: run the CLI yourself in the shell and check its real output, as a user would see it.
+- `control-ui`: open the app in a real browser with the browser tool the agent has, such as the `chrome-devtools-axi` command where it is installed, and check what a user would see. `control-cli`: run the CLI yourself in the shell and check its real output, as a user would see it.
 - A Cursor cloud agent as verifier: a reviewer on a different model, as way-of-working names.
 - Model slugs and `/setup-pstack` apply in Cursor only. Elsewhere, spawn subagents with the harness's own tool (`subagent_type: "poteto-agent"` in Claude Code) on the model the harness picks.
