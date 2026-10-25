@@ -54,7 +54,8 @@ before="$(snapshot)"
 
 # 1. Requirements: schema and conflicts (governance rule 2). Copy the skill's check_requirements.py and
 #    check_taxonomy.py to scripts/ontology/, with check_sssom.py for section 2b, and check_shapes.py,
-#    check_code_lists.py, check_packages.py, check_changelogs.py and run_regression.py for sections 4, 4b and 5 below.
+#    check_code_lists.py, check_packages.py, check_changelogs.py, check_docs.py and run_regression.py for
+#    sections 4, 4b, 4c and 5 below.
 # TODO: uv run --no-project --with pyyaml python3 scripts/ontology/check_requirements.py requirements.yaml
 
 # 2. Taxonomy, classes and properties: the mechanical checks (identity-taxonomy.md, Step 3, rule 13), on
@@ -84,6 +85,9 @@ before="$(snapshot)"
 # 4b. Release notes: every package's changelog states its known gaps (release.md, rule 18). Add one --exempt
 #     <module>/<version> for each package released before the project adopted the rule.
 # TODO: python3 scripts/ontology/check_changelogs.py --releases releases
+
+# 4c. Documentation pages: every released package has current pages beside it (release.md, rules 24 to 27).
+# TODO: python3 scripts/ontology/check_docs.py --releases releases --docs docs/ontology
 
 # 5. Regression: every competency question on the released packages (regression.md, rule 13).
 # TODO: uv run --no-project --with rdflib python3 scripts/ontology/run_regression.py --expected regression/expected.csv --queries regression/queries <the newest release of each module's Turtle>

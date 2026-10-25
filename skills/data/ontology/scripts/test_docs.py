@@ -99,6 +99,13 @@ class Docs(unittest.TestCase):
             f.write(" ")
         self.assertOnly("stale", "lending 1.0.0: built from manifest")
 
+    def test_a_folder_that_is_not_a_version_is_not_a_package(self):
+        notes = os.path.join(self.releases, "lending", "notes")
+        os.makedirs(notes)
+        with open(os.path.join(notes, "manifest.json"), "w") as f:
+            f.write("{}")
+        self.assertEqual(check_docs.check(self.releases, self.docs), [])
+
     def test_main_exit_codes(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):

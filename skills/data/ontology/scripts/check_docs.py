@@ -4,7 +4,9 @@
 
 Run: python3 check_docs.py --releases <releases folder> --docs <docs folder>
 
-A package is releases/<module>/<version>/ holding manifest.json (the layout check_packages.py reads). Its
+A package is releases/<module>/<version>/ holding manifest.json, where <version> is X.Y.Z with an optional
+pre-release, as check_packages.py counts them; other folders are not packages, and only version folders under
+<docs>/<module>/ are documentation (build_docs.py's temporary folders start with a dot). Its
 documentation is <docs>/<module>/<version>/, built by build_docs.py, holding docs-source.json, which records the
 SHA-256 of the manifest the pages were built from.
 
@@ -25,7 +27,10 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import sys
+
+VERSION = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$")   # the version folders check_packages.py counts
 
 
 def sha256(path):
@@ -41,7 +46,7 @@ def packages(root):
         if not os.path.isdir(mdir):
             continue
         for version in sorted(os.listdir(mdir)):
-            if os.path.isfile(os.path.join(mdir, version, "manifest.json")):
+            if VERSION.match(version) and os.path.isfile(os.path.join(mdir, version, "manifest.json")):
                 found.add((module, version))
     return found
 
@@ -51,7 +56,8 @@ def documented(root):
     for module in sorted(os.listdir(root)):
         mdir = os.path.join(root, module)
         if os.path.isdir(mdir):
-            found |= {(module, v) for v in sorted(os.listdir(mdir)) if os.path.isdir(os.path.join(mdir, v))}
+            found |= {(module, v) for v in sorted(os.listdir(mdir))
+                      if VERSION.match(v) and os.path.isdir(os.path.join(mdir, v))}
     return found
 
 
