@@ -141,7 +141,8 @@ fi
 answer="answer it (rex send-key -s $REX_SESSION -b $review_pane <key>)"
 
 # One word for what the reviewer is doing: unsent (the input line still holds the prompt),
-# blocked (a question is on screen), working (a busy marker), changing (the screen moved
+# trust (Kimi asks to trust the folder, with "Trust and continue" selected), blocked (another
+# question is on screen), working (a busy marker), changing (the screen moved
 # since the last look), idle, or gone (the reviewer exited). A status the program reports
 # through OSC 7501 wins over the screen. Only the bottom of the screen is read for the input
 # line and for questions, so the same words quoted higher up, such as in a diff, count for
@@ -169,9 +170,11 @@ last = open(last_path).read()
 open(last_path, "w").write(screen)
 if re.search(r"(?m)^\s*(│\s*)?[>›→]\s*(\[Pasted text|Read AGENTS\.md)", bottom):
     print("unsent")
+elif re.search(r"(?m)^\s*❯\s*Trust and continue\s*$", bottom):
+    print("trust")
 elif reported:
     print(reported)
-elif re.search(r"Run this command\?|Skip & tell the agent|Press enter to confirm|Hooks need review|Trust this folder\?|Trust and continue|\(y/n\)|\[y/N\]|Allow once", bottom):
+elif re.search(r"Run this command\?|Skip & tell the agent|Press enter to confirm|Hooks need review|Trust this folder\?|\(y/n\)|\[y/N\]|Allow once", bottom):
     print("blocked")
 elif re.search(r"ctrl\+c to stop|esc to interrupt|Press Ctrl\+B to run in background", bottom):
     print("working")
@@ -187,7 +190,7 @@ else:
 # in a row (2026-10-24: one look too early read a starting Kimi as exited).
 if [ "${created:-}" ]; then
   step="waiting for the reviewer to start"
-  settled=0 gone_looks=0
+  settled=0 gone_looks=0 trusted=0
   for _ in $(seq 1 60); do
     st=$(pane_status)
     if [ "$st" = gone ]; then
@@ -198,6 +201,14 @@ if [ "${created:-}" ]; then
     fi
     case "$st" in
       idle|unsent) settled=1; break ;;
+      trust)
+        # The owner, 2026-10-24: "it is okay to always trust the folder and continue". Folder
+        # trust only: Codex's hook review approves code and stays a question.
+        if [ "$trusted" -lt 2 ]; then
+          rx send-key -b "$review_pane" enter >/dev/null
+          trusted=$((trusted + 1))
+          echo "Kimi asked to trust $top; chose Trust and continue." >&2
+        fi ;;
       blocked)
         rx capture -b "$review_pane" --trim | tail -n 30 || true
         trailer=1

@@ -71,6 +71,8 @@ FAKE = textwrap.dedent(r'''
             write("phase", "asked")
         out({})
     if cmd == "send-key":
+        if phase == "trustq":
+            write("phase", "ready"); out({})
         if phase in ("sent", "asked"):
             need = 2 if ("unsent" in s and phase == "sent") else 1
             if count("enters") >= need:
@@ -204,11 +206,16 @@ class RexReview(unittest.TestCase):
         self.assertEqual(lines[-2], "Reviewer did not start: it is waiting on a question.")
         self.assertRegex(lines[-1], r"^Next: answer it \(rex send-key -s session:s -b block:new <key>\), then run: ")
 
-    def test_kimis_folder_trust_question_stops_before_the_prompt(self):
+    def test_kimis_folder_trust_question_is_answered_with_trust_and_continue(self):
         r, calls = self.run_case("trustq")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertLess(calls.index("send-key"), calls.index("send"))
+        self.assertIn("chose Trust and continue", r.stderr)
+
+    def test_codex_hook_review_is_not_answered(self):
+        r, calls = self.run_case("startq")
         self.assertEqual(r.returncode, 1)
-        self.assertNotIn("send", calls)
-        self.assertEqual(r.stdout.splitlines()[-2], "Reviewer did not start: it is waiting on a question.")
+        self.assertNotIn("send-key", calls)
 
     def test_a_reviewer_still_starting_is_not_read_as_exited(self):
         r, _ = self.run_case("slowstart")
