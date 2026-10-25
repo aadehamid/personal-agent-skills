@@ -10,7 +10,8 @@ Jena Fuseki is the default store. From `docker/`, `docker compose -p <project> u
 
 `roundtrip --store fuseki --gsp <data URL> --query <query URL> --update <update URL>` works with any store that implements the SPARQL 1.1 Graph Store HTTP Protocol (indirect graph identification, `?graph=<IRI>`), the SPARQL 1.1 Protocol and SPARQL 1.1 Update.
 
-- **Publishing.** With `--update`, the whole dataset goes in one SPARQL Update request (`DROP SILENT GRAPH` then `INSERT DATA` per graph). SPARQL 1.1 Update says "Each request SHOULD be treated atomically", so a failed request leaves the store as it was. Without `--update`, each graph is replaced by its own HTTP PUT; a failure part way leaves some graphs new and some old, so the run stops with exit 1 and the store must be reloaded.
+- **Publishing.** With `--update`, the whole dataset goes in one SPARQL Update request (`DROP SILENT GRAPH` then `INSERT DATA` per graph). SPARQL 1.1 Update says "Each request SHOULD be treated atomically": a SHOULD, not a guarantee. A store that applies it that way leaves itself as it was when the request fails; one that does not can be left with some graphs dropped. Without `--update`, each graph is replaced by its own HTTP PUT, and a failure part way leaves some graphs new and some old. Either failure stops the run with exit 1, never a pass; reload the store before you trust it. This skill has not tested a failure part way through a live Fuseki update.
+- **Blank nodes stay in one graph.** Each graph travels as its own document, so a blank node that occurs in two graphs cannot survive the trip; the run refuses such a dataset (exit 2) before any request. Skolemize it, or keep each blank node in one graph.
 - **Exporting.** The script lists the store's named graphs with a SPARQL query, reads each back with HTTP GET as N-Triples, and reads the default graph with `?default`. Each graph is a separate document, so its blank nodes are standardized apart from every other graph's.
 
 An in-memory dataset starts empty on every restart, which makes "nothing you have not loaded" (SKILL.md, step 3) a restart away.
@@ -19,11 +20,11 @@ The `ontology-to-lpg` skill keeps a copy of `docker/fuseki/Dockerfile` for its o
 
 ## Databricks: a Delta triple table
 
-`roundtrip --store databricks --env <file> [--table <name>]` writes the dataset to a Delta table in Unity Catalog and reads it back, from this machine over the Databricks SQL connector. The env file, outside any repository, holds `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, `DATABRICKS_HTTP_PATH` (the SQL warehouse's), `DATABRICKS_CATALOG` and `DATABRICKS_SCHEMA`. The schema must exist. The run touches two tables: `<table>` (default `rdf_quads`) and `<table>__staging`.
+`roundtrip --store databricks --env <file> [--table <name>]` writes the dataset to a Delta table in Unity Catalog and reads it back, from this machine over the Databricks SQL connector. The env file, outside any repository, holds `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, `DATABRICKS_HTTP_PATH` (the SQL warehouse's), `DATABRICKS_CATALOG` and `DATABRICKS_SCHEMA`. The schema must exist. The run touches two tables: `<table>` (default `rdf_quads`) and a staging table of its own, `<table>__staging_<random>`, so two runs on one table never verify or promote each other's rows.
 
-- **Staging, then one replace.** The rows go into `<table>__staging`, which the script exports and compares first. Only a staging copy with the same hash replaces `<table>`, in one `CREATE OR REPLACE TABLE <table> AS SELECT * FROM <table>__staging`, a single Delta transaction; then the staging table is dropped and the live table is exported and compared again. A failure or a mismatch before the replace leaves the previous `<table>` as it was (the report says `"published": false`).
+- **Staging, then one replace.** The rows go into the run's staging table, which the script exports and compares first. Only a staging copy with the same hash replaces `<table>`, in one `CREATE OR REPLACE TABLE <table> AS SELECT * FROM <staging>`, a single Delta transaction; the staging table is dropped whatever happens, and the live table is read back and compared again, since that is what consumers see. When two runs target one table, the last to replace it wins. A failure or a mismatch before the replace leaves the previous `<table>` as it was (the report says `"published": false`).
 - **Unsupported terms are refused first.** RDF 1.2 triple terms and literals with a base direction stop the run with exit 2 before any statement runs.
-- **The token** is removed from every message the script prints, including the connector's own errors.
+- **The token** is removed from every message the script prints and from the report, including the connector's own errors and any data value that holds it; errors about the env file name the setting, never its value.
 
 The table is N-Quads as columns:
 

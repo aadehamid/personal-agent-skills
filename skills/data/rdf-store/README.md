@@ -17,7 +17,7 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
      --update http://127.0.0.1:13031/ds/update --report report.json <release>.ttl ...
    ```
 
-   It prints `PASS` and exits 0 when the store's copy has the same hash, or prints a diff and exits 1. `--update` publishes everything in one request, so a failure leaves the store as it was.
+   It prints `PASS` and exits 0 when the store's copy has the same hash, or prints a diff and exits 1. `--update` publishes everything in one request, which SPARQL 1.1 Update says a store SHOULD apply atomically; any failure ends the run with exit 1, and the store should then be reloaded.
 
 3. For Databricks, put the workspace address, token, warehouse path, catalog and schema in an env file outside any repository, and run the same command with `--store databricks --env <file>` (and `--with databricks-sql-connector`). The rows go to a staging table first; the live table is replaced only when the staging copy matches.
 4. To get a store's copy back as files, run `rdfstore.py export --store ... --out copy.nq --ttl-dir ttl/`.

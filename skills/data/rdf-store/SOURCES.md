@@ -28,7 +28,7 @@ Last full review: 2026-10-24. Check the sources below every three months, and wh
 
 ## 4. Apache Jena Fuseki
 
-- **What it is:** Jena's SPARQL server. `docker/fuseki/Dockerfile` builds 6.2.0 from Jena's `jena-fuseki-docker` package and server jar on Maven Central, each checked against a pinned SHA-256; the file is identical to `ontology-to-lpg`'s, which records the pins' sources in its `SOURCES.md`.
+- **What it is:** Jena's SPARQL server. `docker/fuseki/Dockerfile` builds 6.2.0 from Jena's `jena-fuseki-docker` package and server jar on Maven Central, each checked against a pinned SHA-256; its build steps match `ontology-to-lpg`'s copy (the opening comments differ), which records the pins' sources in its `SOURCES.md`.
 - **Version used:** 6.2.0; run 2026-10-24 in Docker 29.8.2.
 - **What the skill took:** the default store, with an in-memory dataset `/ds` and its `/data` and `/query` endpoints.
 
