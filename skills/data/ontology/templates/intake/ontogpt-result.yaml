@@ -26,20 +26,20 @@ named_entities:
 - id: AUTO:loan%20period
   label: loan period
   original_spans:
-  - 93:103
+  - '93:103'
 - id: AUTO:due%20date
   label: due date
   original_spans:
-  - 121:128
+  - '121:128'
 - id: AUTO:hold
   label: hold
   original_spans:
-  - 244:247
+  - '244:247'
 - id: AUTO:Renewal
   label: Renewal
   original_spans:
-  - 263:269
+  - '263:269'
 - id: AUTO:Check-in
   label: Check-in
   original_spans:
-  - 404:411
+  - '404:411'

@@ -49,7 +49,10 @@ def check_result(result, document):
     fails = []
     if not isinstance(result, dict) or result.get("input_text") is None:
         return [("input-text", "the result has no input_text")]
-    if result["input_text"].replace("\r\n", "\n") != document.replace("\r\n", "\n"):
+    # Offsets count characters of input_text with line breaks as single characters (OntoGPT's core schema), so
+    # both sides are normalised to "\n" once, and every span is read from that one string.
+    document = document.replace("\r\n", "\n")
+    if str(result["input_text"]).replace("\r\n", "\n") != document:
         fails.append(("input-text", "the result's input_text is not the supplied document"))
         return fails
     for entity in result.get("named_entities") or []:
@@ -122,7 +125,10 @@ def main(argv):
         for kind, paths in (("ontogpt", args.ontogpt), ("candidates", args.candidates)):
             for path in paths:
                 with open(path, encoding="utf-8") as f:
-                    loaded.append((kind, path, yaml.safe_load(f)))
+                    # BaseLoader reads every scalar as text, so a span such as 21:24 stays "21:24" instead of
+                    # YAML 1.1's sexagesimal integer 1284.
+                    loaded.append((kind, path, yaml.load(f, Loader=yaml.BaseLoader) if kind == "ontogpt"
+                                   else yaml.safe_load(f)))
     except (OSError, yaml.YAMLError) as exc:
         print(f"ERROR cannot read the input: {exc}", file=sys.stderr)
         return 2

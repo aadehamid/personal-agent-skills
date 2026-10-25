@@ -10,6 +10,7 @@ import contextlib
 import copy
 import io
 import os
+import tempfile
 import unittest
 
 import yaml
@@ -117,6 +118,26 @@ class CheckCandidates(unittest.TestCase):
         register["candidates"][2]["term"] = "Renew"   # the passage has "Renewal", not "renew"
         self.assertEqual(check_candidates.term_warnings(register),
                          [("term", "'Renew': its passage never uses Renew")])
+
+    def test_an_early_unquoted_span_is_read_as_text(self):
+        with tempfile.TemporaryDirectory() as d:
+            doc, res = os.path.join(d, "doc.txt"), os.path.join(d, "result.yaml")
+            with open(doc, "w", encoding="utf-8") as f:
+                f.write("Members renew loans.")
+            with open(res, "w", encoding="utf-8") as f:
+                f.write("input_text: Members renew loans.\nnamed_entities:\n- label: renew\n  original_spans:\n  - 8:12\n")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+                self.assertEqual(check_candidates.main(["--source", doc, "--ontogpt", res]), 0, out.getvalue())
+
+    def test_crlf_document_spans_count_line_breaks_once(self):
+        result = {"input_text": "Hi.\nHold the book.\n", "named_entities": [{"label": "Hold", "original_spans": ["4:7"]}]}
+        self.assertEqual(check_candidates.check_result(result, "Hi.\r\nHold the book.\r\n"), [])
+
+    def test_a_span_past_the_end_of_input_text_fails_even_with_crlf(self):
+        result = {"input_text": "AB\nCD", "named_entities": [{"label": "CD", "original_spans": ["4:5"]}]}
+        fails = check_candidates.check_result(result, "AB\r\nCD")
+        self.assertEqual({n for n, _ in fails}, {"span"}, fails)
 
     def test_main_exit_codes(self):
         out = io.StringIO()
