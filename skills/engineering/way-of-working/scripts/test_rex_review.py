@@ -44,7 +44,7 @@ FAKE = textwrap.dedent(r'''
     def fail(): print("rex: connection refused", file=sys.stderr); sys.exit(1)
     label = os.environ["FAKE_LABEL"]
     reused = any(x.startswith("reuse") for x in s)
-    phase = read("phase", ("startq" if "reuseq" in s else "ready") if reused else "start")
+    phase = read("phase", ("startq" if "reuseq" in s else "idleq" if "reuseidle" in s else "ready") if reused else "start")
     report = read("report_path")
     BIN = {"kimi": "kimi", "cursor": "cursor-agent", "codex": "codex"}[kind]
     def editor(text=""):
@@ -55,6 +55,8 @@ FAKE = textwrap.dedent(r'''
             return "  → %s\n\n  Auto" % (text or "Plan, search, build anything")
         return "  › %s\n\n  100%% context left" % (text or "Ask Codex to do anything")
     PROMPT_LINE = "Read AGENTS.md and the repository's review standards file"
+    def fixture(name):
+        return open(os.path.join(os.environ["FAKE_FIXTURES"], name)).read().rstrip("\n")
     if cmd == "block ls":
         blocks = [{"block_id": "block:me", "window_id": "win:1", "label": "shell"}]
         if "full" in s: blocks.append({"block_id": "block:other", "window_id": "win:1", "label": "shell"})
@@ -115,6 +117,10 @@ FAKE = textwrap.dedent(r'''
     if cmd == "capture":
         n = count("captures")
         if "capfail" in s and phase == "working": fail()
+        if phase == "idleq" or (phase == "working" and "idleafter" in s):
+            print(fixture("kimi-idle-session.txt")); sys.exit(0)
+        if phase == "sent" and "kimiwrapped" in s:
+            print(fixture("kimi-wrapped-prompt.txt")); sys.exit(0)
         if phase == "startq":
             print("  Hooks need review\n  Press enter to confirm or esc to go back"); sys.exit(0)
         if phase == "migrateeditor":
@@ -194,7 +200,7 @@ class RexReview(unittest.TestCase):
         self.tmpdir = tempfile.mkdtemp()
         env = {k: v for k, v in os.environ.items() if not k.startswith(("REX_", "HERDR_", "GIT_"))}
         env.update(PATH=bindir + os.pathsep + os.environ["PATH"], FAKE_REX=scenario, FAKE_STATE=state,
-                   FAKE_KIND=kind, FAKE_TOP=self.top, FAKE_LABEL=label_for(kind, model or KINDS[kind], repo),
+                   FAKE_KIND=kind, FAKE_TOP=self.top, FAKE_FIXTURES=os.path.join(HERE, "fixtures"), FAKE_LABEL=label_for(kind, model or KINDS[kind], repo),
                    REX_SESSION="session:s", REX_BLOCK="block:me",
                    TMPDIR=self.tmpdir, HERDR_REVIEW_ARTIFACT_ROOTS=self.tmpdir, HERDR_REVIEW_DIR=self.tmpdir,
                    HOME=home or tempfile.mkdtemp())
@@ -401,6 +407,29 @@ class RexReview(unittest.TestCase):
         self.assertEqual(len(self.keys()), 0)
         self.assertIn("Held the Enter after typing: the pane shows blocked.", r.stderr)
         self.assertRegex(r.stdout.splitlines()[-2], r"the reviewer is waiting on a question")
+
+    def test_a_prompt_wrapped_in_kimis_input_box_is_unsent_and_gets_its_enter(self):
+        # The live screen of 2026-10-25 (fixtures/kimi-wrapped-prompt.txt): the prompt fills Kimi's
+        # box over 20 lines, its "│ >" line 23 lines up. The first look after typing sees the
+        # screen redrawing; the script looks again rather than holding the Enter, and reads the
+        # box whole as the unsent prompt, not as a question.
+        r, _ = self.run_case("kimiwrapped", kind="kimi")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("Held the Enter", r.stderr)
+        self.assertEqual(len(self.keys()), 1)
+
+    def test_kimis_idle_session_question_before_the_prompt_is_named_and_gets_no_key(self):
+        r, calls = self.run_case("reuse,reuseidle", kind="kimi")
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("send", calls)
+        self.assertNotIn("send-key", calls)
+        self.assertEqual(r.stdout.splitlines()[-2], "Reviewer did not start: Kimi asks how to resume an idle session.")
+
+    def test_kimis_idle_session_question_after_the_prompt_is_named_and_gets_no_key(self):
+        r, _ = self.run_case("idleafter", kind="kimi")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(len(self.keys()), 1)   # the prompt's own Enter only
+        self.assertRegex(r.stdout.splitlines()[-2], r"^No report at \S+: Kimi asks how to resume an idle session\.$")
 
     def test_a_prompt_that_stays_unsent_stops_after_three_enters(self):
         # Finding 6.

@@ -217,9 +217,11 @@ show_pane() { rx capture -b "$review_pane" --trim 2>/dev/null | tail -n "$1" || 
 #   working     the program reports working
 #   trust       Kimi's trust dialog, "Trust and continue" selected, naming this work tree on
 #               its own path line, the one between its question and its choices
+#   idlesession Kimi asks how to resume a session left idle (compact, new, continue): a question
 #   blocked     a known question is on the bottom lines
 #   working     a busy marker shows
-#   unsent      the reviewer's own input line still holds the prompt
+#   unsent      the reviewer's own input line still holds the prompt (Kimi's input box is read
+#               whole, so a prompt wrapped over many lines inside it still counts)
 #   changing    the screen moved since the last look
 #   idle        the reviewer's own input line shows, empty, and nothing moved; called with
 #               "strict" (before anything is typed), also no other question or choice list
@@ -254,7 +256,22 @@ kind, reported, last_path, top, strict = sys.argv[1:6]
 lines = sys.stdin.read().splitlines()[-40:]
 screen = "\n".join(lines)
 bottom = "\n".join(lines[-12:])
-dialog = lines[-20:]
+# Kimi'"'"'s input box, read whole: from its top border to its bottom border, which must sit just
+# above the status lines. A long prompt wraps over many lines inside it, so its "│ >" line can
+# be far above the bottom twelve (2026-10-25: 23 lines up). The box is the reviewer'"'"'s own text:
+# nothing inside it counts as a question.
+box, box_text = set(), None
+if kind == "kimi":
+    ends = [i for i, l in enumerate(lines) if l.strip().startswith("\u2570")]
+    if ends and len(lines) - 1 - ends[-1] <= 4:
+        starts = [i for i in range(ends[-1]) if lines[i].strip().startswith("\u256d")]
+        if starts:
+            box = set(range(starts[-1], ends[-1] + 1))
+            inner = [re.sub(r"^\s*\u2502\s?|\s*\u2502\s*$", "", lines[i]) for i in range(starts[-1] + 1, ends[-1])]
+            if inner and re.match(r"^\s*>", inner[0]):
+                box_text = " ".join([re.sub(r"^\s*>\s?", "", inner[0]).strip()] + [c.strip() for c in inner[1:]]).strip()
+outside = [l for i, l in enumerate(lines) if i not in box]
+dialog = [l for i, l in enumerate(lines) if i >= len(lines) - 20 and i not in box]
 last = open(last_path).read()
 open(last_path, "w").write(screen)
 # Each reviewer'"'"'s own input line: empty when ready, holding the prompt when unsent.
@@ -274,26 +291,31 @@ trust = False
 if kind == "kimi" and asked_at is not None and choice_at is not None and asked_at < choice_at:
     paths = [l.strip() for l in dialog[asked_at + 1:choice_at] if l.strip().startswith("/")]
     trust = len(paths) == 1 and os.path.realpath(paths[0]) == top
-inputs = [m.group("text") for m in (re.match(editor, l) for l in lines[-12:]) if m]
+inputs = [box_text] if box_text is not None else [m.group("text") for m in (re.match(editor, l) for l in lines[-12:]) if m]
 held = any(t.startswith(("Read AGENTS.md", "Write your final review report", "[Pasted text")) for t in inputs)
 # Codex: its idle placeholder text was not checked live (its hook-review prompt stood in the
 # way on 2026-10-24), so any input line not holding the prompt counts as ready.
 ready = any(t in ready_text for t in inputs) if ready_text is not None else bool(inputs) and not held
 if kind == "kimi" and ready:
     ready = "context:" in bottom
-others = [l for l in lines[-12:] if not re.match(editor, l)]
+others = [l for i, l in enumerate(lines) if i >= len(lines) - 12 and i not in box and not re.match(editor, l)]
 choices = any(re.search(r"\?\s*$", l) or re.match(r"^\s*(\d+[.)]\s|❯\s|\[[ xX]\]\s)", l) for l in others)
 if strict and choices:
     ready = False
+# Kimi'"'"'s question when a prompt goes into a session left idle: how to resume it.
+idle_session = (kind == "kimi" and any("has been idle for" in l for l in dialog)
+                and any(re.match(r"^\s*\u276f?\s*Compact and continue\s*$", l) for l in dialog))
 if reported == "blocked":
     print("blocked")
 elif reported == "working":
     print("working")
+elif idle_session:
+    print("idlesession")
 elif trust:
     print("trust")
 elif question:
     print("blocked")
-elif re.search(r"ctrl\+c to stop|esc to interrupt|Press Ctrl\+B to run in background", bottom):
+elif re.search(r"ctrl\+c to stop|esc to interrupt|Press Ctrl\+B to run in background|Working\u2026", "\n".join(l for l in outside[-12:])):
     print("working")
 elif held:
     print("unsent")
@@ -303,6 +325,19 @@ elif ready:
     print("idle")
 else:
     print("unknown")' "$kind" "$reported" "$last_screen" "$top" "$strict"
+}
+
+# Right after typing or a key, the screen is still redrawing, so a "changing" look is looked at again,
+# up to five times a second apart, before an Enter is decided (2026-10-25: one changing look
+# held the Enter for good).
+settled_status() {
+  local st
+  for _ in 1 2 3 4 5; do
+    st=$(pane_status "$@")
+    [ "$st" = changing ] || break
+    sleep 1
+  done
+  echo "$st"
 }
 
 # Every prompt waits for the reviewer's own empty input line, in a new pane or a reused one.
@@ -329,11 +364,14 @@ for _ in $(seq 1 90); do
       if [ "$unread" -ge 10 ]; then stop "Reviewer did not start: rex cannot read its pane." "rex capture -s $REX_SESSION -b $review_pane --trim | tail -n 30; then run: $rerun"; fi ;;
     trust)
       if [ "$trusted" -ge 1 ]; then show_pane 30; stop "Reviewer did not start: Kimi still asks to trust $top after Trust and continue." "$answer, then run: $rerun"; fi
-      if [ "$(pane_status strict)" = trust ]; then
+      if [ "$(settled_status strict)" = trust ]; then
         rx send-key -b "$review_pane" enter >/dev/null
         trusted=1
         echo "Kimi asked to trust $top; chose Trust and continue." >&2
       fi ;;
+    idlesession)
+      show_pane 30
+      stop "Reviewer did not start: Kimi asks how to resume an idle session." "$answer, then run: $rerun" ;;
     blocked|unsent)
       show_pane 30
       stop "Reviewer did not start: it is waiting on a question or an unknown screen." "$answer, then run: $rerun" ;;
@@ -361,7 +399,7 @@ send_prompt() {
   local st
   rx send -b "$review_pane" "$1" >/dev/null
   sleep 1
-  st=$(pane_status)
+  st=$(settled_status)
   if [ "$st" = unsent ]; then
     rx send-key -b "$review_pane" enter >/dev/null
   else
@@ -431,13 +469,15 @@ for _ in $(seq 1 720); do
         ended="unsent" reason="the prompt stayed unsent after three Enters" next="$rerun"; break
       fi
       enters=$((enters + 1)) idle_unworked=0
-      if [ "$(pane_status)" = unsent ]; then
+      if [ "$(settled_status)" = unsent ]; then
         rx send-key -b "$review_pane" enter >/dev/null || true
         echo "The prompt sat unsent on the input line; sent Enter." >&2
       fi
       ;;
     gone|starting)
       ended="gone" reason="the reviewer exited" next="$rerun"; break ;;
+    idlesession)
+      ended="blocked" reason="Kimi asks how to resume an idle session" next="$answer, then run: $next_on_failure"; break ;;
     unreadable)
       unread=$((unread + 1))
       if [ "$unread" -ge 12 ]; then ended="unreadable" reason="rex cannot read the reviewer's pane"; break; fi
