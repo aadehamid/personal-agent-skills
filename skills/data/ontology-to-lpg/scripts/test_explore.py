@@ -365,10 +365,14 @@ class QueryFiles(unittest.TestCase):
     def test_the_module_map_file_is_generated(self):
         self.assertEqual(self.read("module-map.rq"), mt.CONSTRUCT)
 
-    def test_the_cypher_walk_leaves_out_the_schema_relationships_and_returns_the_tags(self):
-        text = self.read("walk.cypher")
-        self.assertIn("NOT type(r) STARTS WITH 'n4sch__'", text)
-        self.assertIn("r.graph AS module", text)
+    def test_no_cypher_walk_crosses_a_schema_relationship_and_the_rows_carry_the_tags(self):
+        # The path filter, not a filter on the rows: a schema relationship (a class to a restriction's
+        # filler) must not count as a hop, or the far side's edges come back.
+        for name in ("walk.cypher", "walk-visual.cypher"):
+            text = self.read(name)
+            match, rest = text.split("MATCH p = ", 1)[1].split("\n", 1)
+            self.assertTrue(rest.startswith("WHERE none(") and "STARTS WITH 'n4sch__'" in rest.split("\n", 1)[0], name)
+        self.assertIn("r.graph AS module", self.read("walk.cypher"))
 
 
 class HashLeavesTheTagOut(unittest.TestCase):
