@@ -22,7 +22,8 @@ Commands:
       Publish the dataset to the store, export everything the store holds, and compare (below).
   export --store fuseki|databricks <store options> --out <dataset.nq> [--ttl-dir <dir>]
       Write everything the store holds as sorted N-Quads, and with --ttl-dir one Turtle file per
-      named graph (graph-<n>.ttl, listed in <dir>/graphs.tsv with its graph IRI).
+      named graph (graph-<n>.ttl, listed in <dir>/graphs.tsv with its graph IRI). --out must not
+      exist and --ttl-dir must be empty or absent; the outputs are written all together or not at all.
   compare <expected.nq> <actual.nq>
       Exit 0 when the two datasets have the same RDFC-1.0 hash, 1 with a readable diff otherwise.
 
@@ -658,6 +659,9 @@ def main(argv):
         if command == "export":
             if files or "--out" not in opts:
                 raise BadInput("export takes --out and no input files")
+            if os.path.lexists(opts["--out"]):
+                # A failed export removes what it wrote, so it must never have replaced an older file.
+                raise BadInput(f"{opts['--out']} already exists; export writes only a new file")
             kind, make = store_from(opts, secrets)
             ttl = opts.get("--ttl-dir")
             if ttl and os.path.exists(ttl) and (not os.path.isdir(ttl) or os.listdir(ttl)):

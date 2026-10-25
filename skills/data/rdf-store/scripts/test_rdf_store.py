@@ -890,6 +890,20 @@ class CommandLine(unittest.TestCase):
             os.replace = real
         self.assertEqual(os.listdir(folder), [])
 
+    def test_export_refuses_an_existing_output_file(self):
+        folder = tempfile.mkdtemp()
+        out = write(folder, "old.nq", "keep me\n")
+        server, store = gsp_server()
+        try:
+            r = self.run_cli("export", "--store", "fuseki", "--gsp", store.gsp, "--query", store.query_url, "--out", out)
+            requests = list(server.handler.requests)
+        finally:
+            close(server)
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(requests, [])
+        with open(out) as f:
+            self.assertEqual(f.read(), "keep me\n")
+
     def test_export_takes_no_update_endpoint(self):
         folder = tempfile.mkdtemp()
         r = self.run_cli("export", "--store", "fuseki", "--gsp", "http://h/d", "--query", "http://h/q",

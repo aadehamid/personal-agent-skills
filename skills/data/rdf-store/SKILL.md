@@ -24,7 +24,7 @@ The script is `scripts/rdfstore.py`; run it with `uv run --no-project --with pyo
    Done when: it exits 0 and prints `PASS the store's copy has the same RDFC-1.0 hash`; the report's `hashes_equal` is true. Equal counts without equal hashes are a fail: counts miss a changed value.
 5. **Read a failure.** On exit 1 with a report, read its `diff` (quads missing from and extra in the store's copy, with their numbers in `missing` and `extra`) and `graph_counts`; read `references/no-loss.md`, "Reading a diff", before you change anything. Exit 1 with `FAIL a store request or write failed` leaves no report: read the message, and reload the store before trusting it.
    Done when: you can name the cause of every missing and extra quad, fixed it in the load or the store, and step 4 passes.
-6. **Export a copy, when a consumer needs one** (a rebuild of another store, a Turtle file per graph). `rdfstore.py export --store ... --out <dataset.nq> [--ttl-dir <dir>]`.
+6. **Export a copy, when a consumer needs one** (a rebuild of another store, a Turtle file per graph). `rdfstore.py export --store ... --out <dataset.nq> [--ttl-dir <dir>]`. `--out` must be a new file and `--ttl-dir` an empty or new folder; the outputs are written all together or not at all.
    Done when: `rdfstore.py compare <packed release.nq> <dataset.nq>` exits 0.
 
 ## Rules that apply at every step
