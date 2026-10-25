@@ -1,0 +1,12 @@
+{
+  "mode": "files",
+  "projection_config": "projection-config.json",
+  "files": ["library-module.ttl"],
+  "shapes": ["library-shapes.ttl"],
+  "out": "~/lpg-out/library",
+  "robot_jar": "~/tools/robot-1.9.10.jar",
+  "target_env": "~/.config/neo4j/aura.env",
+  "replace_target": false,
+  "queries": "queries.json",
+  "rebuild": {"source": "jena", "out": "~/lpg-out/library-rebuild"}
+}

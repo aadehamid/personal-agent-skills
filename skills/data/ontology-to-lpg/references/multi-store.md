@@ -1,6 +1,6 @@
 # Multi-store: one source, several stores, nothing lost
 
-Read it when the same released ontology must live in triple stores and in Neo4j or Aura, and you must prove each copy holds exactly the source. It is the plan the skill's owner decided on 2026-10-23. Hops 1, 4 and 5 run with this skill's scripts, and hops 2 and 3 (skolemize, Jena Fuseki and the Databricks store, each with a no-loss round trip) with the `rdf-store` skill's. Hop 6 (the rebuild) is planned, not built.
+Read it when the same released ontology must live in triple stores and in Neo4j or Aura, and you must prove each copy holds exactly the source. It is the plan the skill's owner decided on 2026-10-23. Hops 1, 4 and 5 run with this skill's scripts, and hops 2 and 3 (skolemize, Jena Fuseki and the Databricks store, each with a no-loss round trip) with the `rdf-store` skill's. Hop 6, the rebuild, runs with `run_projection.py` (`run-config.md`), which also runs every other hop from one run configuration.
 
 ## The flow
 
@@ -11,7 +11,7 @@ Read it when the same released ontology must live in triple stores and in Neo4j 
 | 3. Triple stores | Load the skolemized files into each store, one named graph per file. Any SPARQL 1.1 store through add-on J. Databricks through add-on K: a Delta table in Unity Catalog with the columns `subject`, `predicate`, `object`, `object_kind`, `datatype`, `lang`, `graph` (`object_kind` says whether the object is an IRI, a blank node or a literal; `rdf-store`'s `references/stores.md` has the table). | The `rdf-store` round trip: export everything the store holds and compare it with the source by RDFC-1.0 hash; equal hashes mean zero lost and zero added. Counts per graph and per predicate are a quick look (`triplestore.py` adds the three-way counts against the n10s export). | Built in the `rdf-store` skill; on 2026-10-24 a multi-module ontology's 33 graphs (36,575 quads) round-tripped with equal hashes through Jena Fuseki 6.2.0 and a Databricks Delta table |
 | 4. Local Neo4j | Project with n10s: SKILL.md steps 4 to 6. | `check-report` passes: what n10s compiled, one fail case per row, the round trip and two equal hashes (`pipeline.md`, rules 13 to 17). | Built |
 | 5. Aura or any Neo4j | Copy the verified graph with add-on I. | The target's graph hash equals the local one and the report's. | Built; run against a local second Neo4j and Aura Free |
-| 6. Rebuild | Delete the local Neo4j and the Aura data. Rebuild both, taking a store's export (for example the Databricks Delta table) as the source of hops 4 and 5. | The rebuilt graph's hash equals the hash from hop 4, and its round trip against the original source files loses and adds nothing. That proves source → store → Neo4j and Aura loses nothing. | Planned |
+| 6. Rebuild | Delete the local Neo4j and the Aura data. Rebuild both, taking a store's export (for example the Databricks Delta table) as the source of hops 4 and 5. | The rebuilt graph's hash equals the hash from hop 4, and its round trip against the original source files loses and adds nothing. That proves source → store → Neo4j and Aura loses nothing. | Built: `run_projection.py`, step `rebuild` (`run-config.md`); first run on 2026-10-25 from a Databricks Delta table, with equal hashes locally and on Aura Free |
 
 ## The data flow, box by box
 
@@ -37,7 +37,7 @@ The diagram is `diagrams/data-flow.png` (source `diagrams/data-flow.eraser`; the
 
 **Gate → Neo4j Aura, "validated graph"**: "Copy over the driver; hash must match the local graph" → "GRAPH TYPE: schema enforced by the database". `copy_graph.py` (add-on I) copies the graph that passed V12 (check V13); `build.py graph-type --output graph-type.cypher` (add-on H) writes the statement applied after it (G1 to G4). Built; run on Aura Free.
 
-**Databricks ⇢ Rebuild test ⇢ Check** (dashed, red group): "Empty local Neo4j and Aura, rebuild both from the Databricks export, compare with the released files: no loss end to end". What crosses: the store's export, written by `rdf-store`'s `export` as N-Quads and, with `--ttl-dir`, one Turtle file per graph, which re-enters the skill at "Check" and runs the whole path again; the check is hop 6. Planned.
+**Databricks ⇢ Rebuild test ⇢ Check** (dashed, red group): "Empty local Neo4j and Aura, rebuild both from the Databricks export, compare with the released files: no loss end to end". What crosses: the store's export, written by `rdf-store`'s `export` as N-Quads and, with `--ttl-dir`, one Turtle file per graph, which re-enters the skill at "Check" and runs the whole path again; the check is hop 6, built as `run_projection.py`'s `rebuild` step.
 
 **Released packages ⇢ Later: Unity Catalog** (dashed): "OntoBricks (Databricks Labs): link Unity Catalog tables and metric views (the KPIs) to the business processes in the ontology". What crosses: the released ontology, as OntoBricks' domain ontology. No no-loss check applies: OntoBricks builds instances from tables, not from the release. Later, not part of this skill.
 

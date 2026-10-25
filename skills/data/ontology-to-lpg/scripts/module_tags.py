@@ -2,13 +2,15 @@
 """Add-on F: tag every node and relationship of a loaded projection with the package it came from,
 check the tags, and build the module graph.
 
-    uv run --no-project --with rdflib --with neo4j python3 module_tags.py tag     --config <config> (--uri U | --env E) [--inferred inferred.nt] <package.ttl>...
+    uv run --no-project --with rdflib --with neo4j python3 module_tags.py tag     --config <config> (--uri U | --env E) [--inferred inferred.nt] [--graph FILE=IRI]... <package.ttl>...
     uv run --no-project --with rdflib --with neo4j python3 module_tags.py check   --config <config> (--uri U | --env E) [--inferred inferred.nt] <package.ttl>...
     uv run --no-project --with rdflib --with neo4j python3 module_tags.py modules (--uri U | --env E) <package.ttl>...
     uv run --no-project --with rdflib python3 module_tags.py construct --output <module-map.rq>
 
 Each package file is one released package: its owl:Ontology header names the package by its
-owl:versionIRI, the same IRI the rdf-store skill names the package's named graph by. The tag is that
+owl:versionIRI, the same IRI the rdf-store skill names the package's named graph by. --graph FILE=IRI
+(repeatable) makes a plain file a package named IRI, with no requirements, whatever header it has: the
+files mode of run_projection.py names a file without an owl:versionIRI that way, as it names its graph. The tag is that
 version IRI, stored on the reserved property `graph` (add-on F's name); the projection's own keys are
 always prefixed (SHORTEN gives prefix__local), so a bare `graph` cannot collide with ontology data.
 load_verify.graph_hash leaves `graph` out, so tagging after step 6 keeps the report's hash, and
@@ -87,8 +89,10 @@ CONSTRUCT {{
 """
 
 
-def read_package(path):
+def read_package(path, graph=None):
     g = Graph().parse(path)
+    if graph is not None:   # a plain file (run_projection.py's files mode), named by its graph IRI
+        return Package(path, graph, graph, (), g)
     heads = [(s, v) for s in g.subjects(RDF.type, OWL.Ontology) for v in g.objects(s, OWL.versionIRI)]
     if len({h for h in heads}) != 1:
         raise Refusal("each package file needs exactly one owl:Ontology with one owl:versionIRI")
@@ -120,8 +124,9 @@ def dependency_order(packages):
     return order
 
 
-def read_packages(paths):
-    return dependency_order([read_package(p) for p in paths])
+def read_packages(paths, graphs=None):
+    graphs = graphs or {}
+    return dependency_order([read_package(p, graphs.get(p)) for p in paths])
 
 
 def expected_tags(packages, inferred=None):
@@ -255,10 +260,16 @@ CLEAR_MODULES = "MATCH (n:Module) DETACH DELETE n"
 
 
 def options(argv):
-    opts, files, i = {}, [], 0
+    opts, files, i = {"--graph": {}}, [], 0
     known = {"--config", "--uri", "--env", "--inferred", "--query-timeout"}
     while i < len(argv):
-        if argv[i].startswith("--"):
+        if argv[i] == "--graph" and i + 1 < len(argv):
+            path, sep, iri = argv[i + 1].partition("=")
+            if not sep or not path or not iri:
+                raise Refusal("--graph takes FILE=IRI")
+            opts["--graph"][path] = iri
+            i += 2
+        elif argv[i].startswith("--"):
             if argv[i] not in known or i + 1 >= len(argv):
                 raise Refusal("an unknown flag, or a flag without its value")
             opts[argv[i]] = argv[i + 1]
@@ -295,7 +306,7 @@ def main(argv):
         if command != "modules" and "--config" not in opts:
             raise Refusal("give --config")
         timeout = lv.query_timeout(opts)
-        packages = read_packages(files)
+        packages = read_packages(files, opts["--graph"])
         inferred = Graph().parse(opts["--inferred"], format="nt") if "--inferred" in opts else None
         prefixes = {}
         if "--config" in opts:
