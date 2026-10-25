@@ -25,6 +25,9 @@ Run with: uv run --no-project --with rdflib python3 build.py <command> ...
             Writes an ALTER CURRENT GRAPH TYPE SET statement generated from the shapes (Cypher 25,
             Enterprise Edition, introduced in Neo4j 2026.02), with what it leaves out as comments
             (add-ons.md, H).
+  data-model --config <config.json> --shapes <shapes.ttl>... --output data-model.json <data.ttl>...
+            Writes the same element types as a DataModel for the Neo4j Data Modeling MCP server
+            (mcp-neo4j-data-modeling 0.8.2), checked against its validators first (add-ons.md, L).
   check-report --manifest manifest.json --report report.json
             Fails unless the report names the manifest's fingerprints and every verify check passed.
 
@@ -33,7 +36,7 @@ Definitions (references/pipeline.md, rule 5):
   input fingerprint SHA-256 of the bytes of loadable.nt followed directly by the bytes of inferred.nt
   shapes fingerprint SHA-256 of the bytes of every shape file, concatenated in the order given
 
-Exit 0 on success, 1 when --verify, check-serialised or check-report finds a difference or a failed check, 2 when a
+Exit 0 on success, 1 when --verify, check-serialised, data-model or check-report finds a difference or a failed check, 2 when a
 file cannot be read or the arguments are wrong.
 """
 import hashlib
@@ -222,19 +225,13 @@ def _q(name):
     return "`" + name.replace("`", "``") + "`"
 
 
-def graph_type(cfg, shapes, data):
-    """(statement, left out) for the shapes: one node element type per sh:targetClass that has at
-    least one typed property, and one relationship element type per predicate whose property shapes
-    name one sh:class, from the shapes' target class to that class. An endpoint may name a label
-    with no node element type of its own (Aura Free accepted it on 2026-10-23); an empty node element
-    type `(:Label =>)` is a syntax error there, so none is written.
+def element_types(cfg, shapes, data):
+    """(nodes, rels, left out) read from the shapes, the one mapping behind graph_type and data_model.
 
-    A property is typed from a mappable sh:datatype. It is a LIST<T NOT NULL> exactly when the load
-    stores it as an array, which is the global multivalued decision of the load script
-    (multivalued(data, shapes), references/pipeline.md, rule 10), and a scalar otherwise. It is NOT
-    NULL when sh:minCount is at least 1 (Aura Free accepted `LIST<STRING NOT NULL> NOT NULL`). When two property shapes on one target map one key
-    differently, the first (by shape IRI) is kept and the other is listed. Everything that has no
-    GRAPH TYPE form is listed in left out."""
+    nodes maps each sh:targetClass label to {key: (kind, required)}, where kind is the Cypher type
+    (LIST<T NOT NULL> when the load stores an array) and required is sh:minCount 1 or more; rels maps
+    each relationship key to its {(source label, target label)}. Everything with no typed form is
+    listed in left out, in graph_type's words."""
     from rdflib import BNode
     from rdflib.namespace import SH, XSD
     multi = set(multivalued(data, shapes))
@@ -270,14 +267,12 @@ def graph_type(cfg, shapes, data):
                         left_out.append(f"{label}.{key}: sh:class {target} beside sh:datatype; the property is typed, "
                                         "the relationship left out")
                     listed = str(path) in multi
-                    kind = f"LIST<{base} NOT NULL>" if listed else base
-                    required = min_c is not None and int(min_c) >= 1
-                    spec = f"{_q(key)} :: {kind}" + (" NOT NULL" if required else "")
-                    if key in props and props[key] != spec:
-                        left_out.append(f"{label}.{key}: a second property shape maps it as {spec}; "
-                                        f"kept {props[key]}")
+                    typed = (f"LIST<{base} NOT NULL>" if listed else base, min_c is not None and int(min_c) >= 1)
+                    if key in props and props[key] != typed:
+                        left_out.append(f"{label}.{key}: a second property shape maps it as {_spec(key, typed)}; "
+                                        f"kept {_spec(key, props[key])}")
                     else:
-                        props.setdefault(key, spec)
+                        props.setdefault(key, typed)
                 elif target is not None:
                     rels.setdefault(key, set()).add((label, shorten(target, cfg)))
                     if min_c is not None or max_c is not None:
@@ -286,10 +281,32 @@ def graph_type(cfg, shapes, data):
                     left_out.append(f"{label}.{key}: no sh:datatype or sh:class to map")
             if (ns, SH.closed, None) in shapes:
                 left_out.append(f"{label}: sh:closed (a graph type is open)")
+    return nodes, rels, left_out
+
+
+def _spec(key, typed):
+    kind, required = typed
+    return f"{_q(key)} :: {kind}" + (" NOT NULL" if required else "")
+
+
+def graph_type(cfg, shapes, data):
+    """(statement, left out) for the shapes: one node element type per sh:targetClass that has at
+    least one typed property, and one relationship element type per predicate whose property shapes
+    name one sh:class, from the shapes' target class to that class. An endpoint may name a label
+    with no node element type of its own (Aura Free accepted it on 2026-10-23); an empty node element
+    type `(:Label =>)` is a syntax error there, so none is written.
+
+    A property is typed from a mappable sh:datatype. It is a LIST<T NOT NULL> exactly when the load
+    stores it as an array, which is the global multivalued decision of the load script
+    (multivalued(data, shapes), references/pipeline.md, rule 10), and a scalar otherwise. It is NOT
+    NULL when sh:minCount is at least 1 (Aura Free accepted `LIST<STRING NOT NULL> NOT NULL`). When two property shapes on one target map one key
+    differently, the first (by shape IRI) is kept and the other is listed. Everything that has no
+    GRAPH TYPE form is listed in left out."""
+    nodes, rels, left_out = element_types(cfg, shapes, data)
     elements = []
     for label, props in sorted(nodes.items()):
         if props:
-            elements.append(f"  (:{_q(label)} => {{" + ", ".join(props[k] for k in sorted(props)) + "})")
+            elements.append(f"  (:{_q(label)} => {{" + ", ".join(_spec(k, props[k]) for k in sorted(props)) + "})")
         else:
             left_out.append(f"{label}: no typed property, so no node element type")
     for key, ends in sorted(rels.items()):
@@ -304,6 +321,73 @@ def graph_type(cfg, shapes, data):
     statement = "CYPHER 25\nALTER CURRENT GRAPH TYPE SET {\n" + ",\n".join(elements) + "\n}"
     return statement, sorted(set(left_out))
 
+
+
+def data_model(cfg, shapes, data):
+    """The shapes' element types as a DataModel of the Neo4j Data Modeling MCP server
+    (mcp-neo4j-data-modeling 0.8.2, data_model.py at commit 0eaf613e0f), so its validate_data_model,
+    export_to_arrows_json and get_mermaid_config_str can run on the projection (add-ons.md, L).
+
+    One node per label that a shape targets or a relationship reaches, keyed on n10s's uri; one
+    property per typed key, a list typed LIST with its element type in the description; one
+    relationship per (source, key, target), every label pair kept. Labels and types are the SHORTEN
+    names. What element_types leaves out goes to metadata.left_out."""
+    nodes, rels, left_out = element_types(cfg, shapes, data)
+    for ends in rels.values():
+        for source, target in ends:
+            nodes.setdefault(source, {})
+            nodes.setdefault(target, {})
+
+    def prop(key, typed):
+        kind, required = typed
+        listed = kind.startswith("LIST<")
+        notes = ([kind] if listed else []) + (["NOT NULL"] if required else [])
+        return {"name": key, "type": "LIST" if listed else kind,
+                "description": "; ".join(notes) if notes else None}
+
+    return {
+        "nodes": [{"label": label, "key_property": {"name": "uri", "type": "STRING",
+                                                    "description": "n10s_unique_uri: the resource's IRI"},
+                   "properties": [prop(k, props[k]) for k in sorted(props)]}
+                  for label, props in sorted(nodes.items())],
+        "relationships": [{"type": key, "start_node_label": source, "end_node_label": target}
+                          for key, ends in sorted(rels.items()) for source, target in sorted(ends)],
+        "metadata": {"source": "ontology-to-lpg build.py data-model", "left_out": sorted(set(left_out))},
+    }
+
+
+def data_model_problems(model):
+    """The DataModel rules of mcp-neo4j-data-modeling 0.8.2 (data_model.py at 0eaf613e0f: Node,
+    Relationship and DataModel validators), so a model this skill writes passes validate_data_model:
+    a label and a relationship type are non-empty; every node has a named key property; no property
+    name repeats within one node or relationship, the key excepted; no label repeats; every
+    relationship's start and end label is a node of the model."""
+    problems, labels = [], []
+    for node in model.get("nodes", []):
+        label = node.get("label") or ""
+        if not label:
+            problems.append("a node has an empty label")
+        if not (node.get("key_property") or {}).get("name"):
+            problems.append(f"node {label!r} has no key property")
+        names = [p.get("name") for p in node.get("properties", [])
+                 if p.get("name") != (node.get("key_property") or {}).get("name")]
+        problems += [f"property {n!r} appears {names.count(n)} times in node {label!r}"
+                     for n in sorted(set(names)) if names.count(n) > 1]
+        labels.append(label)
+    problems += [f"node label {lb!r} appears {labels.count(lb)} times" for lb in sorted(set(labels))
+                 if labels.count(lb) > 1]
+    for rel in model.get("relationships", []):
+        pattern = f"({rel.get('start_node_label')})-[{rel.get('type')}]->({rel.get('end_node_label')})"
+        if not rel.get("type"):
+            problems.append(f"relationship {pattern} has an empty type")
+        for end in ("start_node_label", "end_node_label"):
+            if rel.get(end) not in labels:
+                problems.append(f"relationship {pattern}: its {end.split('_')[0]} node is not in the model")
+        key = (rel.get("key_property") or {}).get("name")
+        names = [p.get("name") for p in rel.get("properties", []) if p.get("name") != key]
+        problems += [f"property {n!r} appears {names.count(n)} times in relationship {pattern}"
+                     for n in sorted(set(names)) if names.count(n) > 1]
+    return problems
 
 def check_report(man, rep):
     """report_earned(rep), plus the input and shapes fingerprints against the manifest."""
@@ -471,6 +555,19 @@ def main(argv):
             # Cypher comment, so a shapes term cannot break out of it.
             write(opts["--output"], statement + "\n" + "".join(comment("left out: " + line) + "\n" for line in left_out))
             print(f"wrote {q(opts['--output'])}: {q(statement.count(' =>'))} element types, {q(len(left_out))} left out")
+        elif command == "data-model":
+            need(opts, "--config", "--output")
+            if not data:
+                raise ValueError("give the data files: the property types follow the load's multivalued list")
+            model = data_model(load_config(opts["--config"]), parse(opts.get("--shapes", [])), parse(data))
+            problems = data_model_problems(model)
+            for message in problems:
+                print(f"FAIL {q(message)}")
+            if problems:
+                return 1
+            write(opts["--output"], dump(model))
+            print(f"wrote {q(opts['--output'])}: {q(len(model['nodes']))} nodes, "
+                  f"{q(len(model['relationships']))} relationships, {q(len(model['metadata']['left_out']))} left out")
         elif command == "check-report":
             need(opts, "--manifest", "--report")
             with open(opts["--manifest"], encoding="utf-8") as f:

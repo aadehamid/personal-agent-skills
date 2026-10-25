@@ -17,6 +17,7 @@ Read it when a consumer asks for something the core pipeline does not give (supe
 | I. Copy to Aura or another Neo4j | The graph must live where n10s cannot run | `copy_graph.py` (see below) |
 | J. A triple store | SPARQL consumers need the same data | The `rdf-store` skill loads the files and proves the round trip; `triplestore.py` (see below) adds the counts against the n10s export |
 | K. Databricks | The data must also live in Unity Catalog | The `rdf-store` skill: a Delta table of quads, loaded and read from your machine over the Databricks SQL connector on Free Edition or Enterprise, with the same round trip. See `multi-store.md` |
+| L. A Data Modeling MCP model | Reviewers want an Arrows drawing or a Mermaid diagram of the graph, or developers want Pydantic classes | `build.py data-model` (see below) |
 
 ## H. A `GRAPH TYPE` from the shapes
 
@@ -69,6 +70,29 @@ uv run --no-project --with rdflib python3 triplestore.py --gsp <graph store URL>
 Start the store with the skill's compose file: from `docker/`, `docker compose -p <project> --profile fuseki up -d --build` builds Fuseki 6.2.0 from `docker/fuseki/Dockerfile` (which fetches `jena-fuseki-docker-6.2.0.zip` and the server jar, checks each against a pinned SHA-256, and builds as Jena's own Dockerfile does on base images pinned by digest; `--build` keeps a stale local `lpg-fuseki:6.2.0` from being used) and serves an in-memory `/ds` on `127.0.0.1:13030` (`LPG_FUSEKI_PORT` changes it): `--gsp http://127.0.0.1:13030/ds --query http://127.0.0.1:13030/ds/query`. Remove it with `docker compose -p <project> --profile fuseki down -v`, with the same `-p` (running.md uses `-p "$CONTAINER"` for the projection stack; use it here too when Fuseki runs beside Neo4j).
 
 It exits 0 when every count matches, 1 on a mismatch or a failed request, 2 on bad input. Tested on 2026-10-23 against Apache Jena Fuseki 6.2.0 in Docker, bound to `127.0.0.1`: Jena publishes no prebuilt image, and its Fuseki Docker page (https://jena.apache.org/documentation/fuseki2/fuseki-docker.html) builds one from the `jena-fuseki-docker` package. The test built it from `jena-fuseki-docker-6.2.0.zip` (SHA-256 `7a2dbc918a02adaba2a398c7cebf64c85a42d9a6717ade814acc14ca27d71c66`, checked against Maven Central's SHA-1) with `docker build --build-arg JENA_VERSION=6.2.0` and ran it with `--mem /ds`; `docker/fuseki/Dockerfile` now does the same in one build. The library files loaded as two graphs (100 and 1 triples), all three counts matched, a competency question returned 3 rows, and a changed export count failed the run. On a multi-module ontology, Fuseki loaded 12 named graphs and the per-graph, per-predicate and three-way counts matched for all 176 predicates. Fuseki 6.2.0 refused a `urn:x-` graph name as a relative IRI, which is why the default base has no `x-` namespace. Remove it afterwards with `docker compose -p <project> --profile fuseki down -v` (or `docker rm -f -v` for a container started by hand). The export and the comparison with the source (`multi-store.md`, hop 3) are the `rdf-store` skill's round trip.
+
+## L. The graph as a Data Modeling MCP model
+
+`build.py data-model --config <config> --shapes <shapes>... --output data-model.json <data>...` writes the shapes' element types, the same ones add-on H turns into a `GRAPH TYPE` (`build.element_types`), as a `DataModel` of the Neo4j Data Modeling MCP server, `mcp-neo4j-data-modeling` 0.8.2 (https://github.com/neo4j-contrib/mcp-neo4j, `servers/mcp-neo4j-data-modeling`, `data_model.py` at commit `0eaf613e0f`). One node per label a shape targets or a relationship reaches, keyed on `uri`; one property per typed key, with a list typed `LIST` and its element type in the description; one relationship per source, key and target, every label pair kept. Labels and types are the SHORTEN names. What has no typed form goes to `metadata.left_out`, in add-on H's words. Before it writes, the command checks the model against that server's validators (`build.data_model_problems`: non-empty labels and types, a key on every node, no repeated property, label or missing end) and exits 1 on a problem.
+
+Give the file's JSON to the server's tools: `validate_data_model` (it accepted the library model on 2026-10-24), then `get_mermaid_config_str`, `export_to_arrows_json` for Arrows.app, or `export_to_pydantic_models`. The ontology stays the source: regenerate the file after each release, and never edit the model to change the graph. Two of the server's tools stay unused. Its OWL import and export are lossy by its own README ("OWL Classes become Nodes, ObjectProperties become Relationships, and DatatypeProperties become Node properties"), and on 2026-10-24 `load_from_owl_turtle` rejected a released SKOS module whose object property has `rdfs:domain skos:Concept`, because that file does not declare `skos:Concept` an `owl:Class`. Its GraphRAG schema export is skipped, because this skill builds no extraction pipeline.
+
+## Reviewing the loaded graph
+
+`model_review.py` checks a loaded graph (after step 6, or on the copy of add-on I) against the anti-patterns of Neo4j's `neo4j-modeling-skill` 1.0.7 that a projection keeps, with that skill's severities:
+
+```bash
+NEO4J_PASSWORD="$PASSWORD" uv run --no-project --with rdflib --with neo4j python3 model_review.py \
+  --uri "bolt://127.0.0.1:$PORT" [--report model-review.json]
+uv run --no-project --with rdflib --with neo4j python3 model_review.py --env <target.env> [--report ...]
+```
+
+- **ERROR** `missing-key-constraint`: no uniqueness or node-key constraint on `:Resource(uri)` (`--key-label`, `--key-property` for another key). n10s MERGEs on `uri`, and without the constraint it creates duplicates without a word.
+- **WARNING** `generic-label` and `generic-type`: a label whose local name is Entity, Node or Thing, or a relationship type whose local name is RELATED_TO or HAS, in any spelling. The fix belongs in the ontology: a more specific class or property.
+- **WARNING** `supernode`: a node with more than `--max-degree` relationships (default 100,000, the skill's limit). **INFO** `supernode-candidate`: a node at `--factor` (10) times its label's median degree and at least `--min-degree` (50). Concept schemes and widely used code-list values land here by design.
+- **WARNING** `both-directions`: one relationship type used from label A to B and from B to A.
+
+n10s's own labels (Resource, the configuration labels, `n4sch__*`) are skipped. It exits 1 when it finds an ERROR, 0 otherwise, and 2 on bad input or a failed query; the password is never printed. Fix an ERROR before the graph is used; read every WARNING against the ontology, which stays the master copy.
 
 ## Anti-patterns
 

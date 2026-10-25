@@ -114,4 +114,14 @@ Last full review: 2026-10-23. Check the sources below every three months, and wh
 
 **How to check for updates:** `curl -s https://repo1.maven.org/maven2/org/apache/jena/jena-fuseki-docker/maven-metadata.xml | grep release`.
 
+## 10. Neo4j modelling tools
+
+| Source | Version and date | Used in | What the skill took |
+|---|---|---|---|
+| `neo4j-modeling-skill`, https://github.com/neo4j-contrib/neo4j-skills, `neo4j-modeling-skill/SKILL.md` | version 1.0.7, marketplace commit `39247b9` (2026-10-21), read 2026-10-24 | `scripts/model_review.py`; `add-ons.md`, "Reviewing the loaded graph"; `design-rules.md`, "Where this skill departs from neo4j-modeling-skill" | The anti-patterns the review checks (defaults 4, 6 and 8; the anti-patterns table; supernode detection, "degree >> median for its label" and ">100K relationships"), and its severities ERROR, WARNING and INFO. The three departures quote its lines "Never a `(:Status)` node", its intermediate-node rows and "list 5+ queries". |
+| Neo4j Data Modeling MCP server, https://github.com/neo4j-contrib/mcp-neo4j, `servers/mcp-neo4j-data-modeling` | 0.8.2 (`pyproject.toml`), `data_model.py` at commit `0eaf613e0f` (2026-02-03), read 2026-10-24 | `build.py data-model`; `add-ons.md`, add-on L | The `DataModel`, `Node`, `Relationship` and `Property` fields and their validators, reproduced in `build.data_model_problems`; the README's note that its OWL conversion is lossy (quoted). Checked by hand: its `validate_data_model` accepted the library model and rejected one with a repeated property, on 2026-10-24. |
+| Neo4j MCP server, https://github.com/neo4j/mcp | README at commit `1210b0e8f0` (2026-08-19), read 2026-10-24 | `running.md`, rule 7 | Its four tools, and `NEO4J_MCP_READ_ONLY=true` disabling `write-cypher` (quoted). |
+
+**How to check for updates:** `curl -s https://raw.githubusercontent.com/neo4j-contrib/mcp-neo4j/main/servers/mcp-neo4j-data-modeling/pyproject.toml | grep ^version`, and the `version:` line of `neo4j-modeling-skill/SKILL.md`.
+
 The learning guide's reading list (`references/learning-path.md`) names further books, courses and W3C documents; the skill takes no fact from them.

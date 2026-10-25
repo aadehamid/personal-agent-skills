@@ -36,7 +36,7 @@ Before you work on a step, read the reference it names. The scripts run with `uv
 7. **Run it in the repository.** Read `references/running.md`.
    Done when: CI runs the commands of `references/running.md`, rule 1, and `build.py manifest --verify` fails after an input or shape file is edited; `build.py check-report` passes on the committed report; `inferred.nt`, the manifest and the report are committed together from one run; `docker ps -a` lists no projection container, because every run ended with the clean-up line `load_verify.py` printed (`docker compose -p <project> ... down -v` with `--compose-project`, else `docker rm -f -v <container>`; the `-v` also removes the anonymous volumes).
 
-For add-ons a consumer asks for (superclass labels, language keys, exact decimals, units, provenance, business keys; copying the verified graph to Aura or another Neo4j without n10s; a Cypher 25 `GRAPH TYPE` from the shapes; counts that tie a SPARQL 1.1 triple store to the projection; loading a triple store or a Databricks Delta table with a no-loss round trip is the `rdf-store` skill) and the anti-patterns to review against, read `references/add-ons.md`. When the same release must live in triple stores and in Neo4j or Aura with proof that nothing was lost (skolemize, load the stores, project, copy, rebuild from a store), read `references/multi-store.md`; its sections "The data flow, box by box" and "The validation path, V1 to V14, and GRAPH TYPE, G1 to G4" explain the two diagrams in `references/diagrams/` and map every check to its rule. When the user asks what to learn first, or for exercises, read `references/learning-path.md`.
+For add-ons a consumer asks for (superclass labels, language keys, exact decimals, units, provenance, business keys; copying the verified graph to Aura or another Neo4j without n10s; a Cypher 25 `GRAPH TYPE` from the shapes; the same element types as a Data Modeling MCP model, add-on L; counts that tie a SPARQL 1.1 triple store to the projection; loading a triple store or a Databricks Delta table with a no-loss round trip is the `rdf-store` skill) and the anti-patterns to review against, by hand or with `model_review.py`, read `references/add-ons.md`. When the same release must live in triple stores and in Neo4j or Aura with proof that nothing was lost (skolemize, load the stores, project, copy, rebuild from a store), read `references/multi-store.md`; its sections "The data flow, box by box" and "The validation path, V1 to V14, and GRAPH TYPE, G1 to G4" explain the two diagrams in `references/diagrams/` and map every check to its rule. When the user asks what to learn first, or for exercises, read `references/learning-path.md`.
 
 ## Related Neo4j skills
 
@@ -44,7 +44,7 @@ Neo4j publishes agent skills in `neo4j-contrib/neo4j-skills` (plugin 1.0.1, comm
 
 - `neo4j-ontology-skill`: Neo4j's own Ontology Graph Specification, a different thing from a W3C ontology;
 - `neo4j-cypher-skill`, `references/graph-type.md`: the Cypher 25 `GRAPH TYPE` syntax that add-on H emits;
-- `neo4j-modeling-skill`: graph data-modelling advice, background for design rules 1 and 2;
+- `neo4j-modeling-skill`: graph data-modelling advice, background for design rules 1 and 2; `model_review.py` checks its anti-patterns, and `references/design-rules.md` says where this skill departs from it;
 - `neo4j-cli-tools-skill`: `cypher-shell`, `neo4j-admin` and running Neo4j in Docker;
 - `neo4j-import-skill`: bulk import with `neo4j-admin database import` at the sizes of `references/running.md`, rule 6, and its post-import checks.
 
@@ -62,13 +62,14 @@ Copy from `templates/`: `projection-config.json` (the configuration), `projectio
 
 - `check_projection_rules.py`: the design rules, package pins, refusals and release exceptions;
 - `validate_data.py`: pySHACL with every shape, plus the refusals;
-- `build.py`: `merge`, `loadable`, `inferred`, `check-serialised`, `cypher --output`, `graph-type --output`, `manifest [--verify]` and `check-report`;
+- `build.py`: `merge`, `loadable`, `inferred`, `check-serialised`, `cypher --output`, `graph-type --output`, `data-model --output`, `manifest [--verify]` and `check-report`;
 - `shell.py`: the one quoting helper every script prints through, so anything printed can be pasted into a shell safely;
 - `in_graph_shapes.py`: the import-safe shapes (only what would break n10s left out, each with its reason) and an advisory prediction of what n10s will compile; it gates nothing;
 - `load_verify.py`: the load and verify steps against the container, gated on what `listShapes()` reads back, ending in the report;
 - `copy_graph.py`: add-on I, copies the verified graph to another Neo4j and compares graph hashes;
+- `model_review.py`: reviews a loaded graph against the anti-patterns of Neo4j's `neo4j-modeling-skill` that a projection keeps (`references/add-ons.md`, "Reviewing the loaded graph");
 - `triplestore.py`: add-on J, loads the same files into a SPARQL 1.1 store and checks per-graph and per-predicate counts, and with `--projection-report` the three-way counts against the n10s export (the no-loss round trip itself is the `rdf-store` skill);
 - `docker/compose.yaml` and `docker/fuseki/Dockerfile` (beside `scripts/`): the default way to start Neo4j with the pinned n10s, and Fuseki for add-on J (`references/running.md`, rule 5);
-- `test_projection.py` and `test_engine_gate.py`: the tests of all of them (the parts that need no database or store), run by the repository's check script (`uv run --no-project --with rdflib --with pyshacl python3 -m unittest test_projection test_engine_gate`).
+- `test_projection.py`, `test_engine_gate.py` and `test_modeling.py`: the tests of all of them (the parts that need no database or store), run by the repository's check script (`uv run --no-project --with rdflib --with pyshacl python3 -m unittest test_projection test_engine_gate test_modeling`).
 
 Exit codes: 2 means bad input for every script. `check_projection_rules.py`, `validate_data.py` and `build.py` exit 0 on a pass and 1 with one line per failure. `load_verify.py` prints a quoted JSON summary and every constraint n10s did not compile, then exits 0 and writes the report only when every check passed, and 1 otherwise; `build.py check-report` passing means steps 5 and 6 are done.

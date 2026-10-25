@@ -113,3 +113,5 @@ Serves the load step (rule 5, the container) and the running step. Read it befor
    | Incremental updates | Load each delta with n10s (MERGE by `uri`); delete with `n10s.rdf.delete` | Add a periodic full rebuild and compare hashes |
 
    *Why:* the mapping rules do not depend on size, so the checks and the verify step stay valid.
+
+7. **Explore a graph read-only through the official Neo4j MCP server.** Neo4j's MCP server (https://github.com/neo4j/mcp, README at commit `1210b0e8f0`, read 2026-10-24) gives an agent `get-schema`, `read-cypher`, `write-cypher` and `list-gds-procedures` on a running Neo4j. Point it at the verified local graph or its Aura copy with `NEO4J_MCP_READ_ONLY=true`, which disables `write-cypher`, so exploring never changes the projection. *Why:* the graph is a projection of the Turtle release; a fix made through the server would be lost at the next rebuild and would break the hash that proves the copy (`add-ons.md`, add-on I).
