@@ -2,6 +2,17 @@
 
 poteto-mode leads how you think, design, debug and build. The user's skills set the rules that work runs inside. Where this file and poteto-mode disagree, this file wins. A repository's own instructions (`AGENTS.md`, `CLAUDE.md`, `REVIEW_STANDARDS.md` and the like) win over both.
 
+## The workflow
+
+Pick the first step in this order. If any question the build depends on is still open, start at step 1, whatever the change's size. Once nothing is open, a change across several files or several sessions goes to step 2, and a typo or a one-file change goes to step 3. Step 1 hands on by the same rule.
+
+Some steps use a skill only the owner can start (`/grill-with-docs`, `/to-spec`, `/to-tickets`, `/wayfinder`, `/retro`). At such a step, ask the owner to type that one command, and say why it is the next step.
+
+1. **Decide.** Run the decision interview as way-of-working's `references/deciding.md` says: ask the owner to type `/grill-with-docs`, which runs `grilling` and `domain-modeling` and writes the glossary and decision records as it goes. When the open questions are too many to settle in one session, ask for `/wayfinder`, which maps them as decision tickets and resolves them one at a time. Record each decision as way-of-working says, with the owner's words quoted. A new project starts here with `project-discovery`. Where the repository keeps its own decision records and glossary, write to those. Done when no question the build depends on is still open and `deciding.md`'s own done rule holds for every decision.
+2. **Plan.** Ask for `/to-spec` to turn the decided change into a spec, then `/to-tickets` to split it into tickets that each name what blocks them. Done when every build ticket is on the tracker with its blocking edges. `/wayfinder`'s decision tickets from step 1 are not build tickets.
+3. **Build and ship.** Run each ticket, or the change itself when it has no ticket, through the matching poteto-mode playbook, then through the pull request loop under "way-of-working owns the pull request loop" below. Where there is code to test, the installed `tdd` skill (Matt's, in `~/.agents/skills`) drives the tests, not the `tdd` bundled next to poteto-mode, which only the owner can start. When the owner is away, night-run works the tickets as its queue, under the brief the owner approved. Done when every ticket, or the change itself when it has none, is merged, deferred with a logged reason, or blocked with its question logged. Under night-run, its own done rule and morning summary apply too.
+4. **Improve.** After a session with repeated review rounds, ask for `/retro`, then give each lesson the one home that way-of-working's `references/improving.md` picks for it. Done when each lesson's change is merged and what it replaces is removed.
+
 ## poteto-mode leads the thinking and building
 
 - The playbooks Investigation, Bug fix, Perf issue, Hillclimb, Runtime forensics, Trace forensics, Feature, Refactoring, Prototype, Visual parity and Eval.
