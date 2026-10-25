@@ -23,7 +23,8 @@ Checks:
                ontology's logic.
   modifier     predicate_modifier, when present, is "Not"
   confidence   confidence, when present, is a number from 0 to 1
-  justification  mapping_justification is a SEMAPV matching process the set's SSSOM version defines
+  justification  mapping_justification is a SEMAPV matching process the set's SSSOM version defines: the nine of
+                 sssom-schema v1.0.0, or with sssom_version 1.1 the thirteen of v1.1.0a5
   width        every row has as many cells as the header
 
 Prints one FAIL line per failure. Exit 0 when nothing fails, 1 when anything fails, 2 when a file cannot be read
@@ -52,16 +53,17 @@ REQUIRED_COLUMNS = ("subject_id", "predicate_id", "object_id", "mapping_justific
 # Columns typed EntityReference in the SSSOM schema that a set is likely to carry.
 ID_COLUMNS = ("subject_id", "predicate_id", "object_id", "mapping_justification", "author_id", "reviewer_id",
               "creator_id", "subject_source", "object_source", "mapping_provider", "curation_rule")
+# The mapping_justification pattern of the sssom-schema at tag v1.0.0, and the four values tag v1.1.0a5 adds.
+# The development branch adds seven more (LLM-based matching among them) that no release carries yet; a set
+# that uses one fails until a release defines it.
 JUSTIFICATIONS_1_0 = {
-    "semapv:LexicalMatching", "semapv:LogicalReasoning", "semapv:CompositeMatching", "semapv:UnspecifiedMatching",
-    "semapv:SemanticSimilarityThresholdMatching", "semapv:LexicalSimilarityThresholdMatching",
-    "semapv:MappingChaining", "semapv:MappingReview", "semapv:ManualMappingCuration", "semapv:MappingInversion",
+    "semapv:MappingReview", "semapv:ManualMappingCuration", "semapv:LogicalReasoning", "semapv:LexicalMatching",
+    "semapv:CompositeMatching", "semapv:UnspecifiedMatching", "semapv:SemanticSimilarityThresholdMatching",
+    "semapv:LexicalSimilarityThresholdMatching", "semapv:MappingChaining",
 }
 JUSTIFICATIONS_1_1 = JUSTIFICATIONS_1_0 | {
-    "semapv:StructuralMatching", "semapv:InstanceBasedMatching", "semapv:BackgroundKnowledgeBasedMatching",
-    "semapv:MachineLearningBasedMatching", "semapv:EmbeddingBasedMatching", "semapv:TransformerBasedMatching",
-    "semapv:GraphRepresentationLearningBasedMatching", "semapv:LLMBasedMatching", "semapv:AgentBasedMatching",
-    "semapv:BoundedPathMatching",
+    "semapv:MappingInversion", "semapv:StructuralMatching", "semapv:InstanceBasedMatching",
+    "semapv:BackgroundKnowledgeBasedMatching",
 }
 
 

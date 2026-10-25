@@ -115,10 +115,16 @@ class CheckSssom(unittest.TestCase):
 
     def test_a_1_1_justification_needs_a_1_1_set(self):
         text = replace(template(), "\tsemapv:ManualMappingCuration\trole:modeller\t0.95",
-                       "\tsemapv:LLMBasedMatching\trole:modeller\t0.95")
+                       "\tsemapv:MappingInversion\trole:modeller\t0.95")
         self.assertOnly(text, "justification", "SSSOM 1.0")
         self.assertEqual(check_sssom.check_text(replace(text, "#mapping_date:", "#sssom_version: 1.1\n#mapping_date:")),
                          [])
+
+    def test_an_unreleased_justification_fails_even_in_a_1_1_set(self):
+        text = replace(template(), "\tsemapv:ManualMappingCuration\trole:modeller\t0.95",
+                       "\tsemapv:LLMBasedMatching\trole:modeller\t0.95")
+        self.assertOnly(replace(text, "#mapping_date:", "#sssom_version: 1.1\n#mapping_date:"), "justification",
+                        "semapv:LLMBasedMatching")
 
     def test_row_width_differs_from_header(self):
         self.assertOnly(replace(template(), "\tLibrary services\tsemapv:ManualMappingCuration\trole:modeller\t0.9\t",
