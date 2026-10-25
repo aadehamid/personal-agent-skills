@@ -349,16 +349,22 @@ class QskosChecks(OneBreak, unittest.TestCase):
         self.assertOnly(check_taxonomy.check(g), name, fragment)
 
     def test_invalid_language_tag(self):
-        self.broken(lambda g: g.set((lib("circulation"), SKOS.scopeNote, Literal("Lending and renewal.", lang="engl"))),
-                    "lang-tag", "has the language tag 'engl'")
+        # On a class, so the odd language does not also break concept language coverage.
+        self.broken(lambda g: g.add((lib("Copy"), SKOS.editorialNote, Literal("Check.", lang="e"))),
+                    "lang-tag", "has the language tag 'e'")
 
     def test_valid_language_tags_pass(self):
-        for tag in ("en", "en-GB", "zh-Hant-TW", "sr-Latn-RS", "de-CH-1996", "x-local"):
-            self.assertTrue(check_taxonomy.BCP47.match(tag), tag)
+        # Well-formed under RFC 5646, section 2.1: a 4-letter language, grandfathered tags, private use.
+        for tag in ("en", "en-GB", "zh-Hant-TW", "sr-Latn-RS", "de-CH-1996", "x-local", "abcd", "i-klingon"):
+            self.assertTrue(check_taxonomy.well_formed_tag(tag), tag)
 
     def test_incomplete_language_coverage(self):
         self.broken(lambda g: g.add((lib("overdue"), SKOS.prefLabel, Literal("En retard", lang="fr"))),
-                    "language", "lib:renewal has no skos:prefLabel in fr")
+                    "language", "lib:renewal has no language-tagged literal in fr")
+
+    def test_language_used_only_in_an_alternative_label_counts(self):
+        self.broken(lambda g: g.add((lib("renewal"), SKOS.altLabel, Literal("Renouvellement", lang="fr"))),
+                    "language", "lib:overdue has no language-tagged literal in fr")
 
     def test_empty_label(self):
         self.broken(lambda g: g.add((lib("renewal"), SKOS.altLabel, Literal("  ", lang="en"))),
@@ -374,7 +380,17 @@ class QskosChecks(OneBreak, unittest.TestCase):
 
     def test_alternative_label_overlaps_another_concept(self):
         self.broken(lambda g: g.add((lib("returned"), SKOS.altLabel, Literal("overdue", lang="en"))),
-                    "collision", 'lib:returned skos:altLabel "overdue" is also a label of lib:overdue')
+                    "collision", 'lib:overdue, lib:returned share the label "overdue" (en)')
+
+    def test_two_concepts_share_a_hidden_label(self):
+        def mutate(g):
+            g.add((lib("on-loan"), SKOS.hiddenLabel, Literal("Shared", lang="en")))
+            g.add((lib("returned"), SKOS.hiddenLabel, Literal("Shared", lang="en")))
+        self.broken(mutate, "collision", 'lib:on-loan, lib:returned share the label "shared" (en)')
+
+    def test_label_shared_across_schemes(self):
+        self.broken(lambda g: g.add((lib("renewal"), SKOS.altLabel, Literal("Returned", lang="en"))),
+                    "collision", 'lib:renewal, lib:returned share the label "returned" (en)')
 
     def test_same_literal_as_preferred_and_alternative_label(self):
         self.broken(lambda g: g.add((lib("renewal"), SKOS.altLabel, Literal("Renewal", lang="en"))),
@@ -382,13 +398,29 @@ class QskosChecks(OneBreak, unittest.TestCase):
 
     def test_concept_related_to_itself(self):
         self.broken(lambda g: g.add((lib("renewal"), SKOS.related, lib("renewal"))),
-                    "related", "lib:renewal is skos:related to itself")
+                    "related", "lib:renewal is linked to itself by skos:related")
+
+    def test_concept_linked_to_itself_by_any_semantic_relation(self):
+        self.broken(lambda g: g.add((lib("renewal"), SKOS.semanticRelation, lib("renewal"))),
+                    "related", "lib:renewal is linked to itself by skos:semanticRelation")
+
+    def test_narrower_to_itself_is_a_reflexive_relation(self):
+        self.broken(lambda g: g.add((lib("renewal"), SKOS.narrower, lib("renewal"))),
+                    "related", "lib:renewal is linked to itself by skos:narrower")
 
     def test_siblings_also_related(self):
         def mutate(g):
             g.add((lib("renewal"), SKOS.related, lib("lending-activity")))
             g.add((lib("lending-activity"), SKOS.related, lib("renewal")))
         self.broken(mutate, "related", "are siblings and also skos:related")
+
+    def test_siblings_also_related_by_a_mapping(self):
+        # In one scheme, so mapping misuse fires too; the sibling clash must be among the failures.
+        g = skeleton()
+        g.add((lib("renewal"), SKOS.relatedMatch, lib("lending-activity")))
+        g.add((lib("lending-activity"), SKOS.relatedMatch, lib("renewal")))
+        self.assertIn(("related", "lib:lending-activity and lib:renewal are siblings and also skos:relatedMatch"),
+                      check_taxonomy.check(g))
 
     def test_related_to_an_ancestor(self):
         def mutate(g):
@@ -398,7 +430,16 @@ class QskosChecks(OneBreak, unittest.TestCase):
 
     def test_related_stated_one_way(self):
         self.broken(lambda g: g.add((lib("on-loan"), SKOS.related, lib("overdue"))),
-                    "reciprocal", "lib:on-loan skos:related lib:overdue is not stated the other way")
+                    "reciprocal", "lib:on-loan skos:related lib:overdue has no skos:related the other way")
+
+    def test_exact_match_stated_one_way(self):
+        self.broken(lambda g: g.add((lib("circulation"), SKOS.exactMatch, lib("overdue"))),
+                    "reciprocal", "lib:circulation skos:exactMatch lib:overdue has no skos:exactMatch the other way")
+
+    def test_one_way_mapping_to_an_outside_concept_passes(self):
+        g = skeleton()
+        g.add((lib("circulation"), SKOS.closeMatch, URIRef("https://ext.example.org/circulation")))
+        self.assertEqual(check_taxonomy.check(g), [])
 
     def test_top_concept_not_listed_by_its_scheme(self):
         self.broken(lambda g: g.remove((lib("loan-state"), SKOS.hasTopConcept, lib("returned"))),
@@ -406,15 +447,29 @@ class QskosChecks(OneBreak, unittest.TestCase):
 
     def test_narrower_without_broader(self):
         self.broken(lambda g: g.add((lib("lending-activity"), SKOS.narrower, lib("renewal"))),
-                    "reciprocal", "lib:lending-activity skos:narrower lib:renewal has no matching skos:broader")
+                    "reciprocal", "lib:lending-activity skos:narrower lib:renewal has no skos:broader the other way")
 
     def test_solely_transitive_relation(self):
-        self.broken(lambda g: g.add((lib("on-loan"), SKOS.broaderTransitive, lib("circulation"))),
-                    "transitive", "lib:on-loan skos:broaderTransitive lib:circulation is stated without skos:broader")
+        def mutate(g):
+            g.add((lib("on-loan"), SKOS.broaderTransitive, lib("circulation")))
+            g.add((lib("circulation"), SKOS.narrowerTransitive, lib("on-loan")))
+        self.broken(mutate, "transitive", "lib:on-loan skos:broaderTransitive lib:circulation has no skos:broader path")
+
+    def test_transitive_relation_stated_one_way(self):
+        self.broken(lambda g: g.add((lib("renewal"), SKOS.broaderTransitive, lib("circulation"))),
+                    "reciprocal", "lib:renewal skos:broaderTransitive lib:circulation has no skos:narrowerTransitive")
+
+    def test_transitive_relation_backed_by_a_two_step_path_passes(self):
+        g = skeleton()
+        g.set((lib("renewal"), SKOS.broader, lib("lending-activity")))
+        g.add((lib("renewal"), SKOS.broaderTransitive, lib("circulation")))
+        g.add((lib("circulation"), SKOS.narrowerTransitive, lib("renewal")))
+        self.assertEqual(check_taxonomy.check(g), [])
 
     def test_transitive_relation_backed_by_broader_passes(self):
         g = skeleton()
         g.add((lib("renewal"), SKOS.broaderTransitive, lib("circulation")))
+        g.add((lib("circulation"), SKOS.narrowerTransitive, lib("renewal")))
         self.assertEqual(check_taxonomy.check(g), [])
 
     def test_scheme_without_top_concept(self):
@@ -424,18 +479,48 @@ class QskosChecks(OneBreak, unittest.TestCase):
         self.broken(mutate, "scheme", "lib:hold-state has no top concept")
 
     def test_mapping_to_itself(self):
-        self.broken(lambda g: g.add((lib("overdue"), SKOS.closeMatch, lib("overdue"))), "mapping", "lib:overdue skos:closeMatch itself")
+        self.broken(lambda g: g.add((lib("overdue"), SKOS.closeMatch, lib("overdue"))),
+                    "related", "lib:overdue is linked to itself by skos:closeMatch")
 
     def test_mapping_inside_one_scheme(self):
-        self.broken(lambda g: g.add((lib("overdue"), SKOS.closeMatch, lib("returned"))),
-                    "mapping", "but both are in lib:loan-state")
+        def mutate(g):
+            g.add((lib("overdue"), SKOS.closeMatch, lib("returned")))
+            g.add((lib("returned"), SKOS.closeMatch, lib("overdue")))
+        self.broken(mutate, "mapping", "but both are in lib:loan-state")
+
+    def test_mapping_between_concepts_in_no_scheme(self):
+        # Removing the schemes also fails "scheme"; the mapping misuse must be among the failures.
+        g = skeleton()
+        for c in ("overdue", "returned"):
+            g.remove((lib(c), SKOS.inScheme, None))
+        g.add((lib("overdue"), SKOS.closeMatch, lib("returned")))
+        g.add((lib("returned"), SKOS.closeMatch, lib("overdue")))
+        self.assertIn(("mapping", "lib:overdue skos:closeMatch lib:returned, but both are in no scheme; "
+                                  "a mapping joins different schemes"), check_taxonomy.check(g))
 
     def test_exact_match_clashes_with_broad_match(self):
         ext = URIRef("https://ext.example.org/circulation")
         def mutate(g):
             g.add((lib("circulation"), SKOS.exactMatch, ext))
             g.add((lib("circulation"), SKOS.broadMatch, ext))
-        self.broken(mutate, "mapping", "skos:exactMatch <https://ext.example.org/circulation> and also skos:broadMatch")
+        self.broken(mutate, "mapping", "lib:circulation skos:broadMatch <https://ext.example.org/circulation>, and a skos:exactMatch chain")
+
+    def test_exact_match_clashes_with_narrow_match(self):
+        ext = URIRef("https://ext.example.org/circulation")
+        def mutate(g):
+            g.add((lib("circulation"), SKOS.exactMatch, ext))
+            g.add((lib("circulation"), SKOS.narrowMatch, ext))
+        self.broken(mutate, "mapping", "skos:narrowMatch <https://ext.example.org/circulation>, and a skos:exactMatch chain")
+
+    def test_clash_through_a_chain_of_exact_matches(self):
+        # circulation and overdue (different schemes) both exactMatch one outside concept, so a chain joins them.
+        ext = URIRef("https://ext.example.org/one")
+        def mutate(g):
+            g.add((lib("circulation"), SKOS.exactMatch, ext))
+            g.add((lib("overdue"), SKOS.exactMatch, ext))
+            g.add((lib("circulation"), SKOS.relatedMatch, lib("overdue")))
+            g.add((lib("overdue"), SKOS.relatedMatch, lib("circulation")))
+        self.broken(mutate, "mapping", "lib:circulation skos:relatedMatch lib:overdue, and a skos:exactMatch chain")
 
     def test_undefined_skos_term(self):
         self.broken(lambda g: g.add((lib("renewal"), URIRef(str(SKOS) + "subjectIndicator"), lib("Loan"))),
@@ -447,6 +532,15 @@ class QskosChecks(OneBreak, unittest.TestCase):
                 g.add((URIRef("urn:example:renewal"), p, o))
             g.remove((lib("renewal"), None, None))
         self.broken(mutate, "uri-scheme", "<urn:example:renewal> is not an http or https IRI")
+
+    def test_upper_case_http_scheme_passes(self):
+        def mutate(g):
+            for p, o in list(g.predicate_objects(lib("renewal"))):
+                g.add((URIRef("HTTPS://id.example.org/library/renewal"), p, o))
+            g.remove((lib("renewal"), None, None))
+        g = skeleton()
+        mutate(g)
+        self.assertFalse([f for f in check_taxonomy.check(g) if f[0] == "uri-scheme"])
 
     def test_non_skos_subject_outside_http_passes(self):
         g = skeleton()
