@@ -850,7 +850,10 @@ class Driver:
                     getattr(child, "step_" + step)()
         finally:
             child.finish()
-            self.not_removed += child.not_removed
+            # what the child could not remove becomes this run's to retry: its Fuseki handles, and its
+            # Neo4j, which shares this run's compose project
+            self.fusekis += child.fusekis
+            self.local_up = self.local_up or child.local_up
 
     def same_source(self):
         """The rebuild compares with out's run, so the inputs must be the ones that run read: every SHA-256
@@ -888,6 +891,7 @@ class Driver:
     def run_steps(self, steps):
         """Runs the steps, then removes the containers. A step's failure propagates; with every step
         passed, a container left running fails the run, so a pass means nothing was left up."""
+        self.not_removed = 0
         try:
             for step in steps:
                 self.log(f"== {q(step)}")

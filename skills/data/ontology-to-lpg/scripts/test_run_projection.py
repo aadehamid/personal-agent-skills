@@ -290,6 +290,34 @@ class Steps(Base):
         self.assertTrue(d.local_up)
         self.assertEqual(len(d.fusekis), 1)
 
+    def test_a_second_call_retries_what_the_first_left_and_counts_afresh(self):
+        fake = FakeRun()
+        d = self.driver(self.run_config(), fake)
+        d.run_steps(["project", "load"])
+        fake.fail = {"down": 7}
+        d.local_up = True
+        with self.assertRaises(rp.Failed):
+            d.run_steps([])
+        fake.fail = {}
+        d.run_steps([])   # the retry succeeds; the earlier count does not linger
+        self.assertFalse(d.local_up)
+
+    def test_the_rebuild_hands_back_what_its_child_could_not_remove(self):
+        class Sticky(FakeRun):
+            # the child's last removal of its Neo4j (run folder under re/, after its walks) fails
+            def __call__(self, cmd, cwd=None, env=None, capture=False):
+                child_run = env and os.sep + "re" + os.sep in env.get("LPG_RUN", "")
+                walked = any("explore.py" in " ".join(c) for c, _, _ in self.calls)
+                if "down" in cmd and child_run and walked:
+                    self.calls.append((list(cmd), cwd, dict(env)))
+                    return 7, ""
+                return super().__call__(cmd, cwd, env, capture)
+        fake = Sticky()
+        d = self.driver(self.run_config(rebuild={"source": "repo", "out": "re"}), fake)
+        d.run_steps(["project", "load", "rebuild"])   # the parent's own removal succeeds on retry
+        self.assertFalse(d.local_up)
+        self.assertNotIn(os.sep + "re" + os.sep, fake.calls[-1][2]["LPG_RUN"])
+
     def test_a_step_that_needs_the_local_neo4j_says_so(self):
         d = self.driver(self.run_config(), FakeRun())
         with self.assertRaises(rp.Failed):
