@@ -53,7 +53,9 @@ issues", has the table and the deliberate differences):
                  (Unprintable Characters in Labels)
   collision      (also) no two concepts share a preferred, alternative or hidden label, ignoring the
                  case of the label and of its language tag, in any scheme (Overlapping Labels), except
-                 a preferred label of concepts in different schemes
+                 a preferred label of concepts in different schemes: each scheme is its own vocabulary
+                 and identity is the IRI. A shared alternative or hidden label still fails, because a
+                 search on it would find two concepts (references/quality.md, Overlapping Labels)
   disjoint-labels  no resource has the same literal in two of skos:prefLabel, skos:altLabel and
                  skos:hiddenLabel (Disjoint Labels Violation, SKOS S13)
   related        no concept is linked to itself by a SKOS semantic relation or a property declared
