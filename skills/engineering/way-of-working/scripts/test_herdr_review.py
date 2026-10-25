@@ -15,6 +15,8 @@ import time
 import unittest
 
 SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "herdr-review.sh")
+# A run inside Rex would hand off to rex-review.sh; these tests cover the Herdr host.
+BASE_ENV = {k: v for k, v in os.environ.items() if not k.startswith("REX_")}
 
 FAKE = textwrap.dedent(r'''
     #!/usr/bin/env python3
@@ -250,7 +252,7 @@ class HerdrReview(unittest.TestCase):
         self.review_dir = tempfile.mkdtemp()
         tmpdir = tmpdir or tempfile.mkdtemp()
         # The skill-report fallback searches only this test's TMPDIR, never the real /tmp.
-        env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"], HERDR_REVIEW_DIR=self.review_dir,
+        env = dict(BASE_ENV, PATH=bindir + os.pathsep + os.environ["PATH"], HERDR_REVIEW_DIR=self.review_dir,
                    FAKE_HERDR=scenario, FAKE_STATE=state, HERDR_WORKSPACE_ID="w2",
                    TMPDIR=tmpdir, HERDR_REVIEW_ARTIFACT_ROOTS=tmpdir)
         env["FAKE_LABEL"], env["FAKE_NAME"] = default_identity(repo_name)
@@ -821,7 +823,7 @@ class HerdrReview(unittest.TestCase):
         repo = os.path.join(tempfile.mkdtemp(), "repo")
         os.mkdir(repo)
         tmp = tempfile.mkdtemp()
-        env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"], HERDR_REVIEW_DIR=tmp,
+        env = dict(BASE_ENV, PATH=bindir + os.pathsep + os.environ["PATH"], HERDR_REVIEW_DIR=tmp,
                    FAKE_HERDR=scenario, FAKE_STATE=state, HERDR_WORKSPACE_ID="w2", TMPDIR=tmp,
                    HERDR_REVIEW_ARTIFACT_ROOTS=tmp, FAKE_LABEL=DEFAULT_LABEL, FAKE_NAME=DEFAULT_NAME)
         p = subprocess.Popen(["bash", SCRIPT, "--branch", "b", "--verify", "v"], cwd=repo, env=env,
@@ -887,6 +889,17 @@ class HerdrReview(unittest.TestCase):
         lines = r.stdout.splitlines()
         self.assertEqual(lines[-2], "No review: starting the reviewer failed; the error is above.")
         self.assertRegex(lines[-1], r"^Next: \S*herdr-review\.sh --branch b --verify v $")
+
+    # The hand-off itself is tested in test_rex_review.py, against a fake rex.
+    def test_inside_herdr_herdr_wins_over_rex(self):
+        r, calls = self.run_case("ok", env_extra={"REX_SESSION": "session:x"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("agent prompt", calls)
+
+    def test_unknown_host_is_refused(self):
+        r, calls = self.run_case("ok", extra=("--host", "tmux"))
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(calls, [])
 
     def test_unknown_kind_is_refused(self):
         r, calls = self.run_case("ok", extra=("--kind", "gemini"))

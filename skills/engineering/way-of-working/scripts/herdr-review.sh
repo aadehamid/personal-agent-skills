@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run the independent review in a Herdr pane, wait for it, and print its report.
 #
-# Usage: herdr-review.sh --branch <branch> --verify "<claims to verify>" [--kind codex|kimi|cursor] [--model <model>]
+# Usage: herdr-review.sh --branch <branch> --verify "<claims to verify>" [--kind codex|kimi|cursor] [--model <model>] [--host herdr|rex]
 #   The default reviewer is Codex on gpt-6-luna. --kind kimi runs Kimi Code (model default
 #   kimi-code/k3.1-pro, whose default effort is high); --kind cursor runs the Cursor agent
 #   CLI (default cursor-grok-4.6-medium). changing.md ("Who reviews") says which to try first.
@@ -9,6 +9,8 @@
 #   because a reused tab keeps the reviewer and model it started with: a new default model
 #   must not land in the old default's tab.
 #   Run from the repository under review, inside a Herdr pane (HERDR_WORKSPACE_ID set).
+#   Inside Rex instead (REX_SESSION set, HERDR_WORKSPACE_ID unset), or with --host rex, it
+#   hands the same arguments to rex-review.sh beside it; --host herdr keeps it here.
 #   A review takes longer than a foreground tool call allows: run this as a background
 #   job the harness reports back on, with its exit status (Claude Code: run_in_background).
 # Exit 0: the report is on stdout, and nothing else is.
@@ -60,13 +62,20 @@ case "$0" in "${TMPDIR:-/tmp}"/herdr-review.copy.*) rm -f -- "$0" ;; esac
 started_at=$(python3 -c 'import time; print(time.time())')   # the skill-report fallback takes only files newer than this
 rerun=$(printf '%q ' "$self" "$@")
 
-branch="" verify="" kind="codex" model=""
+args=("$@")   # rex-review.sh gets them all, once the loop below has shifted them off
+branch="" verify="" kind="codex" model="" host=""
 while [ $# -gt 0 ]; do
+  # Every option takes a value; a missing one is a bad argument, not a later unbound variable.
+  case "$1" in
+    --branch|--verify|--model|--kind|--host)
+      [ $# -ge 2 ] || { echo "$1 needs a value" >&2; echo "usage: $self --branch <branch> --verify <text>" >&2; exit 2; } ;;
+  esac
   case "$1" in
     --branch) branch="$2"; shift 2 ;;
     --verify) verify="$2"; shift 2 ;;
     --model) model="$2"; shift 2 ;;
     --kind) kind="$2"; shift 2 ;;
+    --host) host="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -76,6 +85,16 @@ case "$kind" in
   kimi) model="${model:-kimi-code/k3.1-pro}" ;;
   cursor) model="${model:-cursor-grok-4.6-medium}" ;;
   *) echo "--kind must be codex, kimi or cursor, got: $kind" >&2; exit 2 ;;
+esac
+# Herdr wins where it runs; Rex is the host only inside Rex and outside Herdr, or when asked.
+if [ -z "$host" ]; then
+  host=herdr
+  if [ -z "${HERDR_WORKSPACE_ID:-}" ] && [ -n "${REX_SESSION:-}" ]; then host=rex; fi
+fi
+case "$host" in
+  herdr) ;;
+  rex) exec bash "$(dirname "$self")/rex-review.sh" "${args[@]}" ;;
+  *) echo "--host must be herdr or rex, got: $host" >&2; exit 2 ;;
 esac
 
 # From here, any failure exits 1 and ends with the reason and a Next line. A path that

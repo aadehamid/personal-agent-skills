@@ -1,0 +1,13 @@
+ ● /var/folders/my/ch_k93ys3550_9kv4jlqlklc0000gn/T//review-2XLqqO
+
+ ────────────────────────────────────────────────────────────────────────────────
+  This session has been idle for 57m and is ~198k tokens.
+  ↑↓ navigate · Enter select · Esc exit
+
+   ❯ Compact and continue
+     Start a new session
+     Continue as-is
+     Don't ask me again
+ ────────────────────────────────────────────────────────────────────────────────
+ Ask When Needed  K3.1 Pro thinking: high  …/tmp/claude-501/wt-rex-host  way-of-wo…
+                                                             context: 20% (198k/1M)
