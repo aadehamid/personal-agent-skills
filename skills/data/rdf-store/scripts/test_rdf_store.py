@@ -400,6 +400,25 @@ class Skolemize(unittest.TestCase):
             rs.skolemize(rs.read_quads(clash), G_LIB.value, "https://example.org")
 
 
+    def test_a_skolem_iri_already_used_as_a_datatype_is_refused(self):
+        folder = tempfile.mkdtemp()
+        quads = rs.read_quads(write(folder, "library.ttl", LIBRARY))
+        minted = next(t.subject.value for t in rs.skolemize(quads, G_LIB.value, "https://example.org") if "genid" in t.subject.value)
+        clash = write(folder, "clash.ttl", LIBRARY + f'<https://example.org/x> <https://example.org/p> "x"^^<{minted}> .\n')
+        with self.assertRaises(rs.BadInput):
+            rs.skolemize(rs.read_quads(clash), G_LIB.value, "https://example.org")
+
+    def test_triple_terms_and_directional_literals_are_refused(self):
+        folder = tempfile.mkdtemp()
+        head = "<https://example.org/o> a <http://www.w3.org/2002/07/owl#Ontology> .\n"
+        for name, body in (("triple term", "<http://s> <http://p> <<( <http://a> <http://b> _:b0 )>> .\n"),
+                           ("direction", '<http://s> <http://p> "hi"@en--ltr .\n')):
+            with self.subTest(name):
+                path = write(folder, "t.ttl", head + body)
+                with self.assertRaises(rs.BadInput):
+                    rs.skolemize(rs.read_quads(path), "https://example.org/o", "https://example.org")
+
+
 class DeltaTable(unittest.TestCase):
     def test_rows_round_trip_every_kind_of_term(self):
         ds = release_dataset()
@@ -684,6 +703,14 @@ class CommandLine(unittest.TestCase):
         r = self.run_cli("pack", "--out", again, nq)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.run_cli("compare", nq, again).returncode, 0)
+
+    def test_skolemize_refuses_a_directional_literal_and_writes_nothing(self):
+        folder = tempfile.mkdtemp()
+        path = write(folder, "t.ttl", '<https://example.org/o> a <http://www.w3.org/2002/07/owl#Ontology> .\n<http://s> <http://p> "hi"@en--ltr .\n')
+        out = os.path.join(folder, "out")
+        r = self.run_cli("skolemize", "--authority", "https://example.org", "--out", out, path)
+        self.assertEqual(r.returncode, 2)
+        self.assertFalse(os.path.exists(out))
 
     def test_skolemize_refuses_two_inputs_with_one_file_name(self):
         a, b = tempfile.mkdtemp(), tempfile.mkdtemp()

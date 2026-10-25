@@ -182,10 +182,20 @@ def shared_blank_nodes(dataset):
 
 def skolemize(quads, graph, authority):
     """Blank nodes to <authority>/.well-known/genid/<id>, with ids that depend only on the graph.
-    Refuses an id the input already uses as an IRI, and two blank nodes that would share one."""
+    Refuses an id the input already uses as an IRI in any position, a literal's datatype included,
+    and two blank nodes that would share one; refuses what the stores cannot hold (check_term), so a
+    file this step accepts is one the store step accepts too."""
+    for q in quads:
+        check_term(q)
     ds = ox.Dataset(ox.Quad(q.subject, q.predicate, q.object, ox.DefaultGraph()) for q in quads)
     ds.canonicalize(ox.CanonicalizationAlgorithm.RDFC_1_0)
-    taken = {n.value for q in quads for n in (q.subject, q.predicate, q.object, q.graph_name) if isinstance(n, ox.NamedNode)}
+    taken = set()
+    for q in quads:
+        for n in (q.subject, q.predicate, q.object, q.graph_name):
+            if isinstance(n, ox.NamedNode):
+                taken.add(n.value)
+            elif isinstance(n, ox.Literal):
+                taken.add(n.datatype.value)
     minted = {}
 
     def term(node):
