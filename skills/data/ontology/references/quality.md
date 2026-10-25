@@ -25,7 +25,7 @@ Every authored definition meets all eight points. Points 1 and 3 take the form f
 
 *Why:* each point is a way a definition fails a reader, and together they make a definition something a reviewer can reject. The genus-and-difference form is the intensional definition of ISO 704:2022, *Terminology work: Principles and methods*; the other forms carry the same idea to activities, states and links, which have no genus a reader would name. Point 8 uses roles because a personal name in an approval field makes a governed release read as one person's opinion and puts personal data into every copy (`governance.md`, rule 23).
 
-**The human gate.** Candidate text collected from references goes through it, exactly like text a person wrote: first `scripts/check_taxonomy.py`, then a person reviews the meaning against the bar. An open question is a question recorded against a term (in the decision log, or as a `skos:editorialNote` starting "OPEN:") that has no answer yet; no approved term has one. Nothing merges on assumption.
+**The human gate.** Candidate text collected from references, or proposed from a document by a model (`governance.md`, "Candidates from documents"), goes through it, exactly like text a person wrote: first `scripts/check_taxonomy.py`, then a person reviews the meaning against the bar. An open question is a question recorded against a term (in the decision log, or as a `skos:editorialNote` starting "OPEN:") that has no answer yet; no approved term has one. Nothing merges on assumption.
 
 ## The qSKOS issues
 

@@ -1,0 +1,23 @@
+# Candidate register for the worked example (references/governance.md, "Candidates from documents").
+# Every row is a candidate until a person approves it through the human gate (references/quality.md).
+# source_passage must appear in source_document word for word; scripts/check_candidates.py checks it.
+source_document: lending-policy-excerpt.txt
+candidates:
+  - term: loan period
+    proposed_kind: concept
+    proposed_definition: The number of days a member may keep a copy on one loan before its due date.
+    source_passage: A member may check out a copy for a loan period of 21 days.
+    found_by: ontogpt extract, entity "loan period"
+    status: candidate
+  - term: hold
+    proposed_kind: concept
+    proposed_definition: A member's claim on a title that stops another member renewing a loan of it.
+    source_passage: unless another member has placed a hold on the title
+    found_by: ontogpt extract, entity "hold"
+    status: candidate
+  - term: renewal
+    proposed_kind: concept
+    proposed_definition: Moving an open loan's due date later at the member's request, without starting a new loan.
+    source_passage: Renewal moves the due date later; it does not start a new loan.
+    found_by: ontogpt extract, entity "Renewal"
+    status: candidate
