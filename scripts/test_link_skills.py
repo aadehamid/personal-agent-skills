@@ -13,9 +13,9 @@ SNIPPET = os.path.join(REPO, "config", "global-snippet.md")
 MARKERS = [line.strip() for line in open(SNIPPET) if line.startswith("<!-- way-of-working-snippet:")]
 
 
-def run(home, *args):
+def run(home, *args, glob=True):
     env = dict(os.environ, HOME=home)
-    return subprocess.run(["bash", SCRIPT, "--global", *args], env=env, capture_output=True, text=True,
+    return subprocess.run(["bash", SCRIPT, *(["--global"] if glob else []), *args], env=env, capture_output=True, text=True,
                           stdin=subprocess.DEVNULL, check=True).stdout
 
 
@@ -24,7 +24,13 @@ def tree(home):
     for root, dirs, files in os.walk(home):
         for name in dirs + files:
             path = os.path.join(root, name)
-            out.append((os.path.relpath(path, home), os.readlink(path) if os.path.islink(path) else None))
+            if os.path.islink(path):
+                state = ("link", os.readlink(path))
+            elif os.path.isfile(path):
+                state = ("file", open(path, "rb").read(), os.stat(path).st_mode)
+            else:
+                state = ("dir", os.stat(path).st_mode)
+            out.append((os.path.relpath(path, home), state))
     return sorted(out)
 
 
@@ -50,14 +56,16 @@ class LinkSkillsGlobal(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_dry_run_on_an_empty_home_changes_nothing(self):
-        run(self.home, "--dry-run")
-        self.assertEqual(tree(self.home), [])
+        for glob in (True, False):
+            run(self.home, "--dry-run", glob=glob)
+            self.assertEqual(tree(self.home), [], f"--global={glob}")
 
     def test_dry_run_on_a_configured_home_changes_nothing(self):
-        agent_root(self.home, ".gemini", "GEMINI.md")
+        agent_root(self.home, ".gemini", "GEMINI.md", "# Mine\n")
         before = tree(self.home)
-        run(self.home, "--dry-run")
-        self.assertEqual(tree(self.home), before)
+        for glob in (True, False):
+            run(self.home, "--dry-run", glob=glob)
+            self.assertEqual(tree(self.home), before, f"--global={glob}")
 
     def test_gemini_and_goose_get_each_section_once(self):
         gemini = agent_root(self.home, ".gemini", "GEMINI.md")

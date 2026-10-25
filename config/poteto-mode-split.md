@@ -30,6 +30,6 @@ Autonomous run, Orchestrate, Autopilot-full and Autopilot-stack, and any task th
 ## Substitutes for Cursor-only pieces
 
 - `/deslop` from `cursor-team-kit`: use `ce-simplify-code`.
-- `control-ui`: drive the browser with `chrome-devtools-axi`. `control-cli`: run the CLI yourself in the shell and check its real output, as a user would see it (Claude Code's built-in `run` skill does this).
+- `control-ui`: drive the browser with `chrome-devtools-axi`. `control-cli`: run the CLI yourself in the shell and check its real output, as a user would see it.
 - A Cursor cloud agent as verifier: a reviewer on a different model, as way-of-working names.
 - Model slugs and `/setup-pstack` apply in Cursor only. Elsewhere, spawn subagents with the harness's own tool (`subagent_type: "poteto-agent"` in Claude Code) on the model the harness picks.
