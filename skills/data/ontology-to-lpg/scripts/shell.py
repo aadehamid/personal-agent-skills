@@ -25,8 +25,8 @@ SECRET_QUERY_KEYS = ("token", "password", "passwd", "pwd", "secret", "key", "sig
 
 
 def redact(uri):
-    """uri as it may be printed or stored: the password in user:password@ and the value of every
-    credential-like query key become ***, and the fragment is dropped. A value that is not a URL
+    """uri as it may be printed or stored: all userinfo (anything before @ in the authority) and the
+    value of every credential-like query key become ***, and the fragment is dropped. A value that is not a URL
     comes back unchanged."""
     from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
     text = str(uri)
@@ -37,9 +37,8 @@ def redact(uri):
     if not parts.scheme or not parts.netloc:
         return text
     netloc = parts.netloc
-    if "@" in netloc:
-        user, _, host = netloc.rpartition("@")
-        netloc = (user.split(":", 1)[0] + ":***" if ":" in user else user) + "@" + host
+    if "@" in netloc:   # all userinfo goes, with or without a colon: https://TOKEN@host is a credential too
+        netloc = "***@" + netloc.rpartition("@")[2]
     query = urlencode([(k, "***" if any(s in k.lower() for s in SECRET_QUERY_KEYS) else v)
                        for k, v in parse_qsl(parts.query, keep_blank_values=True)], safe="*")
     return urlunsplit((parts.scheme, netloc, parts.path, query, ""))
@@ -53,24 +52,24 @@ def scrub(text, secrets):
     return text
 
 
-def url_secrets(uri):
-    """The secret parts of uri: the password in user:password@ and the value of every
-    credential-like query key, for scrub()."""
-    from urllib.parse import parse_qsl, urlsplit
-    try:
-        parts = urlsplit(str(uri))
-    except ValueError:
-        return [str(uri)]
-    found = [parts.password] if parts.password else []
-    found += [v for k, v in parse_qsl(parts.query, keep_blank_values=True)
-              if v and any(s in k.lower() for s in SECRET_QUERY_KEYS)]
-    return found
+class Refusal(ValueError):
+    """A refusal the script words itself: fixed text that names flags, keys and checks, never a URL,
+    an env value or a library's message, so it can be printed as it is."""
 
 
-def safe_message(exc, urls=(), secrets=()):
-    """An exception's text with each URL in urls shown redacted and every secret (given, or found in
-    the URLs) replaced by ***."""
-    text = str(exc)
-    for url in sorted((u for u in urls if u), key=len, reverse=True):
-        text = text.replace(url, redact(url))
-    return scrub(text, [*secrets, *(s for u in urls if u for s in url_secrets(u))])
+def shown_path(path):
+    """A file path as it may be printed: as it is, unless it looks like a URL or holds an @."""
+    text = str(path)
+    return "<a path that looks like a URL>" if "://" in text or "@" in text else text
+
+
+def error_line(context, exc):
+    """What an error path prints: a Refusal's own text, or else the fixed context and the exception's
+    type name, with the path of a missing file when shown_path allows it. Never a library's message,
+    which can carry a URL or a credential from the arguments, the environment or a file."""
+    if isinstance(exc, Refusal):
+        return str(exc)
+    line = f"{context} ({type(exc).__name__})"
+    if isinstance(exc, FileNotFoundError) and exc.filename:
+        line += f": {shown_path(exc.filename)}"
+    return line

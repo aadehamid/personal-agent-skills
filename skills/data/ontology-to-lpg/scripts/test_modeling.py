@@ -517,7 +517,8 @@ class Secrets(unittest.TestCase):
     """Finding #1 of the 2026-10-25 review: no password or token reaches the output or a report."""
 
     def test_redact_hides_userinfo_tokens_and_fragments(self):
-        self.assertEqual(redact(f"neo4j+s://neo4j:{CANARY}@x.io:7687"), "neo4j+s://neo4j:***@x.io:7687")
+        self.assertEqual(redact(f"neo4j+s://neo4j:{CANARY}@x.io:7687"), "neo4j+s://***@x.io:7687")
+        self.assertEqual(redact(f"https://{CANARY}@host/x"), "https://***@host/x")   # userinfo without a colon
         self.assertEqual(redact(f"https://h/ds?graph=g&token={CANARY}#{CANARY2}"), "https://h/ds?graph=g&token=***")
         self.assertEqual(redact(f"https://h/q?X-Amz-Signature={CANARY}"), "https://h/q?X-Amz-Signature=***")
         self.assertEqual(redact("bolt://127.0.0.1:7687"), "bolt://127.0.0.1:7687")
@@ -529,7 +530,7 @@ class Secrets(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertNotIn(CANARY, out)
         self.assertNotIn(CANARY2, out)
-        self.assertIn("bolt://neo4j:***@h:7687", out)
+        self.assertIn("the review query failed (Exception)", out)
 
     def test_copy_graph_prints_no_credential(self):
         env = tempfile.NamedTemporaryFile("w", suffix=".env", delete=False)
@@ -616,11 +617,42 @@ class Secrets(unittest.TestCase):
         self.assertNotIn("storeuser", out)
         self.assertIn("ERROR", out)
 
-    def test_safe_message_keeps_short_names_and_hides_secrets(self):
-        from shell import safe_message, url_secrets
-        self.assertEqual(url_secrets(f"http://u:{CANARY}@h/q?sig={CANARY2}&graph=g"), [CANARY, CANARY2])
-        self.assertEqual(safe_message(f"no such file: http://u:{CANARY}@h/q", [f"http://u:{CANARY}@h/q"]),
-                         "no such file: http://u:***@h/q")
+    def test_an_env_configured_url_in_an_error_prints_no_secret(self):
+        tmp = tempfile.mkdtemp()
+        url = f"https://{CANARY}@h/ds?token={CANARY2}"
+        nt = os.path.join(tmp, "inferred.nt")
+        open(nt, "w").close()
+        # 1. The env file fails to parse on a line that holds the URL.
+        bad = os.path.join(tmp, "bad.env")
+        with open(bad, "w") as f:
+            f.write(f"{url}\n")
+        # 2. The env file parses, and an input path that holds its URL fails to open.
+        good = os.path.join(tmp, "good.env")
+        with open(good, "w") as f:
+            f.write(f"SPARQL_GSP={url}\nSPARQL_QUERY={url}\n")
+        for env, data in ((bad, nt), (good, f"/nonexistent/{url}.ttl")):
+            with self.subTest(env=os.path.basename(env)):
+                code, out = run_main(ts.main, ["--env", env, "--inferred", nt, "--report", os.path.join(tmp, "r.json"), data])
+                self.assertEqual(code, 2, out)
+                self.assertNotIn(CANARY, out)
+                self.assertNotIn(CANARY2, out)
+        env = os.path.join(tmp, "neo.env")
+        with open(env, "w") as f:
+            f.write(f"NEO4J_URI={url}\nNEO4J_USERNAME=neo4j\nNEO4J_PASSWORD={CANARY2}\n")
+        with mock.patch.dict(sys.modules, {"neo4j": leaky_neo4j()}):
+            code, out = run_main(mr.main, ["--env", env])
+        self.assertEqual(code, 2, out)
+        self.assertNotIn(CANARY, out)
+        self.assertNotIn(CANARY2, out)
+
+    def test_an_error_prints_its_type_and_a_plain_missing_path_only(self):
+        from shell import Refusal, error_line
+        self.assertEqual(error_line("x failed", ValueError(f"bad {CANARY}")), "x failed (ValueError)")
+        self.assertEqual(error_line("x failed", FileNotFoundError(2, "No such file", "/a/b.ttl")),
+                         "x failed (FileNotFoundError): /a/b.ttl")
+        self.assertEqual(error_line("x failed", FileNotFoundError(2, "No such file", f"http://{CANARY}@h")),
+                         "x failed (FileNotFoundError): <a path that looks like a URL>")
+        self.assertEqual(error_line("x failed", Refusal("missing --report")), "missing --report")
 
     def test_triplestore_reports_store_no_credential(self):
         for counts, name in ((None, ""), ({"urn:x": 1}, ".failed")):

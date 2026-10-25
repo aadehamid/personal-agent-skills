@@ -71,7 +71,7 @@ from rdflib.collection import Collection
 from rdflib.namespace import OWL, RDF, RDFS, SH, XSD
 
 import build
-from shell import q, redact, scrub
+from shell import Refusal, error_line, q, scrub, shown_path
 import check_projection_rules as cpr
 import in_graph_shapes as igs
 
@@ -517,7 +517,7 @@ def read_manual_cases(path):
         cases = json.load(f)
     if not isinstance(cases, list) or not all(isinstance(c, dict) and c.get("target") and c.get("param")
                                               and str(c.get("cypher") or "").strip() for c in cases):
-        raise ValueError(f"{path} must be a JSON list of objects with target, path, param and cypher")
+        raise Refusal(f"{shown_path(path)} must be a JSON list of objects with target, path, param and cypher")
     return cases
 
 
@@ -655,9 +655,9 @@ def query_timeout(opts):
     try:
         seconds = float(opts.get("--query-timeout", DEFAULT_QUERY_TIMEOUT))
     except ValueError:
-        raise ValueError("--query-timeout needs a number of seconds") from None
+        raise Refusal("--query-timeout needs a number of seconds") from None
     if seconds <= 0:
-        raise ValueError("--query-timeout needs a positive number of seconds")
+        raise Refusal("--query-timeout needs a positive number of seconds")
     return seconds
 
 
@@ -801,21 +801,22 @@ def main(argv):
         for path in build.named_paths(argv, "--report"):
             remove_report(path)
     except OSError as exc:
-        print(f"ERROR cannot delete the earlier report: {q(exc)}", file=sys.stderr)
+        print(f"ERROR {q(error_line('cannot delete the earlier report', exc))}", file=sys.stderr)
         return 2
     try:
         opts, data = build.options(argv)
         build.need(opts, "--config", "--bolt", "--import-dir", "--merged", "--loadable", "--inferred", "--report")
         if not data or not opts.get("--shapes"):
-            raise ValueError("give the data files and at least one --shapes file")
+            raise Refusal("give the data files and at least one --shapes file")
         password = os.environ.get("NEO4J_PASSWORD")
         if not password:
-            raise ValueError("set NEO4J_PASSWORD")
+            raise Refusal("set NEO4J_PASSWORD")
         cfg = build.load_config(opts["--config"])
         manual = read_manual_cases(opts.get("--manual-cases"))
         timeout = query_timeout(opts)
     except (OSError, ValueError) as exc:
-        print(f"ERROR {q(exc)}", file=sys.stderr)
+        print(f"ERROR {q(error_line('the arguments, the configuration or the manual cases could not be read', exc))}",
+              file=sys.stderr)
         return 2
     if cfg.rule4 == "4b":
         print(q(cpr.RULE_4B_STOP.format(script="load_verify.py")), file=sys.stderr)
@@ -836,8 +837,7 @@ def main(argv):
         if isinstance(exc, Failed):
             print(f"FAIL {q(scrub(exc, [password]))}")
         else:
-            print(f"FAIL the run stopped on a driver or file error at {q(redact(opts['--bolt']))} "
-                  f"({q(type(exc).__name__)})")
+            print(f"FAIL {q(error_line('the run stopped on a driver or file error', exc))}")
         print(f"Stop: no report was written at {q(report_path)}. "
               "Fix the cause and rerun this command while the container is up: it empties the database itself. "
               f"If you stop instead, remove the container ({remove_command(opts)}).")

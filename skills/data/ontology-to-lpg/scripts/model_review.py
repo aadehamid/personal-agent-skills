@@ -10,8 +10,8 @@ Run after step 6 (or after a copy, add-on I), against any Neo4j:
     uv run --no-project --with rdflib --with neo4j python3 model_review.py --env <target.env> [...]
 
 --env names a file of NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD and optionally NEO4J_DATABASE (the
-format copy_graph.py reads). No password or credential-bearing URI is printed: a URI is shown through
-shell.redact, and a driver error by its type only.
+format copy_graph.py reads). An error prints a fixed context and the exception's type, never its
+text (shell.error_line), so no password or credential-bearing URI is printed.
 
 The rules, from the skill, each one finding per offender:
   missing-key-constraint  ERROR    no uniqueness or node-key constraint on --key-label(--key-property),
@@ -45,7 +45,7 @@ import sys
 import tempfile
 
 import load_verify as lv
-from shell import q, redact
+from shell import Refusal, error_line, q
 
 SKIPPED_LABELS = ["Resource", "_GraphConfig", "_NsPrefDef", "_n10sValidatorConfig"]
 GENERIC_LABELS = {"entity", "node", "thing"}
@@ -129,18 +129,18 @@ def options(argv):
     while i < len(argv):
         flag = argv[i]
         if flag not in known or i + 1 >= len(argv):
-            raise ValueError(f"unknown flag or missing value: {flag}")
+            raise Refusal("an unknown flag, or a flag without its value")
         opts[flag] = argv[i + 1]
         i += 2
     if ("--uri" in opts) == ("--env" in opts):
-        raise ValueError("give exactly one of --uri and --env")
+        raise Refusal("give exactly one of --uri and --env")
     for flag, default in numbers.items():
         try:
             numbers[flag] = int(opts.get(flag, default))
         except ValueError:
-            raise ValueError(f"{flag} needs a whole number") from None
+            raise Refusal(f"{flag} needs a whole number") from None
         if numbers[flag] < 1:
-            raise ValueError(f"{flag} needs a number of at least 1")
+            raise Refusal(f"{flag} needs a number of at least 1")
     numbers["--query-timeout"] = lv.query_timeout(opts)
     return opts, numbers
 
@@ -153,7 +153,7 @@ def connection(opts):
         return values["NEO4J_URI"], (values["NEO4J_USERNAME"], values["NEO4J_PASSWORD"]), values.get("NEO4J_DATABASE")
     password = os.environ.get("NEO4J_PASSWORD")
     if not password:
-        raise ValueError("set NEO4J_PASSWORD for --uri")
+        raise Refusal("set NEO4J_PASSWORD for --uri")
     return opts["--uri"], ("neo4j", password), None
 
 
@@ -178,7 +178,7 @@ def main(argv):
         opts, numbers = options(argv)
         uri, auth, database = connection(opts)
     except (OSError, ValueError) as exc:
-        print(f"ERROR {q(exc)}", file=sys.stderr)
+        print(f"ERROR {q(error_line('the arguments or the --env file could not be read', exc))}", file=sys.stderr)
         return 2
     try:
         from neo4j import GraphDatabase
@@ -190,8 +190,7 @@ def main(argv):
                                    factor=numbers["--factor"], min_degree=numbers["--min-degree"],
                                    limit=numbers["--limit"])
     except Exception as exc:  # the driver raises several types; any of them stops the review
-        # The driver's own text can carry the URI with its password, so only the type is printed.
-        print(f"ERROR the review query failed on {q(redact(uri))} ({q(type(exc).__name__)})", file=sys.stderr)
+        print(f"ERROR {q(error_line('the review query failed', exc))}", file=sys.stderr)
         return 2
     for f in found:
         print(f"{q(f['severity'])} {q(f['rule'])}: {q(f['message'])}")
@@ -203,7 +202,7 @@ def main(argv):
         try:
             write_report(opts["--report"], {"findings": found, "errors": errors, "offenders_capped": capped})
         except OSError as exc:
-            print(f"ERROR the report was not written: {q(exc)}", file=sys.stderr)
+            print(f"ERROR {q(error_line('the report was not written', exc))}", file=sys.stderr)
             return 2
     return 1 if errors else 0
 

@@ -50,7 +50,7 @@ from rdflib.namespace import OWL, RDF
 
 import build
 import load_verify as lv
-from shell import q, redact, safe_message
+from shell import Refusal, error_line, q, redact, shown_path
 
 DEFAULT_BASE = "urn:lpg-projection:graph:"
 
@@ -66,7 +66,7 @@ def read_env_file(path):
                 continue
             key, sep, value = line.partition("=")
             if not sep:
-                raise ValueError(f"{path} line {number} is not KEY=VALUE")
+                raise Refusal(f"{shown_path(path)} line {number} is not KEY=VALUE")
             values[key.strip()] = value.strip().strip('"').strip("'")
     return values
 
@@ -143,42 +143,53 @@ def predicate_count_query(iris):
 def main(argv):
     for path in build.named_paths(argv, "--report"):
         lv.remove_report(path)
-    env, gsp, query = {}, None, None
+    # Each setup stage prints a fixed context and the exception's type, never its text: a path or parser
+    # message can hold a URL or a credential from the arguments or the env file (shell.error_line).
+    def stop(context, exc):
+        print(f"ERROR {q(error_line(context, exc))}", file=sys.stderr)
+        return 2
     try:
         opts, data = build.options(argv, multi=("--cq",))
-        env = read_env_file(opts.get("--env"))
-        gsp = opts.get("--gsp") or env.get("SPARQL_GSP")
-        query = opts.get("--query") or env.get("SPARQL_QUERY")
         build.need(opts, "--inferred", "--report")
-        if not gsp or not query or not data:
-            raise ValueError("give --gsp, --query (or SPARQL_GSP and SPARQL_QUERY in --env) and the data files")
-        base = opts.get("--graph-base", DEFAULT_BASE)
-        files = []
+    except ValueError as exc:
+        return stop("the arguments could not be read", exc)
+    try:
+        env = read_env_file(opts.get("--env"))
+    except Exception as exc:
+        return stop("the --env file could not be read", exc)
+    gsp = opts.get("--gsp") or env.get("SPARQL_GSP")
+    query = opts.get("--query") or env.get("SPARQL_QUERY")
+    if not gsp or not query or not data:
+        return stop("", Refusal("give --gsp, --query (or SPARQL_GSP and SPARQL_QUERY in --env) and the data files"))
+    base = opts.get("--graph-base", DEFAULT_BASE)
+    files = []
+    try:
         for path in data + [opts["--inferred"]]:
             g = Graph().parse(path, format="nt" if path.endswith(".nt") else "turtle")
             iri = base + "inferred" if path == opts["--inferred"] else graph_iri(g, path, base)
             files.append((path, iri, g))
-        if len({iri for _, iri, _ in files}) != len(files):
-            raise ValueError("two files map to one graph IRI; pass --graph-base and check the ontology headers")
-        export = None
-        if opts.get("--projection-report"):
+    except Exception as exc:
+        return stop("an input file could not be read or parsed", exc)
+    if len({iri for _, iri, _ in files}) != len(files):
+        return stop("", Refusal("two files map to one graph IRI; pass --graph-base and check the ontology headers"))
+    export = None
+    if opts.get("--projection-report"):
+        try:
             with open(opts["--projection-report"], encoding="utf-8") as f:
                 projection = json.load(f)
-            earned = build.report_earned(projection)
-            if earned:
-                raise ValueError(f"{opts['--projection-report']} is not a verified projection report: {'; '.join(earned)}")
-            export = projection.get("export_predicate_counts")
-            if not isinstance(export, dict):
-                raise ValueError(f"{opts['--projection-report']} has no export_predicate_counts")
+        except Exception as exc:
+            return stop("the projection report could not be read", exc)
+        earned = build.report_earned(projection)
+        if earned:
+            return stop("", Refusal(f"{shown_path(opts['--projection-report'])} is not a verified projection report: "
+                                    f"{'; '.join(earned)}"))
+        export = projection.get("export_predicate_counts")
+        if not isinstance(export, dict):
+            return stop("", Refusal(f"{shown_path(opts['--projection-report'])} has no export_predicate_counts"))
+    try:
         questions = [(p, open(p, encoding="utf-8").read()) for p in opts.get("--cq", [])]
-    except Exception as exc:  # bad flags, unreadable or unparsable files
-        # A path or parser message can hold a configured URL or credential: those are shown redacted.
-        urls = [gsp, query, *(argv[i + 1] for i, a in enumerate(argv[:-1]) if a in ("--gsp", "--query"))]
-        # A user name is scrubbed only from four characters up: a short one ("u") would mangle the text.
-        user = env.get("SPARQL_USER") or ""
-        secrets = [env.get("SPARQL_PASSWORD"), user if len(user) >= 4 else None]
-        print(f"ERROR {q(safe_message(exc, urls, secrets))}", file=sys.stderr)
-        return 2
+    except Exception as exc:
+        return stop("a competency-question file could not be read", exc)
     store = Store(gsp, query, env.get("SPARQL_USER"), env.get("SPARQL_PASSWORD"))
     report = {"graphs": {}, "store": {"gsp": redact(gsp), "query": redact(query)}}
     fails = []
@@ -202,8 +213,7 @@ def main(argv):
         # The error's own text can carry the URL with its credentials: print the type and, for an HTTP
         # error, its status code only.
         status = f" HTTP {exc.code}" if isinstance(getattr(exc, "code", None), int) else ""
-        print(f"FAIL a store request to {q(redact(gsp))} or {q(redact(query))} failed "
-              f"({q(type(exc).__name__ + status)}). No report was written.")
+        print(f"FAIL a store request failed ({q(type(exc).__name__ + status)}). No report was written.")
         return 1
     report["failures"] = fails
     report["passed"] = not fails

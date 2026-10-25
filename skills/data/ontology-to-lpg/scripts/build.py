@@ -49,7 +49,7 @@ from rdflib import Graph, Literal, URIRef
 from rdflib.namespace import OWL, RDF, RDFS
 
 import check_projection_rules as cpr
-from shell import comment, q
+from shell import Refusal, comment, q
 
 # The command list, printed when no command is given: fixed text, not input.
 USAGE = __doc__.split("\n\n")[1]
@@ -526,7 +526,7 @@ def options(argv, multi=("--shapes",), flags=("--verify",)):
             opts[a] = True
         elif a.startswith("--"):
             if not args:
-                raise ValueError(f"{a} needs a value")
+                raise Refusal(f"{a.split('=', 1)[0]} needs a value")
             if a in multi:
                 opts.setdefault(a, []).append(args.pop(0))
             else:
@@ -539,7 +539,7 @@ def options(argv, multi=("--shapes",), flags=("--verify",)):
 def need(opts, *keys):
     missing = [k for k in keys if k not in opts]
     if missing:
-        raise ValueError("missing " + ", ".join(missing))
+        raise Refusal("missing " + ", ".join(missing))
 
 
 def load_config(path):
