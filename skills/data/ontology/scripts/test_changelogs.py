@@ -53,10 +53,17 @@ class CheckChangelogs(unittest.TestCase):
         self.assertOnly(text, "content", "neither")
 
     def test_a_gap_without_its_reason(self):
-        self.assertOnly(GOOD.replace("Reason: no holds export exists yet. ", ""), "gap", "Holds are not modelled")
+        self.assertOnly(GOOD.replace("Reason: no holds export exists yet. ", ""), "gap", "has no Reason: value")
 
     def test_a_gap_without_its_record(self):
-        self.assertOnly(GOOD.replace(" Record: open question Q7 to the ontology owner.", ""), "gap", "overdue fee")
+        self.assertOnly(GOOD.replace(" Record: open question Q7 to the ontology owner.", ""), "gap", "has no Record: value")
+
+    def test_a_reason_label_with_no_value(self):
+        self.assertOnly(GOOD.replace("Reason: no holds export exists yet.", "Reason: ."), "gap", "has no Reason: value")
+
+    def test_a_record_label_with_no_value(self):
+        self.assertOnly(GOOD.replace("Record: open question Q7 to the ontology owner.", "Record:"), "gap",
+                        "has no Record: value")
 
     def test_the_next_section_is_not_read_as_gaps(self):
         text = GOOD.replace("## Approval\nThe module owner, 2026-10-24.", "## Approval\n- The module owner, 2026-10-24.")

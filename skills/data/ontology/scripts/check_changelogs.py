@@ -12,7 +12,7 @@ Checks:
   section    the changelog has a "Known gaps" heading (any level)
   content    the section says "None." or lists gaps as bullets, one per gap
   gap        every gap bullet gives its reason ("Reason:") and the decision or open question that records it
-             ("Record:")
+             ("Record:"), each label followed by a value, not only spaces or punctuation
 
 Prints one FAIL line per failure. Exit 0 when nothing fails, 1 when anything fails, 2 when an input cannot be read
 or the arguments are wrong.
@@ -53,8 +53,11 @@ def check_text(text, where):
         return [("content", f"{where}: the Known gaps section says neither \"None.\" nor lists a gap")]
     fails = []
     for bullet in bullets:
-        if "Reason:" not in bullet or "Record:" not in bullet:
-            fails.append(("gap", f"{where}: {bullet[:80]!r} lacks a \"Reason:\" or a \"Record:\""))
+        for label in ("Reason:", "Record:"):
+            # The value runs from the label to the next label or the end, and must hold more than space and dots.
+            value = re.search(re.escape(label) + r"(.*?)(?=Reason:|Record:|$)", bullet)
+            if not value or not value.group(1).strip(" \t.;,"):
+                fails.append(("gap", f"{where}: {bullet[:80]!r} has no {label} value"))
     return fails
 
 
