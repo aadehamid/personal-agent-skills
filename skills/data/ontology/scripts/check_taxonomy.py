@@ -39,10 +39,42 @@ Checks (references/identity-taxonomy.md and references/domain-model.md):
                  owl:ObjectProperty's range is not
   untyped        every IRI used as the subject of any triple in the files has an rdf:type
 
+qSKOS checks (references/quality.md, "The qSKOS issues", has the table and what is left out):
+  lang-tag       every language tag is a well-formed BCP 47 tag (qSKOS: Omitted or Invalid Language Tags)
+  language       a concept with a skos:prefLabel has one in every language any concept's skos:prefLabel
+                 uses (Incomplete Language Coverage, No Common Language)
+  label          (also) no skos:prefLabel, skos:altLabel or skos:hiddenLabel is empty after removing
+                 whitespace (Empty Labels); each concept scheme and collection has a skos:prefLabel,
+                 rdfs:label or dcterms:title (Missing Labels)
+  label-chars    no SKOS label holds a character of Unicode category Zl, Zp or C, such as a newline
+                 (Unprintable Characters in Labels)
+  collision      (also) no concept's skos:altLabel or skos:hiddenLabel equals, ignoring case,
+                 another concept's preferred or alternative label in the same scheme and language
+                 (Overlapping Labels)
+  disjoint-labels  no resource has the same literal in two of skos:prefLabel, skos:altLabel and
+                 skos:hiddenLabel (Disjoint Labels Violation, SKOS S13)
+  related        no concept is skos:related to itself (Reflexive Relations), to a sibling under the
+                 same skos:broader parent (Valueless Associative Relations), or to an ancestor or
+                 descendant (Relation Clashes, SKOS S27)
+  reciprocal     a skos:related is stated both ways; a skos:topConceptOf a declared scheme is listed
+                 by that scheme's skos:hasTopConcept; a stated skos:narrower has its skos:broader
+                 (Unidirectionally Related Concepts)
+  transitive     no skos:broaderTransitive or skos:narrowerTransitive is stated without the
+                 skos:broader or skos:narrower that makes it (Solely Transitively Related Concepts)
+  scheme         (also) each concept scheme has a top concept (Omitted Top Concepts)
+  mapping        no concept maps to itself; skos:exactMatch is not stated with skos:broadMatch or
+                 skos:relatedMatch between the same pair (Mapping Clashes, SKOS S46); no mapping
+                 joins two concepts declared in the files that share a scheme (Mapping Relations Misuse)
+  skos-term      every IRI in the SKOS namespace is a term the SKOS Reference defines (Undefined SKOS
+                 Resources); a misspelled or deprecated SKOS term fails
+  uri-scheme     every IRI used as a subject is an http or https IRI (HTTP URI Scheme Violation)
+
 Exit 0 when every check passes, 1 when any fails (one line per failure), 2 when a file
 cannot be read or parsed, or when the arguments are wrong.
 """
+import re
 import sys
+import unicodedata
 from collections import defaultdict
 
 from rdflib import BNode, Graph, Literal, URIRef
@@ -58,6 +90,21 @@ KNOWN_NAMESPACES = (str(XSD), str(RDF), str(RDFS), str(OWL), str(SKOS),
 RDF_DATATYPES = {RDF.langString, RDF.HTML, RDF.XMLLiteral, URIRef(str(RDF) + "dirLangString")}
 CHARACTERISTICS = (OWL.TransitiveProperty, OWL.SymmetricProperty, OWL.AsymmetricProperty, OWL.ReflexiveProperty,
                    OWL.IrreflexiveProperty, OWL.FunctionalProperty, OWL.InverseFunctionalProperty)
+LABELS = (SKOS.prefLabel, SKOS.altLabel, SKOS.hiddenLabel)
+MAPPINGS = (SKOS.mappingRelation, SKOS.closeMatch, SKOS.exactMatch, SKOS.broadMatch, SKOS.narrowMatch, SKOS.relatedMatch)
+# Every class and property the SKOS Reference (W3C Recommendation, 18 August 2009) defines; anything
+# else in its namespace is a misspelling or one of the deprecated terms of its Appendix D.
+SKOS_TERMS = {URIRef(str(SKOS) + t) for t in (
+    "Concept ConceptScheme Collection OrderedCollection inScheme hasTopConcept topConceptOf "
+    "prefLabel altLabel hiddenLabel notation note changeNote definition editorialNote example "
+    "historyNote scopeNote semanticRelation broader narrower related broaderTransitive "
+    "narrowerTransitive member memberList mappingRelation closeMatch exactMatch broadMatch "
+    "narrowMatch relatedMatch").split()}
+# A well-formed BCP 47 tag (RFC 5646, section 2.1), without the grandfathered tags: language,
+# optional script, region and variants, extensions, private use; or private use alone.
+BCP47 = re.compile(r"^(?:[a-z]{2,3}(?:-[a-z]{3}){0,3}|[a-z]{5,8})(?:-[a-z]{4})?(?:-(?:[a-z]{2}|[0-9]{3}))?"
+                   r"(?:-(?:[a-z0-9]{5,8}|[0-9][a-z0-9]{3}))*(?:-[0-9a-wyz](?:-[a-z0-9]{2,8})+)*"
+                   r"(?:-x(?:-[a-z0-9]{1,8})+)?$|^x(?:-[a-z0-9]{1,8})+$", re.IGNORECASE)
 
 
 def check(g, allowed_namespaces=(), code_properties=()):
@@ -156,6 +203,8 @@ def check(g, allowed_namespaces=(), code_properties=()):
         if len(names) > 1:
             fails.append(("notation", f"{', '.join(names)} share the notation \"{code}\" in {short(scheme)}"))
 
+    fails += qskos(g, concepts, short)
+
     classes = {c for kind in (OWL.Class, RDFS.Class) for c in g.subjects(RDF.type, kind) if isinstance(c, URIRef)}
     for c in sorted(classes):
         if (c, RDF.type, OWL.Class) not in g:
@@ -208,6 +257,119 @@ def check(g, allowed_namespaces=(), code_properties=()):
             elif isinstance(o, URIRef) and not resolves(o):
                 fails.append(("domain-range", f"{short(s)} has {axis} {short(o)}, which is neither declared "
                                               f"in the files nor in a known namespace"))
+    return fails
+
+
+def qskos(g, concepts, short):
+    """The qSKOS quality issues the checks above do not already cover (the docstring's second list)."""
+    fails = []
+    for s, p, o in g:
+        if isinstance(o, Literal) and o.language and not BCP47.match(o.language):
+            fails.append(("lang-tag", f"{short(s)} {short(p)} has the language tag {o.language!r}, "
+                                      f"which is not a well-formed BCP 47 tag"))
+        for term in (s, p, o):
+            if isinstance(term, URIRef) and str(term).startswith(str(SKOS)) and term not in SKOS_TERMS:
+                fails.append(("skos-term", f"{short(term)} is in the SKOS namespace but is not a SKOS term"))
+    for s in sorted({s for s in g.subjects() if isinstance(s, URIRef)}):
+        if not str(s).startswith(("http://", "https://")):
+            fails.append(("uri-scheme", f"{short(s)} is not an http or https IRI"))
+
+    langs = {lab.language for c in concepts for lab in g.objects(c, SKOS.prefLabel) if isinstance(lab, Literal)}
+    for c in sorted(concepts):
+        have = {lab.language for lab in g.objects(c, SKOS.prefLabel) if isinstance(lab, Literal)}
+        if have and langs - have:
+            missing = ", ".join(sorted(str(lang) for lang in langs - have))
+            fails.append(("language", f"{short(c)} has no skos:prefLabel in {missing}, which other concepts use"))
+
+    for s, p, o in sorted((t for pred in LABELS for t in g.triples((None, pred, None))), key=str):
+        if isinstance(o, Literal):
+            if not str(o).strip():
+                fails.append(("label", f"{short(s)} has an empty {short(p)}"))
+            bad = sorted({unicodedata.category(ch) for ch in str(o)
+                          if unicodedata.category(ch) in ("Zl", "Zp") or unicodedata.category(ch).startswith("C")})
+            if bad:
+                fails.append(("label-chars", f"{short(s)} {short(p)} \"{o}\" holds unprintable characters ({', '.join(bad)})"))
+    for kind in (SKOS.ConceptScheme, SKOS.Collection, SKOS.OrderedCollection):
+        for s in sorted(g.subjects(RDF.type, kind)):
+            if not any((s, pred, None) in g for pred in (SKOS.prefLabel, RDFS.label, DCTERMS.title)):
+                fails.append(("label", f"{short(s)} is a {short(kind)} with no skos:prefLabel, rdfs:label or dcterms:title"))
+
+    for s in sorted({s for pred in LABELS for s in g.subjects(pred, None)}):
+        seen = defaultdict(list)
+        for pred in LABELS:
+            for lab in g.objects(s, pred):
+                seen[lab].append(short(pred))
+        for lab, preds in sorted(seen.items(), key=str):
+            if len(preds) > 1:
+                fails.append(("disjoint-labels", f"{short(s)} has \"{lab}\" as both {' and '.join(preds)}"))
+
+    # Overlapping labels: an alternative or hidden label of one concept that is another concept's label.
+    names = defaultdict(set)  # (scheme, lang, lower label) -> concepts with it as a preferred or alternative label
+    for c in concepts:
+        for scheme in g.objects(c, SKOS.inScheme):
+            for pred in (SKOS.prefLabel, SKOS.altLabel):
+                for lab in g.objects(c, pred):
+                    names[(scheme, getattr(lab, "language", None), str(lab).casefold())].add(c)
+    for c in sorted(concepts):
+        for scheme in g.objects(c, SKOS.inScheme):
+            for pred in (SKOS.altLabel, SKOS.hiddenLabel):
+                for lab in g.objects(c, pred):
+                    others = names[(scheme, getattr(lab, "language", None), str(lab).casefold())] - {c}
+                    if others:
+                        fails.append(("collision", f"{short(c)} {short(pred)} \"{lab}\" is also a label of "
+                                                   f"{', '.join(short(o) for o in sorted(others))} in {short(scheme)}"))
+
+    def ancestors(c):
+        found, todo = set(), [c]
+        while todo:
+            for up in g.objects(todo.pop(), SKOS.broader):
+                if up not in found:
+                    found.add(up)
+                    todo.append(up)
+        return found
+
+    # The relation checks look only at concepts the files declare; an undeclared subject fails "untyped".
+    for a, b in sorted(((a, b) for a, b in g.subject_objects(SKOS.related) if a in concepts), key=str):
+        if a == b:
+            fails.append(("related", f"{short(a)} is skos:related to itself"))
+            continue
+        if set(g.objects(a, SKOS.broader)) & set(g.objects(b, SKOS.broader)):
+            fails.append(("related", f"{short(a)} and {short(b)} are siblings and also skos:related"))
+        elif b in ancestors(a) or a in ancestors(b):
+            fails.append(("related", f"{short(a)} and {short(b)} are hierarchically related and also skos:related"))
+        if (b, SKOS.related, a) not in g:
+            fails.append(("reciprocal", f"{short(a)} skos:related {short(b)} is not stated the other way"))
+    for c, scheme in sorted(g.subject_objects(SKOS.topConceptOf), key=str):
+        if (scheme, RDF.type, SKOS.ConceptScheme) in g and (scheme, SKOS.hasTopConcept, c) not in g:
+            fails.append(("reciprocal", f"{short(c)} is a skos:topConceptOf {short(scheme)}, "
+                                        f"but {short(scheme)} has no skos:hasTopConcept {short(c)}"))
+    for a, b in sorted(((a, b) for a, b in g.subject_objects(SKOS.narrower) if a in concepts), key=str):
+        if (b, SKOS.broader, a) not in g:
+            fails.append(("reciprocal", f"{short(a)} skos:narrower {short(b)} has no matching skos:broader"))
+    for pred, direct, flip in ((SKOS.broaderTransitive, SKOS.broader, SKOS.narrower),
+                               (SKOS.narrowerTransitive, SKOS.narrower, SKOS.broader)):
+        for a, b in sorted(g.subject_objects(pred), key=str):
+            if (a, direct, b) not in g and (b, flip, a) not in g:
+                fails.append(("transitive", f"{short(a)} {short(pred)} {short(b)} is stated without "
+                                            f"{short(direct)}; the transitive properties are not for assertions"))
+
+    for scheme in sorted(g.subjects(RDF.type, SKOS.ConceptScheme)):
+        if (scheme, SKOS.hasTopConcept, None) not in g and (None, SKOS.topConceptOf, scheme) not in g:
+            fails.append(("scheme", f"{short(scheme)} has no top concept"))
+
+    for pred in MAPPINGS:
+        for a, b in sorted(g.subject_objects(pred), key=str):
+            if a == b:
+                fails.append(("mapping", f"{short(a)} {short(pred)} itself"))
+            elif a in concepts and b in concepts:
+                shared = set(g.objects(a, SKOS.inScheme)) & set(g.objects(b, SKOS.inScheme))
+                if shared:
+                    fails.append(("mapping", f"{short(a)} {short(pred)} {short(b)}, but both are in "
+                                             f"{short(sorted(shared)[0])}; a mapping joins different schemes"))
+    for a, b in sorted(g.subject_objects(SKOS.exactMatch), key=str):
+        for clash in (SKOS.broadMatch, SKOS.relatedMatch):
+            if (a, clash, b) in g or (b, clash, a) in g:
+                fails.append(("mapping", f"{short(a)} skos:exactMatch {short(b)} and also {short(clash)}"))
     return fails
 
 

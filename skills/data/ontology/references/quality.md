@@ -27,6 +27,32 @@ Every authored definition meets all eight points. Points 1 and 3 take the form f
 
 **The human gate.** Candidate text collected from references goes through it, exactly like text a person wrote: first `scripts/check_taxonomy.py`, then a person reviews the meaning against the bar. An open question is a question recorded against a term (in the decision log, or as a `skos:editorialNote` starting "OPEN:") that has no answer yet; no approved term has one. Nothing merges on assumption.
 
+## The qSKOS issues
+
+qSKOS (Mader, Haslhofer and Isaac; its wiki page "Quality Issues", `SOURCES.md` section 4) lists 29 quality issues for SKOS vocabularies. `scripts/check_taxonomy.py` checks every one that holds for a closed, offline build under this skill's rules; its docstring names the check for each. *Why:* each issue is one a reviewer would otherwise have to spot by eye.
+
+| qSKOS issue | In this skill |
+|---|---|
+| Omitted or Invalid Language Tags | `untagged`; `lang-tag` (BCP 47) |
+| Incomplete Language Coverage; No Common Language | `language` |
+| Undocumented Concepts | `definition`, which is stricter: every concept needs a `skos:definition` |
+| Overlapping Labels | `collision` (preferred labels, then alternative and hidden labels against other concepts' labels) |
+| Missing Labels; Empty Labels | `label` |
+| Unprintable Characters in Labels | `label-chars` |
+| Ambiguous Notation References | `notation` |
+| Orphan Concepts; Disconnected Concept Clusters | Left out. A code list is a flat scheme of top concepts by design (`identity-taxonomy.md`, Step 3, rule 11), and `parent` already ties every other concept to a top concept. |
+| Cyclic Hierarchical Relations; Top Concepts Having Broader Concepts; Hierarchical Redundancy | `parent`: one `skos:broader`, none on a top concept, no cycles. One parent leaves no room for a redundant path. |
+| Valueless Associative Relations; Relation Clashes (SKOS S27); Reflexive Relations | `related`; `mapping` for a concept mapped to itself; a `skos:broader` to itself is a cycle |
+| Solely Transitively Related Concepts | `transitive` |
+| Unidirectionally Related Concepts | `reciprocal` for `skos:related`, `skos:topConceptOf` and a stated `skos:narrower`. The skill states `skos:broader` only, so a `skos:broader` without its `skos:narrower` passes. |
+| Omitted Top Concepts | `scheme` |
+| Inconsistent Preferred Labels | `label` (one `skos:prefLabel` per language, SKOS S14) |
+| Disjoint Labels Violation (SKOS S13) | `disjoint-labels` |
+| Mapping Clashes (SKOS S46); Mapping Relations Misuse | `mapping`. Misuse counts only when both concepts are declared in the files, since an external target's scheme is unknown there. |
+| Undefined SKOS Resources | `skos-term` |
+| HTTP URI Scheme Violation | `uri-scheme` |
+| Missing In-Links; Missing Out-Links; Broken Links | Left out. They need the web or a remote index, and the script runs offline, so it gives the same answer on every run. Mapping to outside vocabularies is a Step 7 choice (`integration.md`), not a rule for every concept. |
+
 ## Soundness checks on every change
 
 Before you hand a change to the owner, run these checks on what changed, then the project's full check script. *Why:* the checks below catch what a script cannot judge, and the script catches the rest.
