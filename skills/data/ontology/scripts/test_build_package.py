@@ -229,6 +229,29 @@ class Build(Workspace):
 
 
 class Git(Workspace):
+    def test_a_malformed_branch_head_from_the_remote_is_refused_cleanly(self):
+        git("init", "-q", cwd=self.root)
+        git("remote", "add", "origin", "unused", cwd=self.root)
+        path = self.write_answers()
+        run(["build", path, "--releases", self.releases])
+        self.commit_all()
+        real = build_package.git
+        def fake(*args, cwd):
+            if args[:2] == ("ls-remote", "--symref"):
+                return subprocess.CompletedProcess(args, 0, "ref: refs/heads/main\tHEAD\n", "")
+            if args[0] == "ls-remote":
+                return subprocess.CompletedProcess(args, 0, "refs/heads/main\n", "")   # no SHA
+            if args[0] == "fetch":
+                return subprocess.CompletedProcess(args, 0, "", "")
+            return real(*args, cwd=cwd)
+        build_package.git = fake
+        try:
+            code, out = run(["tag", path, "--releases", self.releases])
+        finally:
+            build_package.git = real
+        self.assertEqual(code, 1)
+        self.assertIn("is not on origin's default branch yet", out)
+
     def commit_all(self):
         git("add", "-A", cwd=self.root)
         git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "release", cwd=self.root)

@@ -405,7 +405,8 @@ def tag(answers, releases):
         if fetched.returncode != 0 or len(first) < 3 or first[0] != "ref:" or not first[1].startswith("refs/heads/"):
             return 1, [f"cannot read {r}'s default branch, so the merge cannot be confirmed"]
         listed = git("ls-remote", r, first[1], cwd=top)
-        head_sha = listed.stdout.split()[0] if listed.returncode == 0 and listed.stdout.strip() else ""
+        rows = [line.split("\t") for line in listed.stdout.splitlines() if line.strip()] if listed.returncode == 0 else []
+        head_sha = rows[0][0] if len(rows) == 1 and rows[0][1:] == [first[1]] and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", rows[0][0]) else ""
         if not head_sha or git("merge-base", "--is-ancestor", commit, head_sha, cwd=top).returncode != 0:
             return 1, [f"{rel} is not on {r}'s default branch yet: tag it after the release merges (release.md, rule 16)"]
         commit = git("log", "-1", "--first-parent", "--format=%H", head_sha, "--", rel, cwd=top).stdout.strip() or commit
