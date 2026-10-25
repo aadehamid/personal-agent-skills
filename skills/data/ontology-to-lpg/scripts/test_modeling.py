@@ -71,7 +71,7 @@ def fake(labels=("Resource", "lib__Work", "lib__Person"), types=("lib__createdBy
                         if x != y:
                             pairs.setdefault(t, set()).add((x, y))
             return [{"type": t, "a": x, "b": y} for t, ps in sorted(pairs.items()) for x, y in sorted(ps)
-                    if x < y and (y, x) in ps]
+                    if x < y and (y, x) in ps][:params["limit"]]
         raise AssertionError("unexpected statement " + stmt)
     return run
 
@@ -160,6 +160,27 @@ class Review(unittest.TestCase):
         found, _ = mr.review(fake(edges=edges))
         self.assertEqual([(f["severity"], f["rule"]) for f in found], [("INFO", "reciprocal-type")])
         self.assertIn("local heuristic", found[0]["message"])
+
+    def test_many_label_pairs_return_only_the_reciprocal_ones(self):
+        edges = [("lib__next", ["Resource", f"lib__L{i:02}"], ["Resource", f"lib__L{i + 1:02}"]) for i in range(59)]
+        edges += [("lib__about", ["Resource", "lib__Work"], ["Resource", "lib__Person"]),
+                  ("lib__about", ["Resource", "lib__Person"], ["Resource", "lib__Work"]),
+                  ("lib__cites", ["Resource", "lib__Work"], ["Resource", "lib__Copy"]),
+                  ("lib__cites", ["Resource", "lib__Copy"], ["Resource", "lib__Work"])]
+        found, _ = mr.review(fake(edges=edges))
+        self.assertEqual([f["message"].split(";")[0] for f in found],
+                         ["lib__about runs from lib__Person to lib__Work and from lib__Work to lib__Person",
+                          "lib__cites runs from lib__Copy to lib__Work and from lib__Work to lib__Copy"])
+        found, _ = mr.review(fake(edges=edges), limit=1)
+        self.assertEqual(rules((found, False)), ["reciprocal-type"])
+
+    def test_the_reciprocal_query_checks_existence_and_is_limited(self):
+        calls = []
+        mr.review(fake(calls=calls), limit=7)
+        self.assertIn("EXISTS { MATCH (:$(y))-[:$(t)]->(:$(x)) }", mr.RECIPROCAL)
+        self.assertNotIn("collect(", mr.RECIPROCAL)
+        self.assertIn("LIMIT $limit", mr.RECIPROCAL)
+        self.assertEqual(next(p for stmt, p in calls if stmt == mr.RECIPROCAL)["limit"], 7)
 
     def test_a_type_between_nodes_of_one_label_is_not_reciprocal(self):
         edges = [("skos__broader", ["Resource", "skos__Concept"], ["Resource", "skos__Concept"])]
@@ -576,6 +597,30 @@ class Secrets(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertNotIn(CANARY, out)
         self.assertNotIn(CANARY2, out)
+
+    def test_triplestore_setup_errors_print_no_credential(self):
+        tmp = tempfile.mkdtemp()
+        env = os.path.join(tmp, "store.env")
+        with open(env, "w") as f:
+            f.write(f"SPARQL_USER=storeuser\nSPARQL_PASSWORD={CANARY2}\n")
+        nt = os.path.join(tmp, "inferred.nt")
+        open(nt, "w").close()
+        gsp = f"http://storeuser:{CANARY}@h/ds?token={CANARY2}"
+        # An input path that holds the URL and the password, so the open error carries them.
+        missing = f"/nonexistent/{gsp}/{CANARY2}.ttl"
+        code, out = run_main(ts.main, ["--env", env, "--gsp", gsp, "--query", f"http://storeuser:{CANARY}@h/q",
+                                       "--inferred", nt, "--report", os.path.join(tmp, "r.json"), missing])
+        self.assertEqual(code, 2, out)
+        self.assertNotIn(CANARY, out)
+        self.assertNotIn(CANARY2, out)
+        self.assertNotIn("storeuser", out)
+        self.assertIn("ERROR", out)
+
+    def test_safe_message_keeps_short_names_and_hides_secrets(self):
+        from shell import safe_message, url_secrets
+        self.assertEqual(url_secrets(f"http://u:{CANARY}@h/q?sig={CANARY2}&graph=g"), [CANARY, CANARY2])
+        self.assertEqual(safe_message(f"no such file: http://u:{CANARY}@h/q", [f"http://u:{CANARY}@h/q"]),
+                         "no such file: http://u:***@h/q")
 
     def test_triplestore_reports_store_no_credential(self):
         for counts, name in ((None, ""), ({"urn:x": 1}, ".failed")):

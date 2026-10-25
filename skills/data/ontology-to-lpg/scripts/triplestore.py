@@ -50,7 +50,7 @@ from rdflib.namespace import OWL, RDF
 
 import build
 import load_verify as lv
-from shell import q, redact
+from shell import q, redact, safe_message
 
 DEFAULT_BASE = "urn:lpg-projection:graph:"
 
@@ -143,6 +143,7 @@ def predicate_count_query(iris):
 def main(argv):
     for path in build.named_paths(argv, "--report"):
         lv.remove_report(path)
+    env, gsp, query = {}, None, None
     try:
         opts, data = build.options(argv, multi=("--cq",))
         env = read_env_file(opts.get("--env"))
@@ -171,7 +172,12 @@ def main(argv):
                 raise ValueError(f"{opts['--projection-report']} has no export_predicate_counts")
         questions = [(p, open(p, encoding="utf-8").read()) for p in opts.get("--cq", [])]
     except Exception as exc:  # bad flags, unreadable or unparsable files
-        print(f"ERROR {q(exc)}", file=sys.stderr)
+        # A path or parser message can hold a configured URL or credential: those are shown redacted.
+        urls = [gsp, query, *(argv[i + 1] for i, a in enumerate(argv[:-1]) if a in ("--gsp", "--query"))]
+        # A user name is scrubbed only from four characters up: a short one ("u") would mangle the text.
+        user = env.get("SPARQL_USER") or ""
+        secrets = [env.get("SPARQL_PASSWORD"), user if len(user) >= 4 else None]
+        print(f"ERROR {q(safe_message(exc, urls, secrets))}", file=sys.stderr)
         return 2
     store = Store(gsp, query, env.get("SPARQL_USER"), env.get("SPARQL_PASSWORD"))
     report = {"graphs": {}, "store": {"gsp": redact(gsp), "query": redact(query)}}

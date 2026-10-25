@@ -51,3 +51,26 @@ def scrub(text, secrets):
     for secret in sorted((s for s in secrets if s), key=len, reverse=True):
         text = text.replace(secret, "***")
     return text
+
+
+def url_secrets(uri):
+    """The secret parts of uri: the password in user:password@ and the value of every
+    credential-like query key, for scrub()."""
+    from urllib.parse import parse_qsl, urlsplit
+    try:
+        parts = urlsplit(str(uri))
+    except ValueError:
+        return [str(uri)]
+    found = [parts.password] if parts.password else []
+    found += [v for k, v in parse_qsl(parts.query, keep_blank_values=True)
+              if v and any(s in k.lower() for s in SECRET_QUERY_KEYS)]
+    return found
+
+
+def safe_message(exc, urls=(), secrets=()):
+    """An exception's text with each URL in urls shown redacted and every secret (given, or found in
+    the URLs) replaced by ***."""
+    text = str(exc)
+    for url in sorted((u for u in urls if u), key=len, reverse=True):
+        text = text.replace(url, redact(url))
+    return scrub(text, [*secrets, *(s for u in urls if u for s in url_secrets(u))])

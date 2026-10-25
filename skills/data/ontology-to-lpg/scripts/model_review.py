@@ -33,7 +33,7 @@ and one local heuristic, not from the skill (design-rules.md says why):
 Degree is total degree, both directions. Only domain labels count: n10s's own (Resource, the
 configuration labels, n4sch__*) are left out before any degree rule, and a node with no domain label
 is not reviewed. Medians, offenders and reciprocal pairs are computed in Cypher, so only label
-statistics and offenders (at most --limit, default 100) come back. Every statement carries a
+statistics, offenders and reciprocal pairs (each at most --limit, default 100) come back. Every statement carries a
 server-side timeout, --query-timeout seconds (default 120).
 
 Exit 0 when no ERROR was found, 1 when one was, 2 on bad input, a failed query or an unwritten report.
@@ -64,12 +64,14 @@ OFFENDERS = (f"MATCH (n) WITH n, {DOMAIN} AS dl WHERE size(dl) > 0 "
              "WHERE degree > $max_degree OR (degree >= $min_degree AND any(l IN dl WHERE "
              "degree >= $factor * CASE WHEN coalesce($medians[l], 0) < 1 THEN 1 ELSE $medians[l] END)) "
              "RETURN n.uri AS uri, dl AS labels, degree ORDER BY degree DESC, uri LIMIT $limit")
+# One row per (type, label, label) the graph uses, a set the size of the schema, not of the data; each
+# ordered pair with a < b is kept only when an edge of that type also runs from b to a (an existence
+# check with dynamic labels and type, Cypher 5.26 and later; run on Neo4j 2025.06.2 on 2026-10-25).
 RECIPROCAL = ("MATCH (a)-[r]->(b) "
-              f"WITH type(r) AS t, {DOMAIN.replace('(n)', '(a)')} AS la, {DOMAIN.replace('(n)', '(b)')} AS lb "
-              "UNWIND la AS x UNWIND lb AS y WITH DISTINCT t, x, y WHERE x <> y "
-              "WITH t, collect([x, y]) AS pairs UNWIND pairs AS p WITH t, p, pairs "
-              "WHERE p[0] < p[1] AND [p[1], p[0]] IN pairs "
-              "RETURN t AS type, p[0] AS a, p[1] AS b ORDER BY type, a, b")
+              f"WITH DISTINCT type(r) AS t, {DOMAIN.replace('(n)', '(a)')} AS la, {DOMAIN.replace('(n)', '(b)')} AS lb "
+              "UNWIND la AS x UNWIND lb AS y WITH DISTINCT t, x, y WHERE x < y "
+              "AND EXISTS { MATCH (:$(y))-[:$(t)]->(:$(x)) } "
+              "RETURN t AS type, x AS a, y AS b ORDER BY type, a, b LIMIT $limit")
 
 
 def local(name):
@@ -112,7 +114,7 @@ def review(run, key_label="Resource", key_property="uri", max_degree=100000, fac
         found.append(finding("WARNING", "supernode-candidate",
                              f"{who} has {row['degree']} relationships, {factor}x or more the median "
                              f"{medians[label]:g} of {label}"))
-    for row in run(RECIPROCAL, skipped=SKIPPED_LABELS):
+    for row in run(RECIPROCAL, skipped=SKIPPED_LABELS, limit=limit):
         found.append(finding("INFO", "reciprocal-type",
                              f"{row['type']} runs from {row['a']} to {row['b']} and from {row['b']} to {row['a']}; "
                              "check whether the ontology states one property both ways (local heuristic)"))
