@@ -1,0 +1,27 @@
+<https://id.example.org/library/loan-state> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2004/02/skos/core#ConceptScheme> .
+<https://id.example.org/library/loan-state> <http://www.w3.org/2004/02/skos/core#definition> "The states a loan passes through; a loan is in exactly one at a time."@en .
+<https://id.example.org/library/loan-state> <http://www.w3.org/2004/02/skos/core#hasTopConcept> <https://id.example.org/library/on-loan> .
+<https://id.example.org/library/loan-state> <http://www.w3.org/2004/02/skos/core#hasTopConcept> <https://id.example.org/library/overdue> .
+<https://id.example.org/library/loan-state> <http://www.w3.org/2004/02/skos/core#hasTopConcept> <https://id.example.org/library/returned> .
+<https://id.example.org/library/loan-state> <http://www.w3.org/2004/02/skos/core#prefLabel> "Loan state"@en .
+<https://id.example.org/library/on-loan> <http://purl.org/dc/terms/source> "Example lending policy, edition 2026-01, clause 3.5"@en .
+<https://id.example.org/library/on-loan> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2004/02/skos/core#Concept> .
+<https://id.example.org/library/on-loan> <http://www.w3.org/2004/02/skos/core#definition> "The state of a loan from checkout up to and including its due date, while the copy has not been returned."@en .
+<https://id.example.org/library/on-loan> <http://www.w3.org/2004/02/skos/core#inScheme> <https://id.example.org/library/loan-state> .
+<https://id.example.org/library/on-loan> <http://www.w3.org/2004/02/skos/core#notation> "LS-1" .
+<https://id.example.org/library/on-loan> <http://www.w3.org/2004/02/skos/core#prefLabel> "On loan"@en .
+<https://id.example.org/library/on-loan> <http://www.w3.org/2004/02/skos/core#topConceptOf> <https://id.example.org/library/loan-state> .
+<https://id.example.org/library/overdue> <http://purl.org/dc/terms/source> "Example lending policy, edition 2026-01, clause 3.5"@en .
+<https://id.example.org/library/overdue> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2004/02/skos/core#Concept> .
+<https://id.example.org/library/overdue> <http://www.w3.org/2004/02/skos/core#definition> "The state of a loan from the day after its due date until the copy is returned."@en .
+<https://id.example.org/library/overdue> <http://www.w3.org/2004/02/skos/core#inScheme> <https://id.example.org/library/loan-state> .
+<https://id.example.org/library/overdue> <http://www.w3.org/2004/02/skos/core#notation> "LS-2" .
+<https://id.example.org/library/overdue> <http://www.w3.org/2004/02/skos/core#prefLabel> "Overdue"@en .
+<https://id.example.org/library/overdue> <http://www.w3.org/2004/02/skos/core#topConceptOf> <https://id.example.org/library/loan-state> .
+<https://id.example.org/library/returned> <http://purl.org/dc/terms/source> "Example lending policy, edition 2026-01, clause 3.6"@en .
+<https://id.example.org/library/returned> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2004/02/skos/core#Concept> .
+<https://id.example.org/library/returned> <http://www.w3.org/2004/02/skos/core#definition> "The state of a loan whose copy has been checked in, which closes the loan."@en .
+<https://id.example.org/library/returned> <http://www.w3.org/2004/02/skos/core#inScheme> <https://id.example.org/library/loan-state> .
+<https://id.example.org/library/returned> <http://www.w3.org/2004/02/skos/core#notation> "LS-3" .
+<https://id.example.org/library/returned> <http://www.w3.org/2004/02/skos/core#prefLabel> "Returned"@en .
+<https://id.example.org/library/returned> <http://www.w3.org/2004/02/skos/core#topConceptOf> <https://id.example.org/library/loan-state> .

@@ -62,6 +62,9 @@ echo
 echo "== ontology skill scripts =="
 (cd skills/data/ontology/scripts && uv run --no-project --with rdflib --with pyyaml --with pyshacl python3 -m unittest discover -q -p "test_*.py")
 (cd skills/data/ontology && uv run --no-project --with pyyaml python3 scripts/check_sssom.py templates/mappings.sssom.tsv)
+# The two tabular engines need different rdflib versions, so each runs in its own environment.
+(cd skills/data/ontology/scripts && TABULAR_ENGINE=morph-kgc uv run --no-project --with morph-kgc==2.10.0 --with rdflib python3 -m unittest -q test_tabular)
+(cd skills/data/ontology/scripts && TABULAR_ENGINE=maplib uv run --no-project --with maplib==0.20.26 --with polars --with rdflib python3 -m unittest -q test_tabular)
 
 echo
 echo "== ontology-to-lpg skill scripts =="
