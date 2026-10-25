@@ -457,13 +457,13 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(created[created.index("--label") + 1], "review-repo")
         self.assertEqual(os.path.realpath(created[created.index("--cwd") + 1]), self.repo)
 
-    def test_default_model_is_gpt_6_1_sol_in_the_review_tab(self):
+    def test_default_model_is_gpt_6_luna_in_the_review_tab(self):
         r, _ = self.run_case("newtab,fresh")
         self.assertEqual(r.returncode, 0, r.stderr)
         created = [a for a in self.argv if a[:2] == ["tab", "create"]][0]
         self.assertEqual(created[created.index("--label") + 1], "review-repo")
         start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
-        self.assertEqual(start[start.index("-m") + 1], "gpt-6.1-sol")
+        self.assertEqual(start[start.index("-m") + 1], "gpt-6-luna")
 
     def test_another_model_gets_its_own_tab(self):
         # The plain review-repo tab exists, but a reused tab keeps its reviewer,
@@ -486,14 +486,14 @@ class HerdrReview(unittest.TestCase):
     def test_each_override_model_gets_its_own_stable_name(self):
         import hashlib
         names = {}
-        for model in ("gpt-6-astra", "gpt-6-luna", "gpt-6-astra"):
+        for model in ("gpt-6-astra", "gpt-6.1-sol", "gpt-6-astra"):
             r, _ = self.run_case("newtab,fresh", extra=("--model", model))
             self.assertEqual(r.returncode, 0, r.stderr)
             name = [a for a in self.argv if a[:2] == ["agent", "start"]][0][2]
             self.assertEqual(name, "rev-repo-" + hashlib.sha1(f"codex:{model}".encode()).hexdigest()[:8])
             names.setdefault(model, set()).add(name)
         self.assertEqual(len(names["gpt-6-astra"]), 1)
-        self.assertNotEqual(names["gpt-6-astra"], names["gpt-6-luna"])
+        self.assertNotEqual(names["gpt-6-astra"], names["gpt-6.1-sol"])
 
     def test_agent_names_fit_herdr_limits_for_a_long_repo_name(self):
         for extra in ((), ("--model", "gpt-6-astra")):
@@ -502,14 +502,14 @@ class HerdrReview(unittest.TestCase):
             name = [a for a in self.argv if a[:2] == ["agent", "start"]][0][2]
             self.assertRegex(name, r"^[a-z][a-z0-9_-]{0,31}$", extra)
 
-    def test_kimi_reviewer_runs_k3_in_its_own_tab(self):
+    def test_kimi_reviewer_runs_k3_1_pro_in_its_own_tab(self):
         r, calls = self.run_case("fresh,defaultlive", extra=("--kind", "kimi"))
         self.assertEqual(r.returncode, 0, r.stderr)
         created = [a for a in self.argv if a[:2] == ["tab", "create"]][0]
-        self.assertEqual(created[created.index("--label") + 1], "review-repo-kimi-" + reviewer_hash("kimi:kimi-code/k3"))
+        self.assertEqual(created[created.index("--label") + 1], "review-repo-kimi-" + reviewer_hash("kimi:kimi-code/k3.1-pro"))
         start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
         self.assertEqual(start[start.index("--kind") + 1], "kimi")
-        self.assertEqual(start[start.index("--") + 1:], ["-m", "kimi-code/k3", "-y"])
+        self.assertEqual(start[start.index("--") + 1:], ["-m", "kimi-code/k3.1-pro", "-y"])
         self.assertRegex(start[2], r"^rev-repo-[0-9a-f]{8}$")
         self.assertIn("agent prompt", calls)
 

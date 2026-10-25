@@ -2,8 +2,9 @@
 # Run the independent review in a Herdr pane, wait for it, and print its report.
 #
 # Usage: herdr-review.sh --branch <branch> --verify "<claims to verify>" [--kind codex|kimi|cursor] [--model <model>]
-#   The default reviewer is Codex on gpt-6.1-sol. --kind kimi runs Kimi Code (model default
-#   kimi-code/k3); --kind cursor runs the Cursor agent CLI (default cursor-grok-4.6-medium).
+#   The default reviewer is Codex on gpt-6-luna. --kind kimi runs Kimi Code (model default
+#   kimi-code/k3.1-pro, whose default effort is high); --kind cursor runs the Cursor agent
+#   CLI (default cursor-grok-4.6-medium). changing.md ("Who reviews") says which to try first.
 #   Any other reviewer gets its own tab, review-<repo>-<kind>-<hash of kind:model>, because
 #   a reused tab keeps the reviewer it started with.
 #   Run from the repository under review, inside a Herdr pane (HERDR_WORKSPACE_ID set).
@@ -70,8 +71,8 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$branch" ] && [ -n "$verify" ] || { echo "usage: $self --branch <branch> --verify <text>" >&2; exit 2; }
 case "$kind" in
-  codex) model="${model:-gpt-6.1-sol}" ;;
-  kimi) model="${model:-kimi-code/k3}" ;;
+  codex) model="${model:-gpt-6-luna}" ;;
+  kimi) model="${model:-kimi-code/k3.1-pro}" ;;
   cursor) model="${model:-cursor-grok-4.6-medium}" ;;
   *) echo "--kind must be codex, kimi or cursor, got: $kind" >&2; exit 2 ;;
 esac
@@ -110,7 +111,7 @@ if [ -z "${HERDR_WORKSPACE_ID:-}" ]; then
   exit 1
 fi
 default_reviewer=""
-[ "$kind:$model" = "codex:gpt-6.1-sol" ] && default_reviewer=1
+[ "$kind:$model" = "codex:gpt-6-luna" ] && default_reviewer=1
 # The tab label and the agent name both carry this hash, so two models never share a
 # tab, even when their names differ only in punctuation (kimi-code/k3, kimi-code-k3).
 reviewer_hash=$(printf '%s' "$kind:$model" | shasum | cut -c1-8)
@@ -173,7 +174,7 @@ step="starting the reviewer"
 
 # Start a reviewer only if the pane has none; a reused tab keeps its reviewer.
 # Different model from the writer, no approval prompts, sandboxed with network
-# (Claude writing: Codex on gpt-6.1-sol at medium reasoning, the owner's choice;
+# (Claude writing: Codex on gpt-6-luna at medium reasoning, the owner's choice;
 # --kind and --model pick another reviewer when the owner asks). Kimi has no sandbox,
 # so it runs with -y: routine commands run, risky actions still ask, and a question
 # leaves the pane blocked, which the prompt step below reports.
