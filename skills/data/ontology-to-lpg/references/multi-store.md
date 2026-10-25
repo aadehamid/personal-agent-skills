@@ -1,14 +1,14 @@
 # Multi-store: one source, several stores, nothing lost
 
-Read it when the same released ontology must live in triple stores and in Neo4j or Aura, and you must prove each copy holds exactly the source. It is the plan the skill's owner decided on 2026-10-23. Hops 1, 4 and 5, and the counts of hop 3 (add-on J, which loads the released files as they are until hop 2 exists), can be run with this skill's scripts today. Hop 2 (skolemize), hop 3's export diff and Databricks store (add-on K), and hop 6 (the rebuild) are planned, not built.
+Read it when the same released ontology must live in triple stores and in Neo4j or Aura, and you must prove each copy holds exactly the source. It is the plan the skill's owner decided on 2026-10-23. Hops 1, 4 and 5 run with this skill's scripts, and hops 2 and 3 (skolemize, Jena Fuseki and the Databricks store, each with a no-loss round trip) with the `rdf-store` skill's. Hop 6 (the rebuild) is planned, not built.
 
 ## The flow
 
 | Hop | What happens | The check | Status |
 |---|---|---|---|
 | 1. Source | The released packages and their data files are the master copy (`inputs.md`, rule 1). | `check_projection_rules.py` and `validate_data.py` pass (SKILL.md steps 2 and 3). | Built |
-| 2. Skolemize | Replace every blank node with a Skolem IRI once, before any load, and keep that file beside the release as the derived copy every store reads; the release stays the master copy. | The skolemized file has no blank node and the same number of triples; a reverse map from Skolem IRI to blank node turns it back into a graph isomorphic to the original (rdflib `to_isomorphic`). | Planned: no script yet |
-| 3. Triple stores | Load the skolemized files into each store, one named graph per file. Any SPARQL 1.1 store through add-on J. Databricks through add-on K: a Delta table in Unity Catalog with the columns `subject`, `predicate`, `object`, `datatype`, `lang`, `graph`. | Counts per graph and per predicate equal the files' (`triplestore.py`). Then export each store back to N-Triples and diff it with the source: zero lost, zero added. | J built and tested on Jena Fuseki 6.2.0 (counts only, on the library and a multi-module ontology, loading the unskolemized files; the export diff is planned). K planned |
+| 2. Skolemize | Replace every blank node with a Skolem IRI once, before any load, and keep that file beside the release as the derived copy every store reads; the release stays the master copy. | The skolemized file has no blank node, and a second run writes the same bytes; its Skolem IRIs come from RDFC-1.0 labels, so they depend only on the graph. | Built in the `rdf-store` skill (`rdfstore.py skolemize`) |
+| 3. Triple stores | Load the skolemized files into each store, one named graph per file. Any SPARQL 1.1 store through add-on J. Databricks through add-on K: a Delta table in Unity Catalog with the columns `subject`, `predicate`, `object`, `datatype`, `lang`, `graph`. | The `rdf-store` round trip: export everything the store holds and compare it with the source by RDFC-1.0 hash; equal hashes mean zero lost and zero added. Counts per graph and per predicate are a quick look (`triplestore.py` adds the three-way counts against the n10s export). | Built in the `rdf-store` skill; on 2026-10-24 a multi-module ontology's 33 graphs (36,575 quads) round-tripped with equal hashes through Jena Fuseki 6.2.0 and a Databricks Delta table |
 | 4. Local Neo4j | Project with n10s: SKILL.md steps 4 to 6. | `check-report` passes: what n10s compiled, one fail case per row, the round trip and two equal hashes (`pipeline.md`, rules 13 to 17). | Built |
 | 5. Aura or any Neo4j | Copy the verified graph with add-on I. | The target's graph hash equals the local one and the report's. | Built; run against a local second Neo4j and Aura Free |
 | 6. Rebuild | Delete the local Neo4j and the Aura data. Rebuild both, taking a store's export (for example the Databricks Delta table) as the source of hops 4 and 5. | The rebuilt graph's hash equals the hash from hop 4, and its round trip against the original source files loses and adds nothing. That proves source → store → Neo4j and Aura loses nothing. | Planned |
@@ -21,11 +21,11 @@ The diagram is `diagrams/data-flow.png` (source `diagrams/data-flow.eraser`; the
 
 **Ontology build (ontology skill, Steps 1-11)** (blue). "W3C stack: RDF, OWL, SKOS, SHACL, PROV-O, DCAT" → "check.sh, pySHACL, competency questions (SPARQL)" → "Released packages + DCAT catalog (git tags)". These are the `ontology` skill's steps; its gates prove each release before this skill reads it. The released packages are the master copy (hop 1 above).
 
-**Released packages → "Skolemize blank nodes (stable IRIs)"** (yellow). What crosses: every released data file. What happens: hop 2. The check: no blank node left, same triple count, the reverse map gives an isomorphic graph. Planned: no script yet.
+**Released packages → "Skolemize blank nodes (stable IRIs)"** (yellow). What crosses: every released data file. What happens: hop 2. The check: no blank node left, and a second run writes the same bytes. Built in the `rdf-store` skill (`rdfstore.py skolemize`).
 
 **Skolemize → Triple stores** (purple), two arrows:
-- "load, export back, compare" into "Apache Jena Fuseki, Graph Store Protocol, one named graph per package": `triplestore.py` (add-on J) replaces each named graph with `PUT`; the check is the per-graph and per-predicate counts against the files, then the export diff of hop 3. Counts built; the export diff planned.
-- "triple for triple" into "Databricks: Delta triple table in Unity Catalog (planned)": add-on K, with the two boxes under it, "Free Edition: transfers run from your machine" and "Enterprise: your machine, or a job in the workspace", whose arrows point at the table because both modes write the same table (see "Databricks: two modes" below). Planned.
+- "load, export back, compare" into "Apache Jena Fuseki, Graph Store Protocol, one named graph per package": the `rdf-store` skill replaces each named graph with `PUT`, exports everything the store holds and compares it with the files by RDFC-1.0 hash. Built; `triplestore.py` (add-on J) adds the counts against the n10s export.
+- "triple for triple" into "Databricks: Delta triple table in Unity Catalog (planned)": add-on K, with the two boxes under it, "Free Edition: transfers run from your machine" and "Enterprise: your machine, or a job in the workspace", whose arrows point at the table because both modes write the same table (see "Databricks: two modes" below). Built in the `rdf-store` skill, with the same round trip; the diagram's "(planned)" label predates it.
 
 **Skolemize → ontology-to-lpg skill** (orange): "Check: design rules, data shapes, refusals" → "Reason: ROBOT + ELK, once, upstream" → "Serialise: loadable.nt + inferred.nt (check-serialised)". What crosses: the released data files, skolemized once hop 2 exists; until then the skill reads the released files as they are (hop 1), so this arrow is planned and the boxes it reaches are built. They are SKILL.md steps 2 to 4, checks V1 to V5 below.
 
@@ -90,6 +90,8 @@ It covers labels, property types, `NOT NULL` (when `sh:minCount` is at least 1, 
 - **Neo4j stays the projection.** The triple stores hold the same triples as the source; Neo4j holds the projection that n10s, the shapes and the round trip verified. The rebuild of hop 6 tests that a store's copy is a valid source for the projection.
 
 ## Databricks: two modes for add-on K
+
+The `rdf-store` skill builds add-on K (its `references/stores.md`); this section keeps the reasoning behind its two modes.
 
 Add-on K must run on both editions. The no-loss checks are the same in both; only where the transfer runs differs.
 
