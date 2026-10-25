@@ -130,7 +130,7 @@ class Config(Base):
     def test_bad_configurations_are_refused(self):
         for extra in ({"other": 1}, {"inputs_script": "x.py"}, {"mode": "both"}, {"databricks": {"env": "dbx.env"}},
                       {"rebuild": {"source": "s3", "out": "re"}}, {"rebuild": {"source": "jena", "out": "out"}},
-                      {"release_graphs": ["a/b"]}):
+                      {"release_graphs": ["a/b"]}, {"rebuild": {"source": "databricks", "out": "re"}}):
             with self.subTest(extra), self.assertRaises(rp.Refusal):
                 self.run_config(**extra)
 
@@ -247,7 +247,8 @@ class Steps(Base):
                 return super().__call__(cmd, cwd, env, capture)
         fake = Breaking()
         d = self.driver(self.run_config(), fake)
-        d.run_steps(["project", "load", "jena"])
+        with self.assertRaises(rp.Failed):   # every step passed, but a container was left up
+            d.run_steps(["project", "load", "jena"])
         last = [cmd for cmd, _, _ in fake.calls[-2:]]
         self.assertIn("lpg-jena", last[0])
         self.assertIn("lpg-local", last[1])   # the local Neo4j still removed
@@ -274,6 +275,20 @@ class Steps(Base):
         self.assertEqual(sum("could not be removed" in line for line in logged), 2)
         self.assertIn("lpg-local", fake.calls[-1][0])   # the local Neo4j still removed
         self.assertEqual(len(d.fusekis), 1)               # still tracked: it was never removed
+
+    def test_a_removal_that_exits_non_zero_fails_the_run_and_stays_tracked(self):
+        fake = FakeRun()
+        d = self.driver(self.run_config(), fake)
+        d.run_steps(["project", "load"])
+        fake.fail = {"down": 7}
+        d.local_up = True
+        d.rdf_store_fuseki = lambda key: None
+        d.fusekis.append((["docker", "compose", "-p", "lpg-jena"], {}))
+        with self.assertRaises(rp.Failed) as caught:
+            d.run_steps([])
+        self.assertIn("2 container removal(s) failed", str(caught.exception))
+        self.assertTrue(d.local_up)
+        self.assertEqual(len(d.fusekis), 1)
 
     def test_a_step_that_needs_the_local_neo4j_says_so(self):
         d = self.driver(self.run_config(), FakeRun())

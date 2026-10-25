@@ -162,6 +162,8 @@ def read_config(path):
         if not isinstance(r, dict) or set(r) != {"source", "out"} or r["source"] not in ("repo", "jena", "databricks"):
             raise Refusal("rebuild takes exactly source (repo, jena or databricks) and out")
         cfg["rebuild"] = {"source": r["source"], "out": path_of(r["out"])}
+        if r["source"] == "databricks" and "databricks" not in cfg:
+            raise Refusal("a rebuild from databricks needs the databricks key")
         if cfg["rebuild"]["out"] == cfg["out"]:
             raise Refusal("rebuild.out must differ from out")
     graphs = cfg.setdefault("release_graphs", [])
@@ -489,6 +491,7 @@ class Driver:
         self.fusekis = []
         self.jena = None
         self.passed = []
+        self.not_removed = 0
 
     # inputs
     def read_inputs(self):
@@ -594,8 +597,10 @@ class Driver:
         return ["docker", "compose", "-f", self.compose, "-p", self.cfg["neo4j"]["compose_project"]]
 
     def neo4j_down(self):
-        self.run(self.neo4j_compose() + ["--profile", "neo4j", "--profile", "fuseki", "down", "-v"],
-                 env=self.neo4j_env(), capture=True)
+        code, _ = self.run(self.neo4j_compose() + ["--profile", "neo4j", "--profile", "fuseki", "down", "-v"],
+                           env=self.neo4j_env(), capture=True)
+        if code != 0:
+            raise Failed(f"docker compose down (Neo4j) exited {code}")
         self.local_up = False
 
     def password(self):
@@ -628,7 +633,9 @@ class Driver:
 
     def fuseki_down(self, base_env):
         base, env = base_env
-        self.run(base + ["down", "-v"], env=env, capture=True)
+        code, _ = self.run(base + ["down", "-v"], env=env, capture=True)
+        if code != 0:
+            raise Failed(f"docker compose down (Fuseki) exited {code}")
         if base_env in self.fusekis:   # tracked until removed, so finish() retries a failed removal
             self.fusekis.remove(base_env)
 
@@ -843,6 +850,7 @@ class Driver:
                     getattr(child, "step_" + step)()
         finally:
             child.finish()
+            self.not_removed += child.not_removed
 
     def same_source(self):
         """The rebuild compares with out's run, so the inputs must be the ones that run read: every SHA-256
@@ -870,10 +878,16 @@ class Driver:
         """Runs one container removal; a failure is said, never raised, so it cannot hide a step's own."""
         try:
             teardown()
+        except Failed as exc:
+            self.not_removed += 1
+            self.log(f"WARNING {q(str(exc))}")
         except Exception as exc:  # noqa: BLE001 (any failure; the next removal still runs)
+            self.not_removed += 1
             self.log(f"WARNING {q(error_line('a container could not be removed', exc))}")
 
     def run_steps(self, steps):
+        """Runs the steps, then removes the containers. A step's failure propagates; with every step
+        passed, a container left running fails the run, so a pass means nothing was left up."""
         try:
             for step in steps:
                 self.log(f"== {q(step)}")
@@ -881,6 +895,8 @@ class Driver:
                 self.passed.append(step)
         finally:
             self.finish()
+        if self.not_removed:
+            raise Failed(f"{self.not_removed} container removal(s) failed; remove them with docker compose down -v")
 
 
 def compare_main(argv):

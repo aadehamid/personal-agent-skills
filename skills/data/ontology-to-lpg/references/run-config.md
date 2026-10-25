@@ -89,4 +89,4 @@ The `project` step writes `<out>/run-manifest.json`: the mode, each data and sha
 
 ## What it leaves behind
 
-Every Fuseki is removed when the run ends, pass or fail, and the local Neo4j too unless `keep_neo4j` is set. A copy stays on the target, and a Databricks round trip leaves the table holding the release. To empty them, delete only what the run loaded.
+Every Fuseki is removed when the run ends, pass or fail, and the local Neo4j too unless `keep_neo4j` is set. Each removal runs even when another fails. A removal that fails fails the run, even when every step passed, and the run says which; a step's own failure is still the one reported. A copy stays on the target, and a Databricks round trip leaves the table holding the release. To empty them, delete only what the run loaded.
