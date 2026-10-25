@@ -50,10 +50,10 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
 
    ```sh
    node "$(ls -d "$HOME"/.claude/plugins/cache/openai-codex/codex/*/scripts/codex-companion.mjs | tail -1)" \
-     adversarial-review --wait --base main --scope branch "<what to verify>"
+     adversarial-review --wait --base main --scope branch --model gpt-6-luna "<what to verify>"
    ```
 
-   Tell it which claims to verify and which documents must stay consistent. Ask it to be adversarial, and to say how the thing under review could still pass while being wrong.
+   The plugin takes `--model` but no effort setting, so the review runs at the `model_reasoning_effort` in `~/.codex/config.toml`. Tell it which claims to verify and which documents must stay consistent. Ask it to be adversarial, and to say how the thing under review could still pass while being wrong.
 
    - **State claims as the change's effects, not as your search.** Name what the change does to the project, in this PR's own terms. For example, a PR that adds an order status and drops a manual approval step should claim "orders gain a status; refunds no longer wait for manual approval", not "every document stating the counts was updated". The reviewer checks what the claim names, so a claim that describes your search confines the review to the places you already looked.
    - **Reproduce every finding before you accept it.** A finding is a claim; run it. A finding accepted on assertion becomes a wrong change.
