@@ -321,6 +321,23 @@ class Walk(Fixture):
         self.assertIn([str(t) for t in orphan] + ["https://example.org/base/1.1.0"], edges)
         self.assertIn([str(t) for t in lone] + [None], edges)
 
+    def test_a_plain_file_is_a_package_named_by_its_graph_on_both_sides(self):
+        # run_projection.py's files mode: a file with no owl:versionIRI, named by module_tags --graph and,
+        # in the store, by the graph it was loaded into (explore.py --files).
+        plain = write(self.tmp, "plain.ttl", "<https://example.org/plain/n1> <http://www.w3.org/2004/02/skos/core#related> "
+                                             "<https://example.org/base/p0> .\n")
+        packages = mt.read_packages([plain] + [p.path for p in self.packages], {plain: "urn:x:plain"})
+        self.assertIn("urn:x:plain", [p.version for p in packages])
+        ds = Dataset(default_union=False)
+        for p in packages:
+            g = ds.graph(URIRef(p.version))
+            for t in p.graph:
+                g.add(t)
+        select = lambda q: [{str(k): str(v) for k, v in r.asdict().items()} for r in ds.query(q)]   # noqa: E731
+        neo = explore.Neo4jSide(FakeNeo4j(packages), PREFIXES)
+        self.assertTrue(explore.compare_walk(neo, explore.StoreSide(select, None, True), "https://example.org/plain/n1", 2)["equal"])
+        self.assertFalse(explore.compare_walk(neo, explore.StoreSide(select), "https://example.org/plain/n1", 2)["equal"])
+
     def test_the_module_maps_agree(self):
         self.assertEqual(explore.Neo4jSide(FakeNeo4j(self.packages), PREFIXES).modules(), store(self.packages).modules())
 

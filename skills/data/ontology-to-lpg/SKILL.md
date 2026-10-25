@@ -38,6 +38,8 @@ Before you work on a step, read the reference it names. The scripts run with `uv
 
 For add-ons a consumer asks for (superclass labels, language keys, exact decimals, units, provenance, business keys; module tags, the module graph and the walk across modules in Neo4j and a triple store, add-on F; copying the verified graph to Aura or another Neo4j without n10s; a Cypher 25 `GRAPH TYPE` from the shapes; the shapes' element types as a Data Modeling MCP model for Arrows and Mermaid, add-on L; counts that tie a SPARQL 1.1 triple store to the projection; loading a triple store or a Databricks Delta table with a no-loss round trip is the `rdf-store` skill) and the anti-patterns to review against, by hand or with `model_review.py`, read `references/add-ons.md`. When the same release must live in triple stores and in Neo4j or Aura with proof that nothing was lost (skolemize, load the stores, project, copy, rebuild from a store), read `references/multi-store.md`; its sections "The data flow, box by box" and "The validation path, V1 to V14, and GRAPH TYPE, G1 to G4" explain the two diagrams in `references/diagrams/` and map every check to its rule. When the user asks what to learn first, or for exercises, read `references/learning-path.md`.
 
+Once the steps have passed by hand, run them again, with every store and every check, through `run_projection.py` and a run configuration (`templates/run-config.json`). It runs steps 2 to 6, add-ons F, H, I, J and K, the `rdf-store` skill's round trips through Jena and Databricks, and a rebuild from any store's copy, each step skippable. It first asks for a choice: released packages (recommended) or plain RDF files, with no pins and, without shapes, default shapes derived from the data. Read `references/run-config.md` before you write the configuration. A project needs no scripts of its own around this skill's.
+
 ## Related Neo4j skills
 
 Neo4j publishes agent skills in `neo4j-contrib/neo4j-skills` (plugin 1.0.1, commit `39247b9`). None of them covers RDF, SHACL or n10s; use them beside this skill:
@@ -58,7 +60,7 @@ Neo4j publishes agent skills in `neo4j-contrib/neo4j-skills` (plugin 1.0.1, comm
 
 ## Templates and scripts
 
-Copy from `templates/`: `projection-config.json` (the configuration), `projection-report.json` (the report's shape; it fails `check-report` until filled), and `library-module.ttl` with `library-shapes.ttl` (a small module that passes every check and gives the reasoner one inference to keep). The scripts in `scripts/`:
+Copy from `templates/`: `projection-config.json` (the configuration), `run-config.json` (the run configuration `run_projection.py` reads), `projection-report.json` (the report's shape; it fails `check-report` until filled), and `library-module.ttl` with `library-shapes.ttl` (a small module that passes every check and gives the reasoner one inference to keep). The scripts in `scripts/`:
 
 - `check_projection_rules.py`: the design rules, package pins, refusals and release exceptions;
 - `validate_data.py`: pySHACL with every shape, plus the refusals;
@@ -69,9 +71,10 @@ Copy from `templates/`: `projection-config.json` (the configuration), `projectio
 - `copy_graph.py`: add-on I, copies the verified graph to another Neo4j and compares graph hashes;
 - `module_tags.py`: add-on F, tags every node and relationship with its package (`tag`, `check`), builds the module graph (`modules`) and writes its SPARQL CONSTRUCT (`construct`);
 - `explore.py`: add-on F, the walk from any node across modules in Neo4j and in a SPARQL store, compared answer for answer (`walk`, `compare`), and the paste-able SPARQL walk (`sparql-walk`); the paste-able forms are in `queries/`;
+- `run_projection.py`: one run configuration drives every step, store and check, and the rebuild from a store with its two comparisons (`references/run-config.md`);
 - `model_review.py`: reviews a loaded graph against the anti-patterns of Neo4j's `neo4j-modeling-skill` that a projection keeps (`references/add-ons.md`, "Reviewing the loaded graph");
 - `triplestore.py`: add-on J, loads the same files into a SPARQL 1.1 store and checks per-graph and per-predicate counts, and with `--projection-report` the three-way counts against the n10s export (the no-loss round trip itself is the `rdf-store` skill);
 - `docker/compose.yaml` and `docker/fuseki/Dockerfile` (beside `scripts/`): the default way to start Neo4j with the pinned n10s, and Fuseki for add-on J (`references/running.md`, rule 5);
-- `test_projection.py`, `test_engine_gate.py`, `test_modeling.py` and `test_explore.py`: the tests of all of them (the parts that need no database or store), run by the repository's check script (`uv run --no-project --with rdflib --with pyshacl --with mcp-neo4j-data-modeling==0.8.2 python3 -m unittest test_projection test_engine_gate test_modeling test_explore`; the pinned package is what `test_modeling` checks the data-model validator against).
+- `test_projection.py`, `test_engine_gate.py`, `test_modeling.py`, `test_explore.py` and `test_run_projection.py`: the tests of all of them (the parts that need no database or store), run by the repository's check script (`uv run --no-project --with rdflib --with pyshacl --with mcp-neo4j-data-modeling==0.8.2 python3 -m unittest test_projection test_engine_gate test_modeling test_explore test_run_projection`; the pinned package is what `test_modeling` checks the data-model validator against).
 
 Exit codes: 2 means bad input for every script. `check_projection_rules.py`, `validate_data.py` and `build.py` exit 0 on a pass and 1 with one line per failure. `load_verify.py` prints a quoted JSON summary and every constraint n10s did not compile, then exits 0 and writes the report only when every check passed, and 1 otherwise; `build.py check-report` passing means steps 5 and 6 are done.

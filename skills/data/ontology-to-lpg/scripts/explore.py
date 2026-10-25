@@ -18,7 +18,9 @@ first graph in dependency order that holds it, the subject's tag for a triple on
 graph) and a node's tag likewise, so agreement also proves the tags. The inferred graph is the named
 graph the projection's inferred.nt was loaded into: --inferred-graph, by default
 urn:ontology-to-lpg:inferred (load it with rdfstore.py --graph inferred.nt=<that IRI>). A triple in any
-other graph that is not a package is kept with no tag, so it shows as a difference. Both answers become one sorted
+other graph that is not a package is kept with no tag, so it shows as a difference; with --files
+(run_projection.py's files mode) every other graph is a package named by its graph, as module_tags.py
+--graph names a plain file. Both answers become one sorted
 list of [subject, predicate, object, tag] and one of [node, tag]; `walk` prints both stores' counts
 and whether they are equal, and the modules reached.
 
@@ -52,6 +54,8 @@ PREFIX dcterms: <http://purl.org/dc/terms/>
 SELECT ?g ?ontology ?version ?pin WHERE {
   GRAPH ?g { ?ontology a owl:Ontology ; owl:versionIRI ?version . OPTIONAL { ?ontology dcterms:requires ?pin } }
 }"""
+
+SP_GRAPHS = "SELECT DISTINCT ?g WHERE { GRAPH ?g { ?s ?p ?o } }"
 
 
 def iri_values(iris):
@@ -120,13 +124,17 @@ class StoreSide:
     """A SPARQL store holding one named graph per package (and INFERRED). select(query) returns rows of
     {variable: value} with every value a string (an IRI's text, a literal's lexical form, true/false)."""
 
-    def __init__(self, select, inferred_graph=None):
+    def __init__(self, select, inferred_graph=None, files=False):
         self.select = select
         self.inferred = inferred_graph or INFERRED
         heads = self.select(SP_HEADERS)
         by_graph = {}
         for r in heads:
             by_graph.setdefault(r["g"], (r["ontology"], r["version"], set()))[2].update([r["pin"]] if r.get("pin") else [])
+        if files:   # every other graph is a plain file, a package named by its graph (module_tags --graph)
+            for r in self.select(SP_GRAPHS):
+                if r["g"] not in by_graph and r["g"] != self.inferred:
+                    by_graph[r["g"]] = (r["g"], r["g"], set())
         self.packages = mt.dependency_order([mt.Package(g, o, v, tuple(sorted(p)), None)
                                              for g, (o, v, p) in by_graph.items()])
         self.rank = {p.path: i for i, p in enumerate(self.packages)}
@@ -221,6 +229,9 @@ def options(argv):
     known = {"--config", "--uri", "--env", "--sparql", "--iri", "--hops", "--queries", "--report", "--query-timeout",
              "--output", "--inferred-graph"}
     while i < len(argv):
+        if argv[i] == "--files":
+            opts["--files"], i = True, i + 1
+            continue
         if argv[i] not in known or i + 1 >= len(argv):
             raise Refusal("an unknown flag, or a flag without its value")
         opts[argv[i]] = argv[i + 1]
@@ -271,7 +282,7 @@ def main(argv):
         with GraphDatabase.driver(uri, auth=auth) as driver, driver.session(database=database) as raw:
             session = lv.Timed(raw, timeout)
             neo = Neo4jSide(lambda stmt, **params: session.run(stmt, params).data(), prefixes)
-            store = StoreSide(http_select(opts["--sparql"]), opts.get("--inferred-graph"))
+            store = StoreSide(http_select(opts["--sparql"]), opts.get("--inferred-graph"), opts.get("--files", False))
             if command == "walk":
                 results = [compare_walk(neo, store, opts["--iri"], hops)]
                 module_map = None
