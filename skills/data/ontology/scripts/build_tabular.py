@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Step 4 and any promotion of spreadsheet or CSV rows: build triples from a reviewed mapping, deterministically
-(references/promotion.md, "From a spreadsheet to triples").
+(references/promotion.md, "From a spreadsheet to triples"). Morph-KGC is the engine to use for a spreadsheet or CSV;
+maplib is for a source that is already a dataframe in Python.
 
 Run, with the engine's packages:
   uv run --no-project --with morph-kgc==2.10.0 --with rdflib python3 build_tabular.py \

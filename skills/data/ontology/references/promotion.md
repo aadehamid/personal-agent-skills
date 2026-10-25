@@ -77,7 +77,7 @@ When the source is a spreadsheet or CSV export, write the conversion as a review
 3. **Map every value in its final form,** language tag and datatype included, and mint no blank nodes; the builder refuses them. *Why:* the output then passes `check_taxonomy.py` like hand-written data.
 4. **Pin the engine's version** in the check script's command line. *Why:* a new engine release can change the output, which `--verify` would then report as a data change.
 
-Two engines are worked through; the owner chooses one before the first real use. *Decision pending.*
+Two engines are worked through. **Morph-KGC is the engine to use** (decided by the skill's owner on 2026-10-25, accepting the recommendation below: "Let us go with your recommendation."). Map a spreadsheet or CSV export with Morph-KGC. Use maplib only where the source is already a dataframe in Python, such as a query result, and say why in the mapping's pull request. The worked example keeps its maplib template, which reads the CSV so that both engines map the same rows: it keeps the builder's maplib route tested and shows the two engines give the same triples. It is not the pattern for a new spreadsheet.
 
 | | RML run by Morph-KGC | maplib (OTTR-style templates over Polars) |
 |---|---|---|
@@ -88,7 +88,14 @@ Two engines are worked through; the owner chooses one before the first real use.
 | Dependencies | Needs rdflib below 7.3 | Needs rdflib 7.6 or later, and Polars; the two cannot share an environment |
 | Determinism | Same bytes on every run, after the builder's sort | Same bytes, and the same bytes as Morph-KGC: both reproduce the committed `loan-states.nt` |
 
-Recommendation for the owner: Morph-KGC, because the mapping is a declarative standard file a reviewer reads without running code, and maplib's language tags need a workaround. Speed was not compared with a repeatable benchmark, so it plays no part in the recommendation. maplib suits a source that is already a dataframe in Python, such as a query result. For a one-off conversion, Sparna's Excel 2 RDF (`https://xls2rdf.sparna.fr/`) needs no mapping file, but its output still goes through this section's review.
+Why Morph-KGC:
+
+- **A reviewer reads the mapping, not code.** An RML file declares one rule per column, and running it executes no project code.
+- **The mapping outlives the engine.** RML is a published specification, not one engine's format (`SOURCES.md`, the RML row), so a project can change engines without rewriting its mappings. A maplib template runs only in maplib.
+- **Language tags are declared per column** with `rr:language`. maplib 0.20.26 documents no column language type, so its tags need a `STRLANG` workaround in a CONSTRUCT.
+- **Everything it needs is open source.** Morph-KGC is Apache-2.0. maplib's mapping and query engines are Apache-2.0, but its SHACL and Datalog engines are not open source.
+
+Speed was not compared with a repeatable benchmark, so it plays no part in the recommendation. maplib suits a source that is already a dataframe in Python, such as a query result. For a one-off conversion, Sparna's Excel 2 RDF (`https://xls2rdf.sparna.fr/`) needs no mapping file, but its output still goes through this section's review.
 
 Packaging, versioning and later releases: `release.md`.
 
