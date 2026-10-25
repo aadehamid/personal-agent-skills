@@ -612,7 +612,7 @@ class FakeEngine:
     def __exit__(self, *exc):
         return False
 
-    def begin_transaction(self):
+    def begin_transaction(self, timeout=None):   # the driver's signature; load_verify.Timed passes timeout
         engine = self
 
         class Tx:

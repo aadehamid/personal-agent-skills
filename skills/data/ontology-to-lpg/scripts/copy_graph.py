@@ -7,7 +7,7 @@ and this script copies the result with plain Cypher over the Python driver.
 
 Run: NEO4J_PASSWORD=<local password> uv run --no-project --with rdflib --with neo4j python3 copy_graph.py \
          --source bolt://127.0.0.1:<port> --target-env <file> --report <projection-report.json> \
-         [--batch 1000] [--replace]
+         [--batch 1000] [--replace] [--query-timeout <seconds>]
 
 --target-env names a file of KEY=VALUE lines: NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD and
 optionally NEO4J_DATABASE (the format of an Aura credentials file). The password is never printed.
@@ -132,10 +132,11 @@ def main(argv):
     try:
         opts, rest = build.options(argv, flags=("--replace",))
         build.need(opts, "--source", "--target-env", "--report")
-        unknown = sorted(set(opts) - {"--source", "--target-env", "--report", "--replace", "--batch"})
+        unknown = sorted(set(opts) - {"--source", "--target-env", "--report", "--replace", "--batch", "--query-timeout"})
         if rest or unknown:
             raise ValueError(f"unexpected arguments: {' '.join(rest + unknown)}")
         size = int(opts.get("--batch", 1000))
+        timeout = lv.query_timeout(opts)
         password = os.environ.get("NEO4J_PASSWORD")
         if not password:
             raise ValueError("set NEO4J_PASSWORD to the local (source) password")
@@ -150,7 +151,9 @@ def main(argv):
                 GraphDatabase.driver(target_values["NEO4J_URI"],
                                      auth=(target_values["NEO4J_USERNAME"], target_values["NEO4J_PASSWORD"])) as dst_driver:
             database = target_values.get("NEO4J_DATABASE") or None
-            with src_driver.session() as source, dst_driver.session(database=database) as target:
+            with src_driver.session() as raw_source, dst_driver.session(database=database) as raw_target:
+                # Every statement on either side carries the server-side timeout (load_verify.Timed).
+                source, target = lv.Timed(raw_source, timeout), lv.Timed(raw_target, timeout)
                 # Compared by the server's own database id, before anything is written or deleted:
                 # bolt://127.0.0.1 and bolt://localhost, or neo4j:// and bolt://, can reach one database.
                 if database_identity(source) == database_identity(target):

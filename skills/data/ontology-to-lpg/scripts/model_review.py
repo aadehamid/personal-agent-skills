@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Review a loaded projection against the graph anti-patterns of Neo4j's neo4j-modeling-skill
 (version 1.0.7: "Defaults", "Anti-Patterns Table", "Supernode Detection and Mitigation"; severity as
-its "Output Format": ERROR stops, WARNING is reported, INFO is surfaced).
+its "Output Format": ERROR is a correctness failure, WARNING a performance or extensibility risk, INFO
+a style or convention point).
 
 Run after step 6 (or after a copy, add-on I), against any Neo4j:
     NEO4J_PASSWORD=... uv run --no-project --with rdflib --with neo4j python3 model_review.py \
@@ -9,66 +10,80 @@ Run after step 6 (or after a copy, add-on I), against any Neo4j:
     uv run --no-project --with rdflib --with neo4j python3 model_review.py --env <target.env> [...]
 
 --env names a file of NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD and optionally NEO4J_DATABASE (the
-format copy_graph.py reads). The password is never printed.
+format copy_graph.py reads). No password or credential-bearing URI is printed: a URI is shown through
+shell.redact, and a driver error by its type only.
 
-The rules, each one finding per offender:
+The rules, from the skill, each one finding per offender:
   missing-key-constraint  ERROR    no uniqueness or node-key constraint on --key-label(--key-property),
-                                   by default n10s's Resource(uri) (the skill's default 4: every node
-                                   type used in MERGE has one; its table: "duplicate nodes silently created")
+                                   by default n10s's Resource(uri) (default 4: every node type used in
+                                   MERGE has one; the table: "Duplicate nodes silently created")
   generic-label           WARNING  a label whose local name (after the SHORTEN "prefix__") is Entity,
-                                   Node or Thing (default 6 and the table)
-  generic-type            WARNING  a relationship type whose local name is RELATED_TO or HAS, in any case
-                                   or spelling (relatedTo, has)
+                                   Node or Thing (default 6 and the table: no filtering benefit)
+  generic-type            WARNING  a relationship type whose local name is RELATED_TO, HAS or
+                                   CONNECTED_TO, in any case, with or without "_" or "-"
   supernode               WARNING  a node with more than --max-degree relationships (default 100000:
                                    "Any node with >100K relationships will degrade traversal")
-  supernode-candidate     INFO     a node whose degree is at least --factor (default 10) times the median
-                                   of its label and at least --min-degree (default 50) ("degree >> median
-                                   for its label"); a concept scheme or a code-list value is expected here
-  both-directions         WARNING  one relationship type used from label A to B and from B to A, A and B
-                                   different (default 8: "Rel direction encodes semantic meaning")
+  supernode-candidate     WARNING  a node whose degree is at least --factor (default 10) times the
+                                   median of one of its labels and at least --min-degree (default 50)
+                                   ("degree >> median for its label"; a performance risk)
+and one local heuristic, not from the skill (design-rules.md says why):
+  reciprocal-type         INFO     one relationship type used from label A to B and from B to A, A and B
+                                   different: often one ontology property stated both ways
 
-n10s's own nodes and labels are not domain data and are skipped: Resource (on every node), the
-configuration labels (_GraphConfig, _NsPrefDef, _n10sValidatorConfig) and the schema labels
-(n4sch__*). Where the projection departs from the skill on purpose (SKOS concepts as nodes,
-properties on relationships), design-rules.md says so; this script checks only rules the projection
-keeps.
+Degree is total degree, both directions. Only domain labels count: n10s's own (Resource, the
+configuration labels, n4sch__*) are left out before any degree rule, and a node with no domain label
+is not reviewed. Medians, offenders and reciprocal pairs are computed in Cypher, so only label
+statistics and offenders (at most --limit, default 100) come back. Every statement carries a
+server-side timeout, --query-timeout seconds (default 120).
 
-Exit 0 when no ERROR was found, 1 when one was, 2 on bad input or a failed query. Every printed value
-is shell-quoted.
+Exit 0 when no ERROR was found, 1 when one was, 2 on bad input, a failed query or an unwritten report.
+The report is written atomically. Every printed value is shell-quoted.
 """
 import json
 import os
-import statistics
 import sys
+import tempfile
 
+import load_verify as lv
 from shell import q, redact
 
-SKIPPED_LABELS = {"Resource", "_GraphConfig", "_NsPrefDef", "_n10sValidatorConfig"}
+SKIPPED_LABELS = ["Resource", "_GraphConfig", "_NsPrefDef", "_n10sValidatorConfig"]
 GENERIC_LABELS = {"entity", "node", "thing"}
-GENERIC_TYPES = {"relatedto", "has"}
+GENERIC_TYPES = {"relatedto", "has", "connectedto"}
 
+DOMAIN = "[l IN labels(n) WHERE NOT l IN $skipped AND NOT l STARTS WITH 'n4sch__']"
 LABELS = "CALL db.labels() YIELD label RETURN label"
 TYPES = "CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType AS type"
-CONSTRAINTS = "SHOW CONSTRAINTS YIELD type, entityType, labelsOrTypes, properties RETURN type, entityType, labelsOrTypes, properties"
-DEGREES = "MATCH (n) RETURN n.uri AS uri, labels(n) AS labels, count{ (n)--() } AS degree"
-PATTERNS = ("MATCH (a)-[r]->(b) RETURN DISTINCT type(r) AS type, labels(a) AS source, labels(b) AS target")
+CONSTRAINTS = ("SHOW CONSTRAINTS YIELD type, entityType, labelsOrTypes, properties "
+               "RETURN type, entityType, labelsOrTypes, properties")
+LABEL_MEDIANS = (f"MATCH (n) WITH n, {DOMAIN} AS dl WHERE size(dl) > 0 "
+                 "WITH dl, count{ (n)--() } AS degree UNWIND dl AS label "
+                 "RETURN label, percentileCont(degree, 0.5) AS median")
+OFFENDERS = (f"MATCH (n) WITH n, {DOMAIN} AS dl WHERE size(dl) > 0 "
+             "WITH n, dl, count{ (n)--() } AS degree "
+             "WHERE degree > $max_degree OR (degree >= $min_degree AND any(l IN dl WHERE "
+             "degree >= $factor * CASE WHEN coalesce($medians[l], 0) < 1 THEN 1 ELSE $medians[l] END)) "
+             "RETURN n.uri AS uri, dl AS labels, degree ORDER BY degree DESC, uri LIMIT $limit")
+RECIPROCAL = ("MATCH (a)-[r]->(b) "
+              f"WITH type(r) AS t, {DOMAIN.replace('(n)', '(a)')} AS la, {DOMAIN.replace('(n)', '(b)')} AS lb "
+              "UNWIND la AS x UNWIND lb AS y WITH DISTINCT t, x, y WHERE x <> y "
+              "WITH t, collect([x, y]) AS pairs UNWIND pairs AS p WITH t, p, pairs "
+              "WHERE p[0] < p[1] AND [p[1], p[0]] IN pairs "
+              "RETURN t AS type, p[0] AS a, p[1] AS b ORDER BY type, a, b")
 
 
 def local(name):
     """The local part of a SHORTEN name (lib__Work -> Work), squashed for comparison."""
-    return name.split("__", 1)[-1].replace("_", "").lower()
-
-
-def domain(labels):
-    return sorted(lb for lb in labels if lb not in SKIPPED_LABELS and not lb.startswith("n4sch__"))
+    return name.split("__", 1)[-1].replace("_", "").replace("-", "").lower()
 
 
 def finding(severity, rule, message):
     return {"severity": severity, "rule": rule, "message": message}
 
 
-def review(run, key_label="Resource", key_property="uri", max_degree=100000, factor=10, min_degree=50):
-    """The findings for the graph behind run(statement) -> list of row dicts, most severe first."""
+def review(run, key_label="Resource", key_property="uri", max_degree=100000, factor=10, min_degree=50, limit=100):
+    """(findings most severe first, whether the offender list reached limit) for the graph behind
+    run(statement, **parameters) -> list of row dicts."""
     found = []
     unique = [c for c in run(CONSTRAINTS)
               if c.get("type") in ("UNIQUENESS", "NODE_KEY") and c.get("entityType", "NODE") == "NODE"
@@ -79,48 +94,35 @@ def review(run, key_label="Resource", key_property="uri", max_degree=100000, fac
                              f"add CREATE CONSTRAINT IF NOT EXISTS FOR (n:{key_label}) REQUIRE n.{key_property} IS UNIQUE"))
     for row in run(LABELS):
         label = row["label"]
-        if label not in SKIPPED_LABELS and local(label) in GENERIC_LABELS:
+        if label not in SKIPPED_LABELS and not label.startswith("n4sch__") and local(label) in GENERIC_LABELS:
             found.append(finding("WARNING", "generic-label", f"label {label} is generic; use the domain class"))
     for row in run(TYPES):
         if local(row["type"]) in GENERIC_TYPES:
             found.append(finding("WARNING", "generic-type",
                                  f"relationship type {row['type']} is generic; use the domain property"))
-    rows = run(DEGREES)
-    by_label = {}
-    for row in rows:
-        for label in domain(row["labels"]):
-            by_label.setdefault(label, []).append(row["degree"])
-    medians = {label: statistics.median(values) for label, values in by_label.items()}
-    for row in sorted(rows, key=lambda r: (-r["degree"], str(r.get("uri")))):
+    medians = {row["label"]: row["median"] for row in run(LABEL_MEDIANS, skipped=SKIPPED_LABELS)}
+    offenders = run(OFFENDERS, skipped=SKIPPED_LABELS, max_degree=max_degree, min_degree=min_degree,
+                    factor=factor, medians=medians, limit=limit)
+    for row in offenders:
         who = row.get("uri") or ":".join(row["labels"])
         if row["degree"] > max_degree:
             found.append(finding("WARNING", "supernode", f"{who} has {row['degree']} relationships (over {max_degree})"))
             continue
-        for label in domain(row["labels"]):
-            median = medians[label]
-            if row["degree"] >= min_degree and row["degree"] >= factor * max(median, 1):
-                found.append(finding("INFO", "supernode-candidate",
-                                     f"{who} has {row['degree']} relationships, {factor}x or more the median "
-                                     f"{median:g} of {label}"))
-                break
-    pairs = {}
-    for row in run(PATTERNS):
-        for a in domain(row["source"]):
-            for b in domain(row["target"]):
-                if a != b:
-                    pairs.setdefault(row["type"], set()).add((a, b))
-    for rel_type, ends in sorted(pairs.items()):
-        both = sorted((a, b) for a, b in ends if (b, a) in ends and a < b)
-        for a, b in both:
-            found.append(finding("WARNING", "both-directions",
-                                 f"{rel_type} runs from {a} to {b} and from {b} to {a}; give each direction its meaning"))
+        label = next(lb for lb in row["labels"] if row["degree"] >= factor * max(medians.get(lb, 0), 1))
+        found.append(finding("WARNING", "supernode-candidate",
+                             f"{who} has {row['degree']} relationships, {factor}x or more the median "
+                             f"{medians[label]:g} of {label}"))
+    for row in run(RECIPROCAL, skipped=SKIPPED_LABELS):
+        found.append(finding("INFO", "reciprocal-type",
+                             f"{row['type']} runs from {row['a']} to {row['b']} and from {row['b']} to {row['a']}; "
+                             "check whether the ontology states one property both ways (local heuristic)"))
     order = {"ERROR": 0, "WARNING": 1, "INFO": 2}
-    return sorted(found, key=lambda f: (order[f["severity"]], f["rule"], f["message"]))
+    return sorted(found, key=lambda f: (order[f["severity"]], f["rule"], f["message"])), len(offenders) >= limit
 
 
 def options(argv):
-    opts, numbers = {}, {"--max-degree": 100000, "--factor": 10, "--min-degree": 50}
-    known = {"--uri", "--env", "--report", "--key-label", "--key-property", *numbers}
+    opts, numbers = {}, {"--max-degree": 100000, "--factor": 10, "--min-degree": 50, "--limit": 100}
+    known = {"--uri", "--env", "--report", "--key-label", "--key-property", "--query-timeout", *numbers}
     i = 0
     while i < len(argv):
         flag = argv[i]
@@ -137,6 +139,7 @@ def options(argv):
             raise ValueError(f"{flag} needs a whole number") from None
         if numbers[flag] < 1:
             raise ValueError(f"{flag} needs a number of at least 1")
+    numbers["--query-timeout"] = lv.query_timeout(opts)
     return opts, numbers
 
 
@@ -152,6 +155,22 @@ def connection(opts):
     return opts["--uri"], ("neo4j", password), None
 
 
+def write_report(path, report):
+    """The report through a temporary file in the same folder and a rename: a failed write leaves an
+    earlier report as it was."""
+    folder = os.path.dirname(os.path.abspath(path))
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".model-review.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(report, fh, indent=2, sort_keys=True)
+            fh.write("\n")
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+
+
 def main(argv):
     try:
         opts, numbers = options(argv)
@@ -161,22 +180,29 @@ def main(argv):
         return 2
     try:
         from neo4j import GraphDatabase
-        with GraphDatabase.driver(uri, auth=auth) as driver, driver.session(database=database) as session:
-            found = review(lambda stmt: session.run(stmt).data(),
-                           key_label=opts.get("--key-label", "Resource"), key_property=opts.get("--key-property", "uri"),
-                           max_degree=numbers["--max-degree"], factor=numbers["--factor"], min_degree=numbers["--min-degree"])
+        with GraphDatabase.driver(uri, auth=auth) as driver, driver.session(database=database) as raw:
+            session = lv.Timed(raw, numbers["--query-timeout"])
+            found, capped = review(lambda stmt, **params: session.run(stmt, params).data(),
+                                   key_label=opts.get("--key-label", "Resource"),
+                                   key_property=opts.get("--key-property", "uri"), max_degree=numbers["--max-degree"],
+                                   factor=numbers["--factor"], min_degree=numbers["--min-degree"],
+                                   limit=numbers["--limit"])
     except Exception as exc:  # the driver raises several types; any of them stops the review
         # The driver's own text can carry the URI with its password, so only the type is printed.
         print(f"ERROR the review query failed on {q(redact(uri))} ({q(type(exc).__name__)})", file=sys.stderr)
         return 2
     for f in found:
         print(f"{q(f['severity'])} {q(f['rule'])}: {q(f['message'])}")
+    if capped:
+        print(f"the degree rules stopped at {q(numbers['--limit'])} offenders; raise --limit to see more")
     errors = sum(f["severity"] == "ERROR" for f in found)
     print(f"{q(len(found))} finding(s), {q(errors)} error(s)")
     if "--report" in opts:
-        with open(opts["--report"], "w", encoding="utf-8") as fh:
-            json.dump({"findings": found, "errors": errors}, fh, indent=2, sort_keys=True)
-            fh.write("\n")
+        try:
+            write_report(opts["--report"], {"findings": found, "errors": errors, "offenders_capped": capped})
+        except OSError as exc:
+            print(f"ERROR the report was not written: {q(exc)}", file=sys.stderr)
+            return 2
     return 1 if errors else 0
 
 

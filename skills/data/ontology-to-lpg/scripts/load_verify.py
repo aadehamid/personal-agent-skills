@@ -5,7 +5,11 @@ Run: NEO4J_PASSWORD=... uv run --no-project --with rdflib --with neo4j python3 l
          --config <config.json> --shapes <shapes.ttl>... --bolt bolt://127.0.0.1:<port> \
          --import-dir <folder mounted at /import> --merged merged.ttl --loadable loadable.nt \
          --inferred inferred.nt --report projection-report.json [--plugins-dir <folder>]
-         [--manual-cases <cases.json>] [--container <name> | --compose-project <name>] <data.ttl>...
+         [--manual-cases <cases.json>] [--container <name> | --compose-project <name>]
+         [--query-timeout <seconds>] <data.ttl>...
+
+Every statement runs with a server-side timeout, --query-timeout seconds (default 120); raise it for
+a graph whose import takes longer.
 
 The container name only goes into the printed clean-up line: with --compose-project (the -p name the
 services were started under from docker/compose.yaml) it is `docker compose -p <name> ... down -v`;
@@ -615,7 +619,50 @@ def plugin_checksums(folder):
 
 # ---------- the run ----------
 
-def run(driver, cfg, data_paths, shape_paths, import_dir, merged, loadable, inferred, plugins_dir=None, manual=()):
+DEFAULT_QUERY_TIMEOUT = 120   # seconds; --query-timeout changes it
+
+
+class Timed:
+    """A session whose every statement and explicit transaction carries a server-side timeout
+    (neo4j.Query(..., timeout=), begin_transaction(timeout=)), so a slow or stuck query ends with an
+    error instead of hanging the run. Everything else goes to the session as it is."""
+
+    def __init__(self, session, seconds):
+        self.session, self.seconds = session, seconds
+
+    def run(self, query, parameters=None, **kwargs):
+        if isinstance(query, str):
+            try:
+                from neo4j import Query
+            except ImportError:   # no driver installed: a test's stand-in session, which has no timeout
+                Query = None
+            if isinstance(Query, type):
+                query = Query(query, timeout=self.seconds)
+        if parameters is None:
+            return self.session.run(query, **kwargs)
+        return self.session.run(query, parameters, **kwargs)
+
+    def begin_transaction(self, *args, **kwargs):
+        kwargs.setdefault("timeout", self.seconds)
+        return self.session.begin_transaction(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self.session, name)
+
+
+def query_timeout(opts):
+    """--query-timeout in seconds, a positive number; DEFAULT_QUERY_TIMEOUT when absent."""
+    try:
+        seconds = float(opts.get("--query-timeout", DEFAULT_QUERY_TIMEOUT))
+    except ValueError:
+        raise ValueError("--query-timeout needs a number of seconds") from None
+    if seconds <= 0:
+        raise ValueError("--query-timeout needs a positive number of seconds")
+    return seconds
+
+
+def run(driver, cfg, data_paths, shape_paths, import_dir, merged, loadable, inferred, plugins_dir=None, manual=(),
+        timeout=DEFAULT_QUERY_TIMEOUT):
     data, shapes = build.parse(data_paths), build.parse(shape_paths)
     safe, left_out = igs.subset(shapes)
     safe.serialize(os.path.join(import_dir, "shapes-in-graph.ttl"), format="turtle")
@@ -633,7 +680,8 @@ def run(driver, cfg, data_paths, shape_paths, import_dir, merged, loadable, infe
         "versions": cfg.versions,
         "plugin_jars_sha256": plugin_checksums(plugins_dir),
     }
-    with driver.session() as session:
+    with driver.session() as raw_session:
+        session = Timed(raw_session, timeout)
         wipe(session)
         report["shapes_import_rows"], report["in_graph_shape_constraints"] = load(session, statements)
         rows = listed_rows(session)
@@ -765,6 +813,7 @@ def main(argv):
             raise ValueError("set NEO4J_PASSWORD")
         cfg = build.load_config(opts["--config"])
         manual = read_manual_cases(opts.get("--manual-cases"))
+        timeout = query_timeout(opts)
     except (OSError, ValueError) as exc:
         print(f"ERROR {q(exc)}", file=sys.stderr)
         return 2
@@ -777,7 +826,7 @@ def main(argv):
         driver = GraphDatabase.driver(opts["--bolt"], auth=("neo4j", password))
         try:
             report = run(driver, cfg, data, opts["--shapes"], opts["--import-dir"], opts["--merged"],
-                         opts["--loadable"], opts["--inferred"], opts.get("--plugins-dir"), manual)
+                         opts["--loadable"], opts["--inferred"], opts.get("--plugins-dir"), manual, timeout)
         finally:
             driver.close()
     except Exception as exc:  # Failed, a driver error or a file error: no report

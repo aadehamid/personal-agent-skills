@@ -26,88 +26,282 @@ TEMPLATES = os.path.join(HERE, "..", "templates")
 GOOD_CONSTRAINT = {"type": "UNIQUENESS", "entityType": "NODE", "labelsOrTypes": ["Resource"], "properties": ["uri"]}
 
 
+def emulated_domain(labels, skipped):
+    return [lb for lb in labels if lb not in skipped and not lb.startswith("n4sch__")]
+
+
 def fake(labels=("Resource", "lib__Work", "lib__Person"), types=("lib__createdBy",),
-         constraints=(GOOD_CONSTRAINT,), degrees=None, patterns=None):
-    """run(statement) answering the review's five queries from the rows given."""
-    degrees = degrees if degrees is not None else [
-        {"uri": "w1", "labels": ["Resource", "lib__Work"], "degree": 1},
-        {"uri": "p1", "labels": ["Resource", "lib__Person"], "degree": 1}]
-    patterns = patterns if patterns is not None else [
-        {"type": "lib__createdBy", "source": ["Resource", "lib__Work"], "target": ["Resource", "lib__Person"]}]
-    answers = {mr.LABELS: [{"label": lb} for lb in labels], mr.TYPES: [{"type": t} for t in types],
-               mr.CONSTRAINTS: list(constraints), mr.DEGREES: degrees, mr.PATTERNS: patterns}
-    return lambda stmt: answers[stmt]
+         constraints=(GOOD_CONSTRAINT,), nodes=None, edges=None, calls=None):
+    """run(statement, **params) answering the review's queries. nodes are (uri, labels, degree);
+    edges are (type, source labels, target labels). The three degree and direction queries are
+    emulated in Python with the semantics of their Cypher (median by percentileCont; the domain filter
+    first; offenders ordered by degree and cut at $limit), so the rules can be tested without Neo4j."""
+    import statistics
+    nodes = nodes if nodes is not None else [("w1", ["Resource", "lib__Work"], 1), ("p1", ["Resource", "lib__Person"], 1)]
+    edges = edges if edges is not None else [("lib__createdBy", ["Resource", "lib__Work"], ["Resource", "lib__Person"])]
+
+    def run(stmt, **params):
+        if calls is not None:
+            calls.append((stmt, params))
+        if stmt == mr.LABELS:
+            return [{"label": lb} for lb in labels]
+        if stmt == mr.TYPES:
+            return [{"type": t} for t in types]
+        if stmt == mr.CONSTRAINTS:
+            return list(constraints)
+        skipped = params["skipped"]
+        reviewed = [(u, emulated_domain(lbs, skipped), d) for u, lbs, d in nodes if emulated_domain(lbs, skipped)]
+        if stmt == mr.LABEL_MEDIANS:
+            by = {}
+            for _, dl, d in reviewed:
+                for lb in dl:
+                    by.setdefault(lb, []).append(d)
+            return [{"label": lb, "median": float(statistics.median(ds))} for lb, ds in by.items()]
+        if stmt == mr.OFFENDERS:
+            m = params["medians"]
+            hits = [{"uri": u, "labels": dl, "degree": d} for u, dl, d in reviewed
+                    if d > params["max_degree"] or (d >= params["min_degree"] and any(
+                        d >= params["factor"] * max(m.get(lb, 0), 1) for lb in dl))]
+            return sorted(hits, key=lambda r: (-r["degree"], r["uri"]))[:params["limit"]]
+        if stmt == mr.RECIPROCAL:
+            pairs = {}
+            for t, a, b in edges:
+                for x in emulated_domain(a, skipped):
+                    for y in emulated_domain(b, skipped):
+                        if x != y:
+                            pairs.setdefault(t, set()).add((x, y))
+            return [{"type": t, "a": x, "b": y} for t, ps in sorted(pairs.items()) for x, y in sorted(ps)
+                    if x < y and (y, x) in ps]
+        raise AssertionError("unexpected statement " + stmt)
+    return run
 
 
 def rules(found):
-    return [f["rule"] for f in found]
+    return [f["rule"] for f in found[0]]
+
+
+def work(uri, degree, *extra):
+    return (uri, ["Resource", "lib__Work", *extra], degree)
 
 
 class Review(unittest.TestCase):
     def test_a_clean_projection_has_no_finding(self):
-        self.assertEqual(mr.review(fake()), [])
+        self.assertEqual(mr.review(fake()), ([], False))
 
     def test_missing_uri_constraint_is_an_error(self):
-        found = mr.review(fake(constraints=()))
-        self.assertEqual(rules(found), ["missing-key-constraint"])
-        self.assertEqual(found[0]["severity"], "ERROR")
+        found, _ = mr.review(fake(constraints=()))
+        self.assertEqual([(f["severity"], f["rule"]) for f in found], [("ERROR", "missing-key-constraint")])
 
     def test_a_constraint_on_another_property_does_not_count(self):
         other = dict(GOOD_CONSTRAINT, properties=["lib__barcode"])
         self.assertEqual(rules(mr.review(fake(constraints=(other,)))), ["missing-key-constraint"])
 
     def test_a_node_key_constraint_counts(self):
-        self.assertEqual(mr.review(fake(constraints=(dict(GOOD_CONSTRAINT, type="NODE_KEY"),))), [])
+        self.assertEqual(mr.review(fake(constraints=(dict(GOOD_CONSTRAINT, type="NODE_KEY"),)))[0], [])
 
     def test_a_generic_label_is_a_warning(self):
-        found = mr.review(fake(labels=("Resource", "lib__Work", "lib__Entity")))
+        found, _ = mr.review(fake(labels=("Resource", "lib__Work", "lib__Entity")))
         self.assertEqual([(f["severity"], f["rule"]) for f in found], [("WARNING", "generic-label")])
 
     def test_resource_and_schema_labels_are_not_generic(self):
-        self.assertEqual(mr.review(fake(labels=("Resource", "_GraphConfig", "n4sch__Class", "lib__Work"))), [])
+        self.assertEqual(mr.review(fake(labels=("Resource", "_GraphConfig", "n4sch__Class", "lib__Work")))[0], [])
 
     def test_a_generic_relationship_type_is_a_warning_in_any_spelling(self):
-        for name in ("lib__relatedTo", "lib__HAS", "RELATED_TO"):
+        for name in ("lib__relatedTo", "lib__HAS", "RELATED_TO", "lib__CONNECTED_TO", "lib__related-to", "connected-to"):
             with self.subTest(name=name):
-                self.assertEqual(rules(mr.review(fake(types=(name,)))), ["generic-type"])
+                found, _ = mr.review(fake(types=(name,)))
+                self.assertEqual([(f["severity"], f["rule"]) for f in found], [("WARNING", "generic-type")])
 
     def test_a_node_over_the_limit_is_a_supernode(self):
-        degrees = [{"uri": "w1", "labels": ["Resource", "lib__Work"], "degree": 11}]
-        found = mr.review(fake(degrees=degrees), max_degree=10)
+        found, _ = mr.review(fake(nodes=[work("w1", 11)]), max_degree=10)
         self.assertEqual([(f["severity"], f["rule"]) for f in found], [("WARNING", "supernode")])
 
-    def test_a_node_far_above_its_label_median_is_a_candidate(self):
-        degrees = [{"uri": f"w{i}", "labels": ["Resource", "lib__Work"], "degree": 2} for i in range(5)]
-        degrees.append({"uri": "hub", "labels": ["Resource", "lib__Work"], "degree": 60})
-        found = mr.review(fake(degrees=degrees))
-        self.assertEqual([(f["severity"], f["rule"]) for f in found], [("INFO", "supernode-candidate")])
+    def test_a_node_at_the_limit_is_not_a_supernode(self):
+        self.assertEqual(mr.review(fake(nodes=[work("w1", 10)]), max_degree=10, min_degree=11)[0], [])
+
+    def test_a_node_far_above_its_label_median_is_a_warning_candidate(self):
+        nodes = [work(f"w{i}", 2) for i in range(5)] + [work("hub", 60)]
+        found, _ = mr.review(fake(nodes=nodes))
+        self.assertEqual([(f["severity"], f["rule"]) for f in found], [("WARNING", "supernode-candidate")])
         self.assertIn("hub", found[0]["message"])
+        self.assertIn("median 2 of lib__Work", found[0]["message"])
 
-    def test_a_busy_node_under_the_minimum_is_not_a_candidate(self):
-        degrees = [{"uri": "w1", "labels": ["Resource", "lib__Work"], "degree": 1},
-                   {"uri": "w2", "labels": ["Resource", "lib__Work"], "degree": 1},
-                   {"uri": "w3", "labels": ["Resource", "lib__Work"], "degree": 49}]
-        self.assertEqual(mr.review(fake(degrees=degrees)), [])
+    def test_the_factor_and_minimum_are_boundaries(self):
+        base = [work(f"w{i}", 5) for i in range(5)]
+        self.assertEqual(rules(mr.review(fake(nodes=base + [work("hub", 50)]))), ["supernode-candidate"])   # 50 = 10 x 5
+        self.assertEqual(mr.review(fake(nodes=base + [work("hub", 49)]))[0], [])                              # under both
+        self.assertEqual(mr.review(fake(nodes=[work(f"w{i}", 1) for i in range(5)] + [work("hub", 49)]))[0], [])
 
-    def test_one_type_in_both_directions_is_a_warning(self):
-        patterns = [{"type": "lib__about", "source": ["Resource", "lib__Work"], "target": ["Resource", "lib__Person"]},
-                    {"type": "lib__about", "source": ["Resource", "lib__Person"], "target": ["Resource", "lib__Work"]}]
-        self.assertEqual(rules(mr.review(fake(patterns=patterns))), ["both-directions"])
+    def test_internal_nodes_are_left_out_of_every_degree_rule(self):
+        nodes = [("cfg", ["_GraphConfig"], 200000), ("cls", ["Resource", "n4sch__Class"], 200000)]
+        self.assertEqual(mr.review(fake(nodes=nodes + [work("w1", 1)]))[0], [])
+        self.assertEqual(rules(mr.review(fake(nodes=nodes + [work("w1", 200000)]))), ["supernode"])
 
-    def test_a_type_between_nodes_of_one_label_is_not_both_directions(self):
-        patterns = [{"type": "skos__broader", "source": ["Resource", "skos__Concept"],
-                     "target": ["Resource", "skos__Concept"]}]
-        self.assertEqual(mr.review(fake(patterns=patterns)), [])
+    def test_offenders_stop_at_the_limit(self):
+        nodes = [work(f"w{i:02}", 200000) for i in range(5)]
+        found, capped = mr.review(fake(nodes=nodes), limit=3)
+        self.assertEqual(len(found), 3)
+        self.assertTrue(capped)
+
+    def test_degree_work_is_done_in_cypher(self):
+        calls = []
+        mr.review(fake(calls=calls))
+        sent = [stmt for stmt, _ in calls]
+        self.assertIn("percentileCont(degree, 0.5)", mr.LABEL_MEDIANS)
+        self.assertIn("LIMIT $limit", mr.OFFENDERS)
+        self.assertIn("size(dl) > 0", mr.OFFENDERS)
+        self.assertEqual(sent.count(mr.OFFENDERS), 1)
+        offender_params = next(p for stmt, p in calls if stmt == mr.OFFENDERS)
+        self.assertEqual(sorted(offender_params), ["factor", "limit", "max_degree", "medians", "min_degree", "skipped"])
+
+    def test_one_type_in_both_directions_is_an_info_local_heuristic(self):
+        edges = [("lib__about", ["Resource", "lib__Work"], ["Resource", "lib__Person"]),
+                 ("lib__about", ["Resource", "lib__Person"], ["Resource", "lib__Work"])]
+        found, _ = mr.review(fake(edges=edges))
+        self.assertEqual([(f["severity"], f["rule"]) for f in found], [("INFO", "reciprocal-type")])
+        self.assertIn("local heuristic", found[0]["message"])
+
+    def test_a_type_between_nodes_of_one_label_is_not_reciprocal(self):
+        edges = [("skos__broader", ["Resource", "skos__Concept"], ["Resource", "skos__Concept"])]
+        self.assertEqual(mr.review(fake(edges=edges))[0], [])
 
     def test_errors_come_first(self):
-        found = mr.review(fake(constraints=(), labels=("Resource", "lib__Thing")))
-        self.assertEqual(rules(found), ["missing-key-constraint", "generic-label"])
+        found, _ = mr.review(fake(constraints=(), labels=("Resource", "lib__Thing")))
+        self.assertEqual([f["rule"] for f in found], ["missing-key-constraint", "generic-label"])
 
     def test_bad_flags_are_refused(self):
         for argv in ([], ["--uri"], ["--uri", "bolt://x", "--env", "f"], ["--uri", "bolt://x", "--factor", "0"],
-                     ["--uri", "bolt://x", "--colour", "red"]):
+                     ["--uri", "bolt://x", "--colour", "red"], ["--uri", "bolt://x", "--query-timeout", "0"],
+                     ["--uri", "bolt://x", "--query-timeout", "soon"]):
             with self.subTest(argv=argv):
-                self.assertEqual(mr.main(argv), 2)
+                self.assertEqual(run_main(mr.main, argv)[0], 2)
+
+
+class FakeSession:
+    """A driver session that records each query it is given and answers with no rows."""
+
+    def __init__(self, fail=None):
+        self.queries, self.fail = [], fail
+
+    def run(self, query, parameters=None, **_):
+        self.queries.append(query)
+        if self.fail:
+            raise self.fail
+        result = mock.MagicMock()
+        result.data.return_value = [] if "SHOW CONSTRAINTS" not in str(getattr(query, "text", query)) else [GOOD_CONSTRAINT]
+        return result
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def neo4j_with(session):
+    """A neo4j module whose driver hands out session, and whose Query keeps its text and timeout."""
+    class Query:   # the driver's neo4j.Query: a statement and its timeout
+        def __init__(self, text, timeout=None):
+            self.text, self.timeout = text, timeout
+    fake_module = mock.MagicMock()
+    fake_module.Query = Query
+    fake_module.GraphDatabase.driver.return_value.__enter__.return_value.session.return_value = session
+    return fake_module
+
+
+class Cli(unittest.TestCase):
+    def main(self, session, *extra):
+        with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "pw"}), mock.patch.dict(sys.modules, {"neo4j": neo4j_with(session)}):
+            return run_main(mr.main, ["--uri", "bolt://h", *extra])
+
+    def test_every_query_carries_the_timeout(self):
+        session = FakeSession()
+        code, out = self.main(session, "--query-timeout", "7")
+        self.assertEqual(code, 0, out)
+        self.assertTrue(session.queries)
+        self.assertEqual({q.timeout for q in session.queries}, {7.0})
+
+    def test_the_default_timeout_is_120_seconds(self):
+        session = FakeSession()
+        self.main(session)
+        self.assertEqual({q.timeout for q in session.queries}, {120.0})
+
+    def test_a_timed_out_query_exits_2(self):
+        code, out = self.main(FakeSession(fail=Exception("Neo.ClientError.Transaction.TransactionTimedOut")))
+        self.assertEqual(code, 2)
+        self.assertIn("review query failed", out)
+
+    def test_an_unwritable_report_exits_2_and_keeps_the_old_one(self):
+        folder = tempfile.mkdtemp()
+        report = os.path.join(folder, "r.json")
+        with open(report, "w") as f:
+            f.write("OLD")
+        with mock.patch.object(mr.json, "dump", side_effect=OSError("disk full")):
+            code, out = self.main(FakeSession(), "--report", report)
+        self.assertEqual(code, 2, out)
+        with open(report) as f:
+            self.assertEqual(f.read(), "OLD")
+        self.assertEqual(os.listdir(folder), ["r.json"])
+
+    def test_a_report_in_a_missing_folder_exits_2(self):
+        code, out = self.main(FakeSession(), "--report", os.path.join(tempfile.mkdtemp(), "no", "r.json"))
+        self.assertEqual(code, 2, out)
+        self.assertIn("report was not written", out)
+
+    def test_a_clean_review_writes_the_report(self):
+        report = os.path.join(tempfile.mkdtemp(), "r.json")
+        code, _ = self.main(FakeSession(), "--report", report)
+        self.assertEqual(code, 0)
+        with open(report) as f:
+            self.assertEqual(json.load(f), {"errors": 0, "findings": [], "offenders_capped": False})
+
+
+class Timeouts(unittest.TestCase):
+    """copy_graph.py and load_verify.py run every statement through load_verify.Timed."""
+
+    def test_timed_wraps_statements_and_transactions(self):
+        raw = mock.MagicMock()
+        with mock.patch.dict(sys.modules, {"neo4j": neo4j_with(None)}):
+            timed = lv.Timed(raw, 9)
+            timed.run("RETURN 1", {"a": 1})
+            timed.begin_transaction()
+        sent = raw.run.call_args.args[0]
+        self.assertEqual((sent.text, sent.timeout), ("RETURN 1", 9))
+        self.assertEqual(raw.begin_transaction.call_args.kwargs, {"timeout": 9})
+
+    def test_bad_timeouts_are_refused(self):
+        for value in ("0", "-1", "soon"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                lv.query_timeout({"--query-timeout": value})
+        self.assertEqual(lv.query_timeout({}), 120)
+
+    def test_copy_graph_wraps_both_sessions(self):
+        env = tempfile.NamedTemporaryFile("w", suffix=".env", delete=False)
+        env.write("NEO4J_URI=bolt://h\nNEO4J_USERNAME=neo4j\nNEO4J_PASSWORD=x\n")
+        env.close()
+        self.addCleanup(os.remove, env.name)
+        seen = []
+        with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "local"}), mock.patch.dict(sys.modules, {"neo4j": mock.MagicMock()}), \
+                mock.patch.object(cg, "database_identity", side_effect=lambda s: seen.append(s) or len(seen)):
+            run_main(cg.main, ["--source", "bolt://x", "--target-env", env.name, "--query-timeout", "5",
+                               "--report", passing_report(self)])
+        self.assertEqual([(type(s).__name__, s.seconds) for s in seen], [("Timed", 5.0), ("Timed", 5.0)])
+
+    def test_load_verify_wraps_its_session(self):
+        tmp = tempfile.mkdtemp()
+        captured = {}
+
+        def fake_run(driver, *args, **kwargs):
+            captured["timeout"] = args[-1] if len(args) >= 10 else kwargs.get("timeout")
+            raise lv.Failed("stop here")
+        with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "pw"}), mock.patch.dict(sys.modules, {"neo4j": mock.MagicMock()}), \
+                mock.patch.object(lv, "run", side_effect=fake_run):
+            run_main(lv.main, ["--config", os.path.join(TEMPLATES, "projection-config.json"), "--bolt", "bolt://h",
+                               "--import-dir", tmp, "--merged", "m", "--loadable", "l", "--inferred", "i",
+                               "--report", os.path.join(tmp, "r.json"), "--query-timeout", "33",
+                               "--shapes", os.path.join(TEMPLATES, "library-shapes.ttl"),
+                               os.path.join(TEMPLATES, "library-module.ttl")])
+        self.assertEqual(captured["timeout"], 33.0)
 
 
 def library():
