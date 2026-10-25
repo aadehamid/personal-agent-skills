@@ -28,7 +28,9 @@ and n4sch__SCO stand for rdfs:domain, rdfs:range and rdfs:subClassOf.
 `tag` sets the tags and fails (exit 1) when a node or relationship of the graph has no expected tag:
 the graph holds something no package states. `check` reads every :Resource node and every
 relationship between two of them and fails unless each carries exactly one `graph`, a string equal
-to its expected tag, and the expected nodes and edges are all in the graph; it counts what it read.
+to its expected tag, the expected nodes and edges are all in the graph, and no two relationships share
+their ends and type (n10s writes one per triple, so a second would hide the first); it counts what it
+read.
 `modules` builds the module graph beside the projection: one (:Module {uri: <version IRI>,
 ontology, version}) per package and (:Module)-[:REQUIRES {pin}]->(:Module) per dcterms:requires,
 pointing at the loaded release of the required module, with the pinned version IRI as `pin` (a pin
@@ -67,7 +69,7 @@ CONSTRUCT {{
   OPTIONAL {{
     GRAPH ?g {{ ?ontology dcterms:requires ?pin . }}
     GRAPH ?h {{ ?required a owl:Ontology ; owl:versionIRI ?loaded . }}
-    FILTER(STRSTARTS(STR(?pin), CONCAT(STR(?required), "/")))
+    FILTER(STRSTARTS(STR(?pin), CONCAT(STR(?required), "/")) || ?pin = ?loaded)
   }}
   # Outside the OPTIONAL: inside it ?version is not yet bound. With no ?pin it stays unbound.
   BIND(IRI(CONCAT(STR(?version), "#requires-", ENCODE_FOR_URI(STR(?pin)))) AS ?requirement)
@@ -154,8 +156,8 @@ def predicate(rel_type, prefixes):
 def compare(graph_nodes, graph_edges, nodes, edges, prefixes):
     """The tag problems of a graph read back as [{uri, tag}] and [{s, t, o, tag}]: counts by kind, and
     up to five examples each, holding IRIs and types only (no property values)."""
-    problems = {"untagged": [], "wrong_tag": [], "not_in_packages": [], "missing_from_graph": []}
-    seen_nodes, seen_edges = set(), set()
+    problems = {"untagged": [], "wrong_tag": [], "not_in_packages": [], "missing_from_graph": [], "parallel": []}
+    seen_nodes, seen_edges, seen_rels = set(), set(), set()
     for n in graph_nodes:
         want = nodes.get(n["uri"])
         seen_nodes.add(n["uri"])
@@ -171,6 +173,10 @@ def compare(graph_nodes, graph_edges, nodes, edges, prefixes):
         want = edges.get(key)
         seen_edges.add(key)
         label = f"{e['s']} {e['t']} {e['o']}"
+        if (e["s"], e["t"], e["o"]) in seen_rels:
+            # n10s writes one relationship per triple; two with the same ends and type hide one another
+            problems["parallel"].append(label)
+        seen_rels.add((e["s"], e["t"], e["o"]))
         if want is None:
             problems["not_in_packages"].append(label)
         elif e.get("tag") is None:
@@ -227,8 +233,10 @@ def module_rows(packages):
 
 
 MODULES = ("UNWIND $mods AS m MERGE (n:Module {uri: m.uri}) SET n.ontology = m.ontology, n.version = m.version")
+# One REQUIRES per pin, like the CONSTRUCT's one requirement node per pin: two pins resolving to one
+# loaded module stay two relationships.
 REQUIRES = ("UNWIND $reqs AS r MATCH (a:Module {uri: r.source}), (b:Module {uri: r.target}) "
-            "MERGE (a)-[x:REQUIRES]->(b) SET x.pin = r.pin")
+            "MERGE (a)-[:REQUIRES {pin: r.pin}]->(b)")
 CLEAR_MODULES = "MATCH (n:Module) DETACH DELETE n"
 
 

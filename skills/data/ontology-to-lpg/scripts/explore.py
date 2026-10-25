@@ -269,7 +269,9 @@ def main(argv):
                 results = [dict(compare_walk(neo, store, e["iri"], int(e.get("hops", DEFAULT_HOPS))), name=e["name"])
                            for e in queries]
                 a, b = neo.modules(), store.modules()
-                module_map = {"rows": [len(a), len(b)], "equal": a == b}
+                module_map = {"rows": [len(a), len(b)], "equal": a == b,
+                              "only_in_neo4j": [r for r in a if r not in b][:3],
+                              "only_in_store": [r for r in b if r not in a][:3]}
     except Exception as exc:  # the driver and urllib raise several types; any of them stops the run
         print(f"ERROR {q(error_line('a store query failed', exc))}", file=sys.stderr)
         return 2

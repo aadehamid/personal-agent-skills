@@ -11,7 +11,7 @@ CONSTRUCT {
   OPTIONAL {
     GRAPH ?g { ?ontology dcterms:requires ?pin . }
     GRAPH ?h { ?required a owl:Ontology ; owl:versionIRI ?loaded . }
-    FILTER(STRSTARTS(STR(?pin), CONCAT(STR(?required), "/")))
+    FILTER(STRSTARTS(STR(?pin), CONCAT(STR(?required), "/")) || ?pin = ?loaded)
   }
   # Outside the OPTIONAL: inside it ?version is not yet bound. With no ?pin it stays unbound.
   BIND(IRI(CONCAT(STR(?version), "#requires-", ENCODE_FOR_URI(STR(?pin)))) AS ?requirement)

@@ -164,6 +164,14 @@ class ModuleTags(Fixture):
         self.assertEqual(problems["missing_from_graph"],
                          ["https://example.org/app/sys https://example.org/app/supports https://example.org/base/p1"])
 
+    def test_check_finds_two_relationships_with_the_same_ends_and_type(self):
+        nodes, edges = mt.expected_tags(self.packages)
+        fake = FakeNeo4j(self.packages)
+        fake.edges.append(next(e for e in fake.edges if e[1] == "app__supports")[:3] + (None,))
+        _, _, problems = mt.check(fake, nodes, edges, PREFIXES)
+        self.assertEqual(problems["parallel"],
+                         ["https://example.org/app/sys app__supports https://example.org/base/p1"])
+
     def test_check_finds_a_relationship_no_package_states(self):
         nodes, edges = mt.expected_tags(self.packages)
         fake = FakeNeo4j(self.packages)
@@ -183,6 +191,28 @@ class ModuleTags(Fixture):
         self.assertEqual(len(mods), 2)
         self.assertEqual(reqs, [{"source": "https://example.org/app/2.0.0", "target": "https://example.org/base/1.1.0",
                                  "pin": "https://example.org/base/1.0.0"}])
+
+    def test_two_pins_to_one_module_stay_two_requirements(self):
+        two = write(self.tmp, "two.ttl", APP.replace("dcterms:requires <https://example.org/base/1.0.0> .",
+                                                     "dcterms:requires <https://example.org/base/1.0.0>, "
+                                                     "<https://example.org/base/1.1.0> ."))
+        packages = mt.read_packages([two, os.path.join(self.tmp, "base.ttl")])
+        fake = FakeNeo4j(packages)
+        rows = explore.Neo4jSide(fake, PREFIXES).modules()
+        self.assertEqual([r[2] for r in rows], ["https://example.org/base/1.0.0", "https://example.org/base/1.1.0"])
+        self.assertEqual(rows, store(packages).modules())
+        self.assertIn("MERGE (a)-[:REQUIRES {pin: r.pin}]->(b)", mt.REQUIRES)
+
+    def test_an_exact_version_pin_is_a_requirement_in_both_forms(self):
+        exact = write(self.tmp, "exact.ttl", APP.replace("<https://example.org/base/1.0.0>", "<https://example.org/base/1.1.0>"))
+        packages = mt.read_packages([exact, os.path.join(self.tmp, "base.ttl")])
+        ds = Dataset(default_union=False)
+        for p in packages:
+            g = ds.graph(URIRef(p.version))
+            for t in p.graph:
+                g.add(t)
+        out = ds.query(mt.CONSTRUCT).graph
+        self.assertEqual(len(list(out.subject_objects(URIRef(mt.LPG + "requires")))), len(mt.module_rows(packages)[1]))
 
     def test_the_construct_gives_the_same_module_graph(self):
         ds = Dataset(default_union=False)
@@ -224,6 +254,22 @@ class Walk(Fixture):
 
     def test_the_module_maps_agree(self):
         self.assertEqual(explore.Neo4jSide(FakeNeo4j(self.packages), PREFIXES).modules(), store(self.packages).modules())
+
+    def test_the_paste_able_walk_matches_with_a_self_loop_and_a_cycle(self):
+        # An edge touching the start is a first-hop edge, so selecting the start again as the middle
+        # node (through a self-loop or a cycle back) adds nothing the stepwise walk lacks.
+        loop = write(self.tmp, "loop.ttl", APP + "app:sys skos:related app:sys . base:p0 skos:related app:sys .\n")
+        packages = mt.read_packages([loop, os.path.join(self.tmp, "base.ttl")])
+        ds = Dataset(default_union=False)
+        for p in packages:
+            g = ds.graph(URIRef(p.version))
+            for t in p.graph:
+                g.add(t)
+        for hops in (1, 2, 3):
+            query = explore.sparql_walk(hops).replace("<https://example.org/your-node>", "<https://example.org/app/sys>")
+            single = {(str(r.s), str(r.p), str(r.o)) for r in ds.query(query)}
+            stepwise, _ = explore.walk(store(packages), "https://example.org/app/sys", hops)
+            self.assertEqual(single, {tuple(e[:3]) for e in stepwise}, hops)
 
     def test_the_paste_able_sparql_walk_matches_the_hop_by_hop_walk(self):
         ds = Dataset(default_union=False)
