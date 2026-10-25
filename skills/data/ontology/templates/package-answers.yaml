@@ -1,7 +1,8 @@
 # Answers for one module release, filled in during the packaging walk-through
-# (references/packaging-walkthrough.md). scripts/build_package.py reads it:
+# (references/packaging-walkthrough.md). Save the copy as release/<module>-<version>.yaml and keep it:
+# scripts/build_package.py builds from it, and its verify command rebuilds from it in the check script:
 #   uv run --no-project --with rdflib --with pyyaml --with pyshacl python3 <skill>/scripts/build_package.py \
-#     build <this file> --releases <your releases folder>
+#     build release/lending-1.0.0.yaml --releases releases
 # File paths are relative to this file. This example packages the library skeleton as a first release.
 
 module: lending                                   # Q1: the module's short name

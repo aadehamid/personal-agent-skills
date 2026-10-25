@@ -30,7 +30,7 @@ Done when the user knows which setup applies and where `releases/` will live.
 
 ## Step 3. The interview
 
-Ask these in order. Each answer goes into a copy of `templates/package-answers.yaml` (the filled example for the library skeleton). Ask the whole set once per module; for a second module, start again at Q1.
+Ask these in order. Each answer goes into a copy of `templates/package-answers.yaml` (the filled example for the library skeleton), saved in the project as `release/<module>-<version>.yaml`, such as `release/lending-1.0.0.yaml`. Keep it: `verify` rebuilds the package from the same answers every time the check script runs. Ask the whole set once per module; for a second module, start again at Q1.
 
 **Q1. Module name.** "What short name should this module have? It becomes a folder name and part of the tag." Example: `lending`. Why: the name keys the folder, the file names and the tag `lending-v1.0.0`. Default: the main Turtle file's name, lower-case, words joined by hyphens.
 
@@ -60,9 +60,9 @@ Done when every question has an answer the user has confirmed, and the answers f
 
 ## Step 4. Build, show, check
 
-1. Run `build_package.py build <answers.yaml> --releases <folder>`. It refuses a wrong or missing answer with the reason (exit 2): fix that answer with the user and run it again.
+1. Run `build_package.py build release/<module>-<version>.yaml --releases releases`. It refuses a wrong or missing answer with the reason (exit 2): fix that answer with the user and run it again.
 2. Show the user what it wrote: the folder tree (`<module>.ttl`, `.jsonld`, `shapes.ttl`, `catalog.ttl`, `CHANGELOG.md`, `manifest.json`) and the manifest's version, dependencies, triple count and approval.
-3. Run `build_package.py verify <answers.yaml> --releases <folder>`, and add the same line to the project's check script, so a later edit to a source or to the package fails the check.
-4. With git: once the package is committed, run `build_package.py tag <answers.yaml> --releases <folder>`. It tags `<module>-v<version>` on this machine and says whether a remote holds the tag; pushing it is the user's call.
+3. Run `build_package.py verify release/<module>-<version>.yaml --releases releases`, and add the same line to the project's check script (`templates/check.sh`, section 3), so a later edit to a source or to the package fails the check.
+4. With git: once the package and its answers file are committed, run `build_package.py tag release/<module>-<version>.yaml --releases releases`. It tags `<module>-v<version>` on this machine and says whether a remote holds the tag; pushing it is the user's call.
 
 Done when the package passes `build` and `verify`, the user has seen its manifest, and (with git) it is tagged or the user has chosen to tag later.
