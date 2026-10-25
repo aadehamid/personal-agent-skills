@@ -1,5 +1,6 @@
 """The loan-state code list from loan-states.csv, as a maplib template (references/promotion.md,
-"From a spreadsheet to triples"). The same rows and triples as loan-states.rml.ttl.
+"From a spreadsheet to triples"). The same rows and triples as loan-states.rml.ttl. Morph-KGC is the
+engine to use for a spreadsheet; this template stays for comparison and to test the maplib route.
 
 maplib maps each row into a staging graph under raw: predicates, then one SPARQL CONSTRUCT
 writes the governed triples, adding the language tags with STRLANG: maplib 0.20.26 documents

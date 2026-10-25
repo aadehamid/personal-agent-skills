@@ -77,7 +77,7 @@ When the source is a spreadsheet or CSV export, write the conversion as a review
 3. **Map every value in its final form,** language tag and datatype included, and mint no blank nodes; the builder refuses them. *Why:* the output then passes `check_taxonomy.py` like hand-written data.
 4. **Pin the engine's version** in the check script's command line. *Why:* a new engine release can change the output, which `--verify` would then report as a data change.
 
-Two engines are worked through. **Morph-KGC is the engine to use** (decided by the skill's owner on 2026-10-25, accepting the recommendation below: "Let us go with your recommendation."). Use maplib only where the source is already a dataframe in Python, and say why in the mapping's pull request.
+Two engines are worked through. **Morph-KGC is the engine to use** (decided by the skill's owner on 2026-10-25, accepting the recommendation below: "Let us go with your recommendation."). Map a spreadsheet or CSV export with Morph-KGC. Use maplib only where the source is already a dataframe in Python, such as a query result, and say why in the mapping's pull request. The worked example keeps its maplib template, which reads the CSV so that both engines map the same rows: it keeps the builder's maplib route tested and shows the two engines give the same triples. It is not the pattern for a new spreadsheet.
 
 | | RML run by Morph-KGC | maplib (OTTR-style templates over Polars) |
 |---|---|---|
