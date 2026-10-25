@@ -38,9 +38,9 @@ FAKE = textwrap.dedent(r'''
         out({"error": {"code": code, **({"message": message} if message else {})}}, 1)
     if cmd == "tab list":
         # A same-named review tab in another workspace; --workspace must filter it out.
-        tabs = [{"tab_id": "w9:t1", "label": "review-repo", "workspace_id": "w9"}]
+        tabs = [{"tab_id": "w9:t1", "label": os.environ["FAKE_LABEL"], "workspace_id": "w9"}]
         if "newtab" not in s:
-            tabs.append({"tab_id": "w2:t3", "label": "review-repo", "workspace_id": "w2"})
+            tabs.append({"tab_id": "w2:t3", "label": os.environ["FAKE_LABEL"], "workspace_id": "w2"})
         if "--workspace" in args:
             ws = args[args.index("--workspace") + 1]
             tabs = [t for t in tabs if t["workspace_id"] == ws]
@@ -67,8 +67,8 @@ FAKE = textwrap.dedent(r'''
         pane_tab = {"w2:p3": "w2:t3", "w2:pJB": "w2:tEH"}.get(args[args.index("--pane") + 1])
         if pane_tab and os.path.exists(os.path.join(state, "closed-" + pane_tab)): err("pane_not_found")
         # Herdr refuses a name a live agent already holds; "defaultlive" means the
-        # default reviewer rev-repo is running in its own tab.
-        if "defaultlive" in s and args[2] == "rev-repo": err("agent_name_taken")
+        # default reviewer (FAKE_NAME) is running in its own tab.
+        if "defaultlive" in s and args[2] == os.environ["FAKE_NAME"]: err("agent_name_taken")
         n_path = os.path.join(state, "starts")
         n = int(open(n_path).read()) + 1 if os.path.exists(n_path) else 1
         open(n_path, "w").write(str(n))
@@ -216,6 +216,17 @@ def reviewer_hash(kind_model):
     return hashlib.sha1(kind_model.encode()).hexdigest()[:8]
 
 
+# The default reviewer's tab and agent name, for a repository named "repo".
+DEFAULT_HASH = reviewer_hash("codex:gpt-6-luna")
+DEFAULT_LABEL = "review-repo-codex-" + DEFAULT_HASH
+DEFAULT_NAME = "rev-repo-" + DEFAULT_HASH
+
+
+def default_identity(repo_name):
+    slug = re.sub(r"[^a-z0-9]+", "-", repo_name.lower())
+    return "review-%s-codex-%s" % (repo_name, DEFAULT_HASH), "rev-%s-%s" % (slug[:19], DEFAULT_HASH)
+
+
 class HerdrReview(unittest.TestCase):
     def run_case(self, scenario, tmpdir=None, extra=(), repo_name="repo", home=None, subdir=False,
                  git_head=False, skill=None, before=None, script=SCRIPT, env_extra=None):
@@ -239,6 +250,7 @@ class HerdrReview(unittest.TestCase):
         env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"], HERDR_REVIEW_DIR=self.review_dir,
                    FAKE_HERDR=scenario, FAKE_STATE=state, HERDR_WORKSPACE_ID="w2",
                    TMPDIR=tmpdir, HERDR_REVIEW_ARTIFACT_ROOTS=tmpdir)
+        env["FAKE_LABEL"], env["FAKE_NAME"] = default_identity(repo_name)
         if home:
             env["HOME"] = home
         env.update(env_extra or {})
@@ -454,14 +466,14 @@ class HerdrReview(unittest.TestCase):
         r, _ = self.run_case("newtab,fresh", subdir=True)
         self.assertEqual(r.returncode, 0, r.stderr)
         created = [a for a in self.argv if a[:2] == ["tab", "create"]][0]
-        self.assertEqual(created[created.index("--label") + 1], "review-repo")
+        self.assertEqual(created[created.index("--label") + 1], DEFAULT_LABEL)
         self.assertEqual(os.path.realpath(created[created.index("--cwd") + 1]), self.repo)
 
     def test_default_model_is_gpt_6_luna_in_the_review_tab(self):
         r, _ = self.run_case("newtab,fresh")
         self.assertEqual(r.returncode, 0, r.stderr)
         created = [a for a in self.argv if a[:2] == ["tab", "create"]][0]
-        self.assertEqual(created[created.index("--label") + 1], "review-repo")
+        self.assertEqual(created[created.index("--label") + 1], DEFAULT_LABEL)
         start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
         self.assertEqual(start[start.index("-m") + 1], "gpt-6-luna")
 
@@ -475,11 +487,23 @@ class HerdrReview(unittest.TestCase):
         start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
         self.assertEqual(start[start.index("-m") + 1], "gpt-6-astra")
 
+    def test_a_new_default_model_does_not_reuse_the_old_default_tab(self):
+        # The old default ran in an unhashed review-repo tab, started on gpt-6.1-sol. A
+        # reused pane keeps the model it started with, so the new default must not take it.
+        r, _ = self.run_case("fresh", env_extra={"FAKE_LABEL": "review-repo"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        created = [a for a in self.argv if a[:2] == ["tab", "create"]]
+        self.assertEqual(len(created), 1, "the old review-repo tab was reused")
+        self.assertEqual(created[0][created[0].index("--label") + 1], DEFAULT_LABEL)
+        start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
+        self.assertEqual(start[2], DEFAULT_NAME)
+        self.assertEqual(start[start.index("-m") + 1], "gpt-6-luna")
+
     def test_another_model_starts_beside_a_live_default_reviewer(self):
         r, calls = self.run_case("fresh,defaultlive", extra=("--model", "gpt-6-astra"))
         self.assertEqual(r.returncode, 0, r.stderr)
         name = [a for a in self.argv if a[:2] == ["agent", "start"]][0][2]
-        self.assertNotEqual(name, "rev-repo")
+        self.assertNotEqual(name, DEFAULT_NAME)
         self.assertRegex(name, r"^rev-repo-[0-9a-f]{8}$")
         self.assertIn("agent prompt", calls)
 
@@ -793,7 +817,7 @@ class HerdrReview(unittest.TestCase):
         tmp = tempfile.mkdtemp()
         env = dict(os.environ, PATH=bindir + os.pathsep + os.environ["PATH"], HERDR_REVIEW_DIR=tmp,
                    FAKE_HERDR=scenario, FAKE_STATE=state, HERDR_WORKSPACE_ID="w2", TMPDIR=tmp,
-                   HERDR_REVIEW_ARTIFACT_ROOTS=tmp)
+                   HERDR_REVIEW_ARTIFACT_ROOTS=tmp, FAKE_LABEL=DEFAULT_LABEL, FAKE_NAME=DEFAULT_NAME)
         p = subprocess.Popen(["bash", SCRIPT, "--branch", "b", "--verify", "v"], cwd=repo, env=env,
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         deadline = t.time() + 20
@@ -816,7 +840,7 @@ class HerdrReview(unittest.TestCase):
         self.assertNotIn("tab create", calls)
         self.assertEqual(calls.count("agent start"), 1)
         lines = r.stdout.splitlines()
-        self.assertEqual(lines[-2], "Reviewer did not start: the review tab w2:t3 holds the name rev-repo and could not be closed (error above).")
+        self.assertEqual(lines[-2], "Reviewer did not start: the review tab w2:t3 holds the name " + DEFAULT_NAME + " and could not be closed (error above).")
         self.assertRegex(lines[-1], r"^Next: herdr tab close w2:t3; \S*herdr-review\.sh --branch b --verify v $")
 
     def test_a_kill_during_the_prompt_wait_points_at_the_delivered_review(self):
