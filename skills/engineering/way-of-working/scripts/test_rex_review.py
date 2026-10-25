@@ -61,7 +61,8 @@ FAKE = textwrap.dedent(r'''
         blocks = [{"block_id": "block:me", "window_id": "win:1", "label": "shell"}]
         if "full" in s: blocks.append({"block_id": "block:other", "window_id": "win:1", "label": "shell"})
         if (reused or "exited" in s) and not os.path.exists(path("closed")):
-            blocks.append({"block_id": "block:rev", "window_id": "win:2", "label": label})
+            # "exitedhere": the stale review pane sits beside this agent's pane, in its window.
+            blocks.append({"block_id": "block:rev", "window_id": "win:1" if "exitedhere" in s else "win:2", "label": label})
         out({"blocks": blocks})
     if cmd in ("split", "run"):
         first = "startq" if "startq" in s else "unknownq" if "unknownq" in s else \
@@ -253,6 +254,15 @@ class RexReview(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("block close", calls)
         self.assertLess(calls.index("block close"), calls.index("split"))
+
+    def test_a_closed_review_pane_in_this_window_frees_its_place_for_the_split(self):
+        # Cursor's HOLD on PR #54: the window held this agent's pane and the stale review pane;
+        # once that is closed, the window holds one pane, so the new reviewer is a split.
+        r, calls = self.run_case("exited,exitedhere")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("block close", calls)
+        self.assertIn("split", calls)
+        self.assertNotIn("run", calls)
 
     def test_a_failed_close_stops_with_the_reason(self):
         r, calls = self.run_case("exited,closefail")

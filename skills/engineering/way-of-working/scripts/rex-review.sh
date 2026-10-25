@@ -145,14 +145,18 @@ else:
 }
 
 # The pane labelled $label (empty if none), and the number of panes in the window that holds
-# this agent's pane (0 if REX_BLOCK is unset or not in this session).
-read -r found own_window_panes < <(rx block ls --json | python3 -c '
+# this agent's pane (0 if REX_BLOCK is unset or not in this session). Counted again after a
+# close below, because a closed review pane in this window frees its place for the split.
+count_panes() {
+  rx block ls --json | python3 -c '
 import json, os, sys
 label, mine = sys.argv[1], os.environ.get("REX_BLOCK", "")
 blocks = json.load(sys.stdin)["blocks"]
 pane = next((b["block_id"] for b in blocks if b.get("label") == label), "-")
 win = next((b["window_id"] for b in blocks if b["block_id"] == mine), None)
-print(pane, sum(1 for b in blocks if win and b["window_id"] == win))' "$label")
+print(pane, sum(1 for b in blocks if win and b["window_id"] == win))' "$label"
+}
+read -r found own_window_panes < <(count_panes)
 [ "$found" != "-" ] || found=""
 
 created=""
@@ -170,7 +174,8 @@ if [ -n "$found" ]; then
         stop "Reviewer did not start: the pane $found holds the label $label and could not be closed (error above)." \
              "rex block close -s $REX_SESSION $found; $rerun"
       fi
-      echo "closed $found (its reviewer had exited)" >&2 ;;
+      echo "closed $found (its reviewer had exited)" >&2
+      read -r _ own_window_panes < <(count_panes) ;;
     unreadable)
       stop "Reviewer did not start: rex cannot read the process of the pane $found, which holds the label $label." \
            "rex block call -s $REX_SESSION -b $found process; then run: $rerun" ;;
