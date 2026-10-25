@@ -48,12 +48,15 @@ FAKE = textwrap.dedent(r'''
             blocks.append({"block_id": "block:rev", "window_id": "win:2", "label": label})
         out({"blocks": blocks})
     if cmd in ("split", "run"):
-        write("phase", "startq" if "startq" in s else "ready")
+        write("phase", "startq" if "startq" in s else "trustq" if "trustq" in s else "ready")
         out({"block_ids": ["block:new"], **({"window_id": "win:3"} if cmd == "run" else {})})
     if cmd == "block close":
         write("closed", args[-1]); out({})
     if cmd == "block call process":
-        dead = ("exited" in s and opt("-b") == "block:rev") or ("dies" in s and phase == "working")
+        # "slowstart": the new pane's foreground is the login shell for the first three looks.
+        starting = "slowstart" in s and opt("-b") == "block:new" and count("process_looks") <= 3
+        dead = starting or ("exited" in s and opt("-b") == "block:rev") or ("dies" in s and phase == "working") \
+            or ("diesatstart" in s and opt("-b") == "block:new")
         out({"foreground": {"name": "zsh" if dead else "kimi"}})
     if cmd == "block call program_status":
         if "reported" in s and phase in ("working", "idle"):
@@ -79,6 +82,9 @@ FAKE = textwrap.dedent(r'''
         n = count("captures")
         if phase == "startq":
             print("  Hooks need review\n  Press enter to confirm or esc to go back"); sys.exit(0)
+        if phase == "trustq":
+            # Kimi's dialog: the question sits above the bottom twelve lines, its choices inside them.
+            print("  Trust this folder?\n" + "  .\n" * 12 + "   \u276f Trust and continue\n     Exit"); sys.exit(0)
         if phase in ("start", "ready"):
             print("  Reviewer ready\n\n │ >"); sys.exit(0)
         if phase == "sent":
@@ -197,6 +203,22 @@ class RexReview(unittest.TestCase):
         lines = r.stdout.splitlines()
         self.assertEqual(lines[-2], "Reviewer did not start: it is waiting on a question.")
         self.assertRegex(lines[-1], r"^Next: answer it \(rex send-key -s session:s -b block:new <key>\), then run: ")
+
+    def test_kimis_folder_trust_question_stops_before_the_prompt(self):
+        r, calls = self.run_case("trustq")
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("send", calls)
+        self.assertEqual(r.stdout.splitlines()[-2], "Reviewer did not start: it is waiting on a question.")
+
+    def test_a_reviewer_still_starting_is_not_read_as_exited(self):
+        r, _ = self.run_case("slowstart")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_a_reviewer_that_exits_at_start_says_so_after_ten_looks(self):
+        r, calls = self.run_case("diesatstart")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(r.stdout.splitlines()[-2], "Reviewer did not start: it exited.")
+        self.assertEqual(calls.count("block call process"), 10)
 
     def test_a_question_after_the_prompt_ends_with_answer_then_wait(self):
         r, _ = self.run_case("question")

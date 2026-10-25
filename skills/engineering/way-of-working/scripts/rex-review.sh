@@ -171,7 +171,7 @@ if re.search(r"(?m)^\s*(│\s*)?[>›→]\s*(\[Pasted text|Read AGENTS\.md)", bo
     print("unsent")
 elif reported:
     print(reported)
-elif re.search(r"Run this command\?|Skip & tell the agent|Press enter to confirm|Hooks need review|\(y/n\)|\[y/N\]|Allow once", bottom):
+elif re.search(r"Run this command\?|Skip & tell the agent|Press enter to confirm|Hooks need review|Trust this folder\?|Trust and continue|\(y/n\)|\[y/N\]|Allow once", bottom):
     print("blocked")
 elif re.search(r"ctrl\+c to stop|esc to interrupt|Press Ctrl\+B to run in background", bottom):
     print("working")
@@ -182,12 +182,21 @@ else:
 }
 
 # A fresh reviewer gets the prompt once its screen has settled: two looks alike, or a
-# question that has to be answered first.
+# question that has to be answered first. Just after the pane opens, its foreground program
+# is still the login shell that starts the reviewer, so "gone" counts only after ten looks
+# in a row (2026-10-24: one look too early read a starting Kimi as exited).
 if [ "${created:-}" ]; then
   step="waiting for the reviewer to start"
-  settled=0
+  settled=0 gone_looks=0
   for _ in $(seq 1 60); do
-    case "$(pane_status)" in
+    st=$(pane_status)
+    if [ "$st" = gone ]; then
+      gone_looks=$((gone_looks + 1))
+      if [ "$gone_looks" -lt 10 ]; then sleep 2; continue; fi
+    else
+      gone_looks=0
+    fi
+    case "$st" in
       idle|unsent) settled=1; break ;;
       blocked)
         rx capture -b "$review_pane" --trim | tail -n 30 || true
