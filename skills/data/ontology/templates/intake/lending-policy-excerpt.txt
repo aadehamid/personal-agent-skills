@@ -1,0 +1,6 @@
+Example lending policy, edition 2026-01, section 3.
+
+3.1 A member may check out a copy for a loan period of 21 days. The due date is the last day of the loan period.
+3.3 A member may renew an open loan twice, unless another member has placed a hold on the title. Renewal moves the due date later; it does not start a new loan.
+3.5 A loan is on loan until its due date and overdue from the day after.
+3.6 Check-in of the copy closes the loan.

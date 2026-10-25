@@ -42,6 +42,19 @@ The check script's design (one script that CI and the pre-push hook both run; th
 18. **Generate structure (triples, shapes, packages, projections) with deterministic code from the sources.** A model never writes structure. *Why:* a model given the ontology in its prompt still produced triples that break it, and asking a model to reason in place of a reasoner "is Dangerous" (Going Meta, 9 December 2025; `SOURCES.md`).
 19. **Let a model write text (a draft definition, a description) only from sources you supply, citing them; re-check each claim against its source with a script before the text enters, then send it through the human gate (`quality.md`).** *Why:* the same series shows a constrained model that "may write only from supplied source_refs", with a worker that re-checks every claim and drops anything ungrounded (Going Meta, 7 July 2026; `SOURCES.md`).
 
+### Candidates from documents
+
+Use this at Step 0 and Step 3 when the inputs include unstructured documents (policies, manuals, procedures) and you want candidate terms from them. OntoGPT (`SOURCES.md`) extracts entities and relations from a text with a language model and records, for each entity, the character span it came from. Rules 18 and 19 bound it: it proposes, a script checks, a person decides, and it never writes the ontology.
+
+1. **Run it only on documents the owner has supplied, with a model the owner has approved for that content.** A hosted model receives the text; a local model (`--model ollama/<name>`) keeps it on the machine. Customer inputs follow rule 24.
+2. **Keep the raw result** (`ontogpt extract ... -o <result>.yaml`) beside the document, as evidence outside the graph.
+3. **Copy each entity worth keeping into the candidate register** (`templates/intake/candidates.yaml`): the term, its proposed kind (`domain-model.md`, rule 1), a proposed definition written from the passage, the passage word for word, what found it, and the status `candidate`.
+4. **Run `scripts/check_candidates.py --source <document> --ontogpt <result> --candidates <register>` before anyone reviews the meaning.** It fails when the result is for another text, an entity's span does not read its label, a passage is not in the document, or a row is marked anything but a candidate, and it warns when a term's words are not in its passage. It proves the passage is there and the row is well formed; it cannot tell whether the definition says what the passage says. *Why:* a model's entity with no span in the text is invented, and a definition whose passage is not in the source has no evidence (`quality.md`, point 7).
+5. **Re-check each definition against its passage as a person** (rule 19), before the human gate's review of meaning. *Why:* a definition rewritten into a claim the passage does not support, beside a valid passage, passes the script.
+6. **Send each candidate through the human gate (`quality.md`)**: `check_taxonomy.py` once it is written as Turtle, then a person reviews the meaning against the bar. An approved candidate becomes a term like any other, citing the document; the register keeps the record of what was proposed and what was refused.
+
+The worked example in `templates/intake/` uses a result shaped like OntoGPT's (no model was run): a short lending-policy excerpt, the entities with their spans, and three candidates.
+
 ## Review
 
 20. **Have a reviewer other than the author read every change before it merges, and merge nothing past an unresolved finding or a failed check.** Where `way-of-working` is installed, its review loop is the rule: who reviews and the round limits are in its `references/before-push.md` ("Re-review after fixing") and `references/changing.md` ("Who reviews"); the project's `AGENTS.md` names the tools. Without it, the reviewer is a person or a different model from the author. *Why:* an author reviewing their own work repeats their own blind spots.

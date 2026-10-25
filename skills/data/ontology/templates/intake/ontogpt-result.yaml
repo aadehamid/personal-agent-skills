@@ -1,0 +1,45 @@
+# Template: the shape of an `ontogpt extract` result (OntoGPT 1.2.0, ExtractionResult in its core
+# schema), hand-made for the worked example; no model was run. original_spans are inclusive,
+# zero-based character offsets into input_text. Check with scripts/check_candidates.py.
+input_id: lending-policy-excerpt.txt
+input_title: Example lending policy, edition 2026-01, section 3
+input_text: 'Example lending policy, edition 2026-01, section 3.
+
+
+  3.1 A member may check out a copy for a loan period of 21 days. The due date is the last day of the loan period.
+
+  3.3 A member may renew an open loan twice, unless another member has placed a hold on the title. Renewal moves the due date later; it does not start a new loan.
+
+  3.5 A loan is on loan until its due date and overdue from the day after.
+
+  3.6 Check-in of the copy closes the loan.
+
+  '
+extracted_object:
+  terms:
+  - loan period
+  - due date
+  - hold
+  - Renewal
+  - Check-in
+named_entities:
+- id: AUTO:loan%20period
+  label: loan period
+  original_spans:
+  - '93:103'
+- id: AUTO:due%20date
+  label: due date
+  original_spans:
+  - '121:128'
+- id: AUTO:hold
+  label: hold
+  original_spans:
+  - '244:247'
+- id: AUTO:Renewal
+  label: Renewal
+  original_spans:
+  - '263:269'
+- id: AUTO:Check-in
+  label: Check-in
+  original_spans:
+  - '404:411'
