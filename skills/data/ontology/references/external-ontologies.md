@@ -5,11 +5,24 @@ Serves Step 0, and the external mappings applied at later steps (Steps 5 and 7).
 ## Where to look
 
 1. Sector standards bodies: code lists and data-exchange standards (product codes, item identifiers, circulation protocols).
-2. Published domain ontologies: GitHub, ontology portals, Linked Open Vocabularies (https://lov.linkeddata.es/).
+2. Published domain ontologies: GitHub, ontology portals, and the registries below.
 3. Registries and authority files: legal entities and their ownership (for example GLEIF Level 2), places, standard identifiers.
 4. W3C and community vocabularies: ORG, PROV-O, P-Plan, DCAT, OWL-Time, QUDT, SOSA/SSN.
 
 Search the web for the domain plus "ontology", "OWL", "vocabulary" and "code list".
+
+### The registries to search
+
+Search all four for the domain's main nouns and record each hit, or the empty search, in `templates/survey-register.md`. A registry's listing is a lead; assess the source itself (below).
+
+| Registry | What it holds | How to search it |
+|---|---|---|
+| Linked Open Vocabularies (LOV), https://lov.linkeddata.es/ | Reusable RDF vocabularies with curated metadata: versions, who maintains them, and which vocabularies reuse which | Vocabulary search and term search on the site; a SPARQL endpoint and dump; a REST API (`/dataset/lov/api`) |
+| BARTOC, https://bartoc.org/ | Knowledge organization systems of every kind (thesauri, classifications, subject headings, ontologies), any subject and language | Keyword search, or search by KOS type and subject; a JSKOS API at `https://bartoc.org/api/` |
+| Open Knowledge Graphs, https://openknowledgegraphs.com/ | Ontologies, vocabularies, taxonomies, data standards and semantic software, drawn from Wikidata and refreshed daily | A search box, with filters by category and type |
+| DBpedia Archivo, https://archivo.dbpedia.org/ | Archived versions of web ontologies, checked for new versions several times a day, each with a star rating for retrievability and quality tests | Its ontology list and `/info` page, which lists every archived version with its tests; `https://archivo.dbpedia.org/download?o=<ontology IRI>&f=ttl` fetches the latest archived version |
+
+*Why these four:* LOV and Archivo cover RDF vocabularies, BARTOC covers thesauri and classifications that never became RDF, and Open Knowledge Graphs adds standards and tools. Cite the Archivo version you read, from its `/info` page, when the publisher's own copy can change under the same IRI (rule 7). A star rating says the file loads and passes Archivo's tests; it says nothing about fit or licence.
 
 ## Assess each candidate
 
