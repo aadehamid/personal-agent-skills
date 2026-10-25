@@ -43,6 +43,7 @@ import hashlib
 import json
 import os
 import sys
+from collections import namedtuple
 
 from rdflib import Graph, Literal, URIRef
 from rdflib.namespace import OWL, RDF, RDFS
@@ -225,13 +226,17 @@ def _q(name):
     return "`" + name.replace("`", "``") + "`"
 
 
+# A typed property of a node element type: the Cypher base type (STRING, INTEGER, ...), whether the
+# load stores it as an array, and whether sh:minCount is 1 or more. Each serializer renders it.
+PropertyType = namedtuple("PropertyType", "base listed required")
+
+
 def element_types(cfg, shapes, data):
     """(nodes, rels, left out) read from the shapes, the one mapping behind graph_type and data_model.
 
-    nodes maps each sh:targetClass label to {key: (kind, required)}, where kind is the Cypher type
-    (LIST<T NOT NULL> when the load stores an array) and required is sh:minCount 1 or more; rels maps
-    each relationship key to its {(source label, target label)}. Everything with no typed form is
-    listed in left out, in graph_type's words."""
+    nodes maps each sh:targetClass label to {key: PropertyType}; rels maps each relationship key to
+    its {(source label, target label)}. Everything the shapes give no typed form is listed in left
+    out, in graph_type's words. What only a GRAPH TYPE cannot hold is graph_type_omissions'."""
     from rdflib import BNode
     from rdflib.namespace import SH, XSD
     multi = set(multivalued(data, shapes))
@@ -266,8 +271,7 @@ def element_types(cfg, shapes, data):
                     if target is not None:
                         left_out.append(f"{label}.{key}: sh:class {target} beside sh:datatype; the property is typed, "
                                         "the relationship left out")
-                    listed = str(path) in multi
-                    typed = (f"LIST<{base} NOT NULL>" if listed else base, min_c is not None and int(min_c) >= 1)
+                    typed = PropertyType(base, str(path) in multi, min_c is not None and int(min_c) >= 1)
                     if key in props and props[key] != typed:
                         left_out.append(f"{label}.{key}: a second property shape maps it as {_spec(key, typed)}; "
                                         f"kept {_spec(key, props[key])}")
@@ -285,8 +289,20 @@ def element_types(cfg, shapes, data):
 
 
 def _spec(key, typed):
-    kind, required = typed
-    return f"{_q(key)} :: {kind}" + (" NOT NULL" if required else "")
+    kind = f"LIST<{typed.base} NOT NULL>" if typed.listed else typed.base
+    return f"{_q(key)} :: {kind}" + (" NOT NULL" if typed.required else "")
+
+
+def graph_type_omissions(nodes, rels):
+    """What a GRAPH TYPE cannot hold of the element types: a node type with no typed property (Aura
+    rejects an empty one) and a relationship type used between several label pairs (one identifying
+    pair only). data_model keeps both and lists them under metadata.not_in_graph_type."""
+    omitted = [f"{label}: no typed property, so no node element type" for label, props in sorted(nodes.items())
+               if not props]
+    omitted += [f"{key}: relationship type used between several label pairs "
+                f"({', '.join(f'{a}->{b}' for a, b in sorted(ends))}); one identifying pair only"
+                for key, ends in sorted(rels.items()) if len(ends) > 1]
+    return omitted
 
 
 def graph_type(cfg, shapes, data):
@@ -303,19 +319,13 @@ def graph_type(cfg, shapes, data):
     differently, the first (by shape IRI) is kept and the other is listed. Everything that has no
     GRAPH TYPE form is listed in left out."""
     nodes, rels, left_out = element_types(cfg, shapes, data)
-    elements = []
-    for label, props in sorted(nodes.items()):
-        if props:
-            elements.append(f"  (:{_q(label)} => {{" + ", ".join(_spec(k, props[k]) for k in sorted(props)) + "})")
-        else:
-            left_out.append(f"{label}: no typed property, so no node element type")
+    left_out += graph_type_omissions(nodes, rels)
+    elements = [f"  (:{_q(label)} => {{" + ", ".join(_spec(k, props[k]) for k in sorted(props)) + "})"
+                for label, props in sorted(nodes.items()) if props]
     for key, ends in sorted(rels.items()):
-        if len(ends) > 1:
-            left_out.append(f"{key}: relationship type used between several label pairs "
-                            f"({', '.join(f'{a}->{b}' for a, b in sorted(ends))}); one identifying pair only")
-            continue
-        (source, target), = ends
-        elements.append(f"  (:{_q(source)})-[:{_q(key)} =>]->(:{_q(target)})")
+        if len(ends) == 1:
+            (source, target), = ends
+            elements.append(f"  (:{_q(source)})-[:{_q(key)} =>]->(:{_q(target)})")
     if not elements:
         raise ValueError("the shapes give no node or relationship element type; there is no GRAPH TYPE to write")
     statement = "CYPHER 25\nALTER CURRENT GRAPH TYPE SET {\n" + ",\n".join(elements) + "\n}"
@@ -328,21 +338,23 @@ def data_model(cfg, shapes, data):
     (mcp-neo4j-data-modeling 0.8.2, data_model.py at commit 0eaf613e0f), so its validate_data_model,
     export_to_arrows_json and get_mermaid_config_str can run on the projection (add-ons.md, L).
 
-    One node per label that a shape targets or a relationship reaches, keyed on n10s's uri; one
-    property per typed key, a list typed LIST with its element type in the description; one
-    relationship per (source, key, target), every label pair kept. Labels and types are the SHORTEN
-    names. What element_types leaves out goes to metadata.left_out."""
+    It holds every element type of element_types, which is more than graph_type writes: one node per
+    label that a shape targets or a relationship reaches, keyed on n10s's uri, typed properties or
+    none; one property per typed key, a list typed LIST with its element type and NOT NULL in the
+    description; one relationship per (source, key, target), every label pair kept. Labels and types
+    are the SHORTEN names. metadata.left_out is element_types' list (what the shapes give no typed
+    form); metadata.not_in_graph_type is graph_type_omissions' (what this model holds and a GRAPH TYPE
+    cannot). graph_type's comments are exactly the two lists together."""
     nodes, rels, left_out = element_types(cfg, shapes, data)
+    omitted = graph_type_omissions(nodes, rels)
     for ends in rels.values():
         for source, target in ends:
             nodes.setdefault(source, {})
             nodes.setdefault(target, {})
 
     def prop(key, typed):
-        kind, required = typed
-        listed = kind.startswith("LIST<")
-        notes = ([kind] if listed else []) + (["NOT NULL"] if required else [])
-        return {"name": key, "type": "LIST" if listed else kind,
+        notes = ([f"LIST<{typed.base} NOT NULL>"] if typed.listed else []) + (["NOT NULL"] if typed.required else [])
+        return {"name": key, "type": "LIST" if typed.listed else typed.base,
                 "description": "; ".join(notes) if notes else None}
 
     return {
@@ -352,42 +364,96 @@ def data_model(cfg, shapes, data):
                   for label, props in sorted(nodes.items())],
         "relationships": [{"type": key, "start_node_label": source, "end_node_label": target}
                           for key, ends in sorted(rels.items()) for source, target in sorted(ends)],
-        "metadata": {"source": "ontology-to-lpg build.py data-model", "left_out": sorted(set(left_out))},
+        "metadata": {"source": "ontology-to-lpg build.py data-model", "left_out": sorted(set(left_out)),
+                     "not_in_graph_type": omitted},
     }
 
 
-def data_model_problems(model):
-    """The DataModel rules of mcp-neo4j-data-modeling 0.8.2 (data_model.py at 0eaf613e0f: Node,
-    Relationship and DataModel validators), so a model this skill writes passes validate_data_model:
-    a label and a relationship type are non-empty; every node has a named key property; no property
-    name repeats within one node or relationship, the key excepted; no label repeats; every
-    relationship's start and end label is a node of the model."""
-    problems, labels = [], []
-    for node in model.get("nodes", []):
-        label = node.get("label") or ""
-        if not label:
-            problems.append("a node has an empty label")
-        if not (node.get("key_property") or {}).get("name"):
-            problems.append(f"node {label!r} has no key property")
-        names = [p.get("name") for p in node.get("properties", [])
-                 if p.get("name") != (node.get("key_property") or {}).get("name")]
-        problems += [f"property {n!r} appears {names.count(n)} times in node {label!r}"
-                     for n in sorted(set(names)) if names.count(n) > 1]
-        labels.append(label)
-    problems += [f"node label {lb!r} appears {labels.count(lb)} times" for lb in sorted(set(labels))
-                 if labels.count(lb) > 1]
-    for rel in model.get("relationships", []):
-        pattern = f"({rel.get('start_node_label')})-[{rel.get('type')}]->({rel.get('end_node_label')})"
-        if not rel.get("type"):
-            problems.append(f"relationship {pattern} has an empty type")
-        for end in ("start_node_label", "end_node_label"):
-            if rel.get(end) not in labels:
-                problems.append(f"relationship {pattern}: its {end.split('_')[0]} node is not in the model")
-        key = (rel.get("key_property") or {}).get("name")
-        names = [p.get("name") for p in rel.get("properties", []) if p.get("name") != key]
-        problems += [f"property {n!r} appears {names.count(n)} times in relationship {pattern}"
-                     for n in sorted(set(names)) if names.count(n) > 1]
+def _str(value, empty=True):
+    return isinstance(value, str) and (empty or value != "")
+
+
+def _property_problems(prop, where):
+    """Property's fields under strict validation: a str name, an optional str type, a str or null
+    description, a dict or null source."""
+    if not isinstance(prop, dict):
+        return [f"{where}: a property is not an object"]
+    problems = []
+    if not _str(prop.get("name")):
+        problems.append(f"{where}: a property has no str name")
+    for field, ok in (("type", lambda v: _str(v)), ("description", lambda v: v is None or _str(v)),
+                      ("source", lambda v: v is None or isinstance(v, dict))):
+        if field in prop and not ok(prop[field]):
+            problems.append(f"{where}: property {prop.get('name')!r} has a bad {field}")
     return problems
+
+
+def data_model_problems(model):
+    """The DataModel rules of mcp-neo4j-data-modeling 0.8.2 (data_model.py at 0eaf613e0f: the Node,
+    Relationship and DataModel fields under DataModel.model_validate(..., strict=True), and their
+    validators), so a model this skill writes passes validate_data_model. test_modeling checks this
+    list against that package on every case: fields of the right type (str names, labels and types,
+    lists, dicts); a non-empty label and relationship type; a key property on every node; no property
+    name repeated within one node or relationship, the key excepted; no repeated label; every
+    relationship's start and end label a node of the model."""
+    if not isinstance(model, dict):
+        return ["the model is not an object"]
+    problems, labels = [], []
+    nodes, rels = model.get("nodes", []), model.get("relationships", [])
+    if not isinstance(nodes, list) or not isinstance(rels, list) or not isinstance(model.get("metadata", {}), dict):
+        return ["nodes and relationships must be lists, and metadata an object"]
+    for node in nodes:
+        if not isinstance(node, dict):
+            problems.append("a node is not an object")
+            continue
+        label = node.get("label")
+        if not _str(label, empty=False):
+            problems.append(f"a node has no non-empty str label ({label!r})")
+        key = node.get("key_property")
+        if not isinstance(key, dict):
+            problems.append(f"node {label!r} has no key property")
+            key = {}
+        else:
+            problems += _property_problems(key, f"node {label!r} key")
+        if not isinstance(node.get("properties", []), list):
+            problems.append(f"node {label!r}: properties is not a list")
+            continue
+        for p in node.get("properties", []):
+            problems += _property_problems(p, f"node {label!r}")
+        if not (node.get("description") is None or _str(node.get("description"))) or \
+                not isinstance(node.get("metadata", {}), dict):
+            problems.append(f"node {label!r} has a bad description or metadata")
+        names = [p.get("name") for p in node.get("properties", []) if isinstance(p, dict) and p.get("name") != key.get("name")]
+        problems += [f"property {n!r} appears {names.count(n)} times in node {label!r}"
+                     for n in sorted(set(names), key=str) if names.count(n) > 1]
+        labels.append(label)
+    problems += [f"node label {lb!r} appears {labels.count(lb)} times" for lb in sorted(set(labels), key=str)
+                 if labels.count(lb) > 1]
+    for rel in rels:
+        if not isinstance(rel, dict):
+            problems.append("a relationship is not an object")
+            continue
+        pattern = f"({rel.get('start_node_label')})-[{rel.get('type')}]->({rel.get('end_node_label')})"
+        if not _str(rel.get("type"), empty=False):
+            problems.append(f"relationship {pattern} has no non-empty str type")
+        for end in ("start_node_label", "end_node_label"):
+            if not _str(rel.get(end)) or rel.get(end) not in labels:
+                problems.append(f"relationship {pattern}: its {end.split('_')[0]} node is not in the model")
+        key = rel.get("key_property")
+        if key is not None:
+            problems += _property_problems(key, f"relationship {pattern} key")
+        props = rel.get("properties", [])
+        if not isinstance(props, list):
+            problems.append(f"relationship {pattern}: properties is not a list")
+            continue
+        for p in props:
+            problems += _property_problems(p, f"relationship {pattern}")
+        key_name = key.get("name") if isinstance(key, dict) else None
+        names = [p.get("name") for p in props if isinstance(p, dict) and p.get("name") != key_name]
+        problems += [f"property {n!r} appears {names.count(n)} times in relationship {pattern}"
+                     for n in sorted(set(names), key=str) if names.count(n) > 1]
+    return problems
+
 
 def check_report(man, rep):
     """report_earned(rep), plus the input and shapes fingerprints against the manifest."""

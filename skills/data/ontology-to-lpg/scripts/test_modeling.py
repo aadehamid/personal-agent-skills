@@ -117,7 +117,54 @@ def library():
     return cfg, shapes, data
 
 
+LIBRARY_GRAPH_TYPE = """CYPHER 25
+ALTER CURRENT GRAPH TYPE SET {
+  (:`lib__Authorship` => {`lib__position` :: INTEGER NOT NULL, `lib__source` :: STRING NOT NULL}),
+  (:`lib__Copy` => {`lib__barcode` :: STRING NOT NULL, `lib__shelfNote` :: STRING}),
+  (:`lib__Person` => {`lib__name` :: STRING NOT NULL}),
+  (:`lib__Work` => {`lib__altTitle` :: LIST<STRING NOT NULL>, `lib__title` :: STRING NOT NULL}),
+  (:`lib__Authorship`)-[:`lib__authorshipAgent` =>]->(:`lib__Person`),
+  (:`lib__Copy`)-[:`lib__copyOf` =>]->(:`lib__Work`),
+  (:`lib__Work`)-[:`lib__hasAuthorship` =>]->(:`lib__Authorship`)
+}"""   # written by build.py graph-type at c27ef9f, before element_types existed
+
+SYNTHETIC_SHAPES = """
+@prefix sh: <http://www.w3.org/ns/shacl#> . @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix lib: <https://id.example.org/library/> .
+lib:A a sh:NodeShape ; sh:targetClass lib:Work ;
+  sh:property [ sh:path lib:title ; sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ] ;
+  sh:property [ sh:path lib:tag ; sh:datatype xsd:string ; sh:minCount 0 ] ;
+  sh:property [ sh:path lib:size ; sh:datatype xsd:hexBinary ; sh:maxCount 1 ] ;
+  sh:property [ sh:path lib:copyOf ; sh:class lib:Person ] .
+lib:B a sh:NodeShape ; sh:targetClass lib:Copy ;
+  sh:property [ sh:path lib:copyOf ; sh:class lib:Work ] ;
+  sh:property [ sh:path lib:note ; sh:in ( "a" ) ] .
+"""
+SYNTHETIC_DATA = """
+@prefix lib: <https://id.example.org/library/> .
+lib:w1 lib:title "t" ; lib:tag "x", "y" .
+"""
+
+
+def synthetic():
+    cfg = build.load_config(os.path.join(TEMPLATES, "projection-config.json"))
+    return cfg, Graph().parse(data=SYNTHETIC_SHAPES, format="turtle"), Graph().parse(data=SYNTHETIC_DATA, format="turtle")
+
+
+def lone_node(**change):
+    """A model of one node and no relationship, so a node rule breaks alone."""
+    node = {"label": "lib__Work", "key_property": {"name": "uri", "type": "STRING"},
+            "properties": [{"name": "lib__title", "type": "STRING"}]}
+    node.update(change)
+    return {"nodes": [node], "relationships": []}
+
+
 class DataModel(unittest.TestCase):
+    def test_the_library_graph_type_is_unchanged_by_the_shared_mapping(self):
+        statement, left_out = build.graph_type(*library())
+        self.assertEqual(statement, LIBRARY_GRAPH_TYPE)
+        self.assertEqual(len(left_out), 9)
+
     def test_the_library_model_has_its_nodes_and_relationships(self):
         model = build.data_model(*library())
         self.assertEqual([n["label"] for n in model["nodes"]],
@@ -126,55 +173,108 @@ class DataModel(unittest.TestCase):
                          [("lib__Authorship", "lib__authorshipAgent", "lib__Person"),
                           ("lib__Copy", "lib__copyOf", "lib__Work"),
                           ("lib__Work", "lib__hasAuthorship", "lib__Authorship")])
+        self.assertEqual({n["key_property"]["name"] for n in model["nodes"]}, {"uri"})
         self.assertEqual(build.data_model_problems(model), [])
 
-    def test_every_node_is_keyed_on_the_uri(self):
-        model = build.data_model(*library())
-        self.assertEqual({n["key_property"]["name"] for n in model["nodes"]}, {"uri"})
+    def test_library_properties_carry_list_and_cardinality(self):
+        nodes = {n["label"]: {p["name"]: (p["type"], p["description"]) for p in n["properties"]}
+                 for n in build.data_model(*library())["nodes"]}
+        self.assertEqual(nodes["lib__Work"], {"lib__altTitle": ("LIST", "LIST<STRING NOT NULL>"),
+                                              "lib__title": ("STRING", "NOT NULL")})
+        self.assertEqual(nodes["lib__Copy"], {"lib__barcode": ("STRING", "NOT NULL"), "lib__shelfNote": ("STRING", None)})
+        self.assertEqual(nodes["lib__Authorship"], {"lib__position": ("INTEGER", "NOT NULL"),
+                                                    "lib__source": ("STRING", "NOT NULL")})
 
-    def test_a_list_property_is_typed_list_with_its_element_type(self):
-        work = next(n for n in build.data_model(*library())["nodes"] if n["label"] == "lib__Work")
-        alt = next(p for p in work["properties"] if p["name"] == "lib__altTitle")
-        self.assertEqual((alt["type"], alt["description"]), ("LIST", "LIST<STRING NOT NULL>"))
+    def test_synthetic_graph_type(self):
+        statement, left_out = build.graph_type(*synthetic())
+        self.assertEqual(statement, "CYPHER 25\nALTER CURRENT GRAPH TYPE SET {\n"
+                         "  (:`lib__Work` => {`lib__tag` :: LIST<STRING NOT NULL>, `lib__title` :: STRING NOT NULL})\n}")
+        self.assertEqual(left_out, [
+            "lib__Copy.lib__note: no sh:datatype or sh:class to map",
+            "lib__Copy.lib__note: sh:in (no GRAPH TYPE form)",
+            "lib__Copy: no typed property, so no node element type",
+            "lib__Work.lib__size: sh:datatype http://www.w3.org/2001/XMLSchema#hexBinary has no GRAPH TYPE property type",
+            "lib__copyOf: relationship type used between several label pairs (lib__Copy->lib__Work, "
+            "lib__Work->lib__Person); one identifying pair only"])
 
-    def test_a_required_scalar_says_not_null(self):
-        copy = next(n for n in build.data_model(*library())["nodes"] if n["label"] == "lib__Copy")
-        self.assertEqual({p["name"]: (p["type"], p["description"]) for p in copy["properties"]},
-                         {"lib__barcode": ("STRING", "NOT NULL"), "lib__shelfNote": ("STRING", None)})
+    def test_synthetic_model_keeps_what_the_graph_type_cannot(self):
+        model = build.data_model(*synthetic())
+        self.assertEqual([(n["label"], [p["name"] for p in n["properties"]]) for n in model["nodes"]],
+                         [("lib__Copy", []), ("lib__Person", []), ("lib__Work", ["lib__tag", "lib__title"])])
+        self.assertEqual([(r["start_node_label"], r["type"], r["end_node_label"]) for r in model["relationships"]],
+                         [("lib__Copy", "lib__copyOf", "lib__Work"), ("lib__Work", "lib__copyOf", "lib__Person")])
+        self.assertEqual(model["metadata"]["not_in_graph_type"], [
+            "lib__Copy: no typed property, so no node element type",
+            "lib__copyOf: relationship type used between several label pairs (lib__Copy->lib__Work, "
+            "lib__Work->lib__Person); one identifying pair only"])
+        self.assertEqual(build.data_model_problems(model), [])
 
-    def test_it_matches_the_graph_type_element_for_element(self):
-        statement, left_out = build.graph_type(*library())
-        model = build.data_model(*library())
-        for node in model["nodes"]:
-            if node["properties"]:
-                self.assertIn(f"(:`{node['label']}` =>", statement)
-        self.assertEqual(model["metadata"]["left_out"], left_out)
+    def test_graph_type_comments_are_the_two_lists_together(self):
+        for case in (library(), synthetic()):
+            _, left_out = build.graph_type(*case)
+            meta = build.data_model(*case)["metadata"]
+            self.assertEqual(sorted(left_out), sorted(meta["left_out"] + meta["not_in_graph_type"]))
 
-    def test_each_mcp_rule_breaks_once(self):
-        good = build.data_model(*library())
-        breaks = {
-            "empty label": lambda m: m["nodes"][0].update(label=""),
-            "no key": lambda m: m["nodes"][0].pop("key_property"),
-            "repeated property": lambda m: m["nodes"][1]["properties"].append(dict(m["nodes"][1]["properties"][0])),
-            "repeated label": lambda m: m["nodes"].append(json.loads(json.dumps(m["nodes"][0]))),
-            "empty type": lambda m: m["relationships"][0].update(type=""),
-            "unknown end": lambda m: m["relationships"][0].update(end_node_label="lib__Nobody"),
+    def test_each_rule_breaks_alone_with_its_exact_problem(self):
+        two = lone_node()
+        two["nodes"].append(json.loads(json.dumps(two["nodes"][0])))
+        cases = {
+            "empty label": (lone_node(label=""), ["a node has no non-empty str label ('')"]),
+            "no key": ({"nodes": [{"label": "lib__Work"}], "relationships": []}, ["node 'lib__Work' has no key property"]),
+            "nameless property": (lone_node(properties=[{"type": "STRING"}]), ["node 'lib__Work': a property has no str name"]),
+            "number type": (lone_node(properties=[{"name": "p", "type": 3}]), ["node 'lib__Work': property 'p' has a bad type"]),
+            "repeated property": (lone_node(properties=[{"name": "p"}, {"name": "p"}]),
+                                  ["property 'p' appears 2 times in node 'lib__Work'"]),
+            "repeated label": (two, ["node label 'lib__Work' appears 2 times"]),
         }
-        for name, change in breaks.items():
+        rel = lone_node()
+        cases.update({
+            "empty type": (dict(rel, relationships=[{"type": "", "start_node_label": "lib__Work", "end_node_label": "lib__Work"}]),
+                           ["relationship (lib__Work)-[]->(lib__Work) has no non-empty str type"]),
+            "unknown start": (dict(rel, relationships=[{"type": "t", "start_node_label": "X", "end_node_label": "lib__Work"}]),
+                              ["relationship (X)-[t]->(lib__Work): its start node is not in the model"]),
+            "unknown end": (dict(rel, relationships=[{"type": "t", "start_node_label": "lib__Work", "end_node_label": "X"}]),
+                            ["relationship (lib__Work)-[t]->(X): its end node is not in the model"]),
+            "repeated relationship property": (dict(rel, relationships=[{"type": "t", "start_node_label": "lib__Work",
+                                                                         "end_node_label": "lib__Work",
+                                                                         "properties": [{"name": "p"}, {"name": "p"}]}]),
+                                               ["property 'p' appears 2 times in relationship (lib__Work)-[t]->(lib__Work)"]),
+        })
+        self.assertEqual(build.data_model_problems(lone_node()), [])
+        self.assertEqual(build.data_model_problems(lone_node(properties=[{"name": "uri"}])), [])   # the key is excepted
+        for name, (model, expected) in cases.items():
             with self.subTest(name=name):
-                model = json.loads(json.dumps(good))
-                change(model)
-                self.assertTrue(build.data_model_problems(model))
+                self.assertEqual(build.data_model_problems(model), expected)
+        self.corpus = [lone_node(), build.data_model(*library()), build.data_model(*synthetic())] + [m for m, _ in cases.values()]
 
-    def test_the_command_writes_the_model(self):
-        import tempfile
+    def test_it_agrees_with_the_pinned_mcp_package(self):
+        # The canonical validator: mcp-neo4j-data-modeling 0.8.2 (check.sh installs it for this test).
+        from mcp_neo4j_data_modeling.data_model import DataModel as Canonical
+        self.test_each_rule_breaks_alone_with_its_exact_problem()
+        for model in self.corpus:
+            with self.subTest(model=json.dumps(model)[:80]):
+                try:
+                    Canonical.model_validate(model, strict=True)
+                    canonical_ok = True
+                except Exception:
+                    canonical_ok = False
+                self.assertEqual(build.data_model_problems(model) == [], canonical_ok)
+
+    def test_the_command_writes_the_model_or_refuses_it(self):
         out = os.path.join(tempfile.mkdtemp(), "data-model.json")
-        code = build.main(["data-model", "--config", os.path.join(TEMPLATES, "projection-config.json"),
-                           "--shapes", os.path.join(TEMPLATES, "library-shapes.ttl"), "--output", out,
-                           os.path.join(TEMPLATES, "library-module.ttl")])
+        args = ["data-model", "--config", os.path.join(TEMPLATES, "projection-config.json"),
+                "--shapes", os.path.join(TEMPLATES, "library-shapes.ttl"), "--output", out,
+                os.path.join(TEMPLATES, "library-module.ttl")]
+        code, _ = run_main(build.main, args)
         self.assertEqual(code, 0)
         with open(out, encoding="utf-8") as f:
             self.assertEqual(len(json.load(f)["nodes"]), 4)
+        os.remove(out)
+        with mock.patch.object(build, "data_model_problems", return_value=["planted"]):
+            code, printed = run_main(build.main, args)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL planted", printed)
+        self.assertFalse(os.path.exists(out))
 
 
 CANARY, CANARY2 = "canaryPW1", "canaryPW2"
