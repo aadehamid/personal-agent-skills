@@ -34,8 +34,8 @@ A package is written to a staging folder, checked with check_packages.check_pack
 check_changelogs.check_text, and only then moved into place; a released folder is never overwritten
 (rule 10). Git is optional (release.md, "Without a remote"): with no git the manifest's hashes are the whole
 guarantee; with git, `tag` tags <module>-v<version> on the commit that last changed the package and `verify` also compares
-the written files with the tag's copy; with a remote, `tag` waits until the package is on a remote branch, tags the commit that brought it in there
-(rule 16), and says whether the remote holds the tag.
+the written files with the tag's copy; with a remote, `tag` waits until the package is on the remote's default branch (read from the remote itself),
+tags the commit that brought it in there (rule 16), and says whether the remote holds the tag.
 Nothing here pushes.
 
 Exit 0 on success, 1 when a check fails, 2 when the arguments or the answers are wrong.
@@ -394,25 +394,21 @@ def tag(answers, releases):
     # commit, or the package's own commit after a fast-forward or squash.
     commit = git("log", "-1", "--format=%H", "--", rel, cwd=top).stdout.strip()
     if setup == "remote":
-        # The evidence is each remote's branch heads as the remote reports them now (git ls-remote), never the
-        # cached remote-tracking refs, so a branch deleted or rewritten on the remote cannot vouch for the merge.
-        # A fetch first brings those commits here (it reads; it never pushes); any failure stops the tag.
-        heads = []
-        for r in remotes:
-            fetched = git("fetch", "--quiet", r, cwd=top)
-            listed = git("ls-remote", "--heads", r, cwd=top)
-            if fetched.returncode != 0 or listed.returncode != 0:
-                return 1, [f"cannot read {r}'s branches, so the merge cannot be confirmed"]
-            default = git("ls-remote", "--symref", r, "HEAD", cwd=top).stdout.split("\n")[0]
-            default_ref = default.split()[1] if default.startswith("ref:") else ""
-            for line in listed.stdout.splitlines():
-                sha, ref = line.split("\t")
-                if git("merge-base", "--is-ancestor", commit, sha, cwd=top).returncode == 0:
-                    heads.append((ref != default_ref, r, ref, sha))
-        if not heads:
-            return 1, [f"{rel} is not on a remote branch yet: tag it after the release merges (release.md, rule 16)"]
-        _, _, _, branch_sha = sorted(heads)[0]   # the remote's default branch first
-        commit = git("log", "-1", "--first-parent", "--format=%H", branch_sha, "--", rel, cwd=top).stdout.strip() or commit
+        # The evidence is the remote's default branch as the remote reports it now (git ls-remote), never a cached
+        # remote-tracking ref, so a branch deleted or rewritten on the remote cannot vouch for the merge. A fetch
+        # first brings its commits here (it reads; it never pushes). Any failure, or a default branch that cannot
+        # be named, stops the tag. The first remote git lists is the one asked.
+        r = remotes[0]
+        fetched = git("fetch", "--quiet", r, cwd=top)
+        symref = git("ls-remote", "--symref", r, "HEAD", cwd=top)
+        first = symref.stdout.splitlines()[0].split() if symref.returncode == 0 and symref.stdout.strip() else []
+        if fetched.returncode != 0 or len(first) < 3 or first[0] != "ref:" or not first[1].startswith("refs/heads/"):
+            return 1, [f"cannot read {r}'s default branch, so the merge cannot be confirmed"]
+        listed = git("ls-remote", r, first[1], cwd=top)
+        head_sha = listed.stdout.split()[0] if listed.returncode == 0 and listed.stdout.strip() else ""
+        if not head_sha or git("merge-base", "--is-ancestor", commit, head_sha, cwd=top).returncode != 0:
+            return 1, [f"{rel} is not on {r}'s default branch yet: tag it after the release merges (release.md, rule 16)"]
+        commit = git("log", "-1", "--first-parent", "--format=%H", head_sha, "--", rel, cwd=top).stdout.strip() or commit
     lines = []
     if git("rev-parse", "-q", "--verify", f"refs/tags/{name}", cwd=top).returncode == 0:
         lines.append(f"{name} already exists; nothing tagged")
