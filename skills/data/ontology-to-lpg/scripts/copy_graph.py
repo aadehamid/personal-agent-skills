@@ -33,11 +33,10 @@ does and fails unless it equals the source hash. Every printed value is shell-qu
 Exit 0 when the hashes match, 1 when a copy or check fails, 2 on bad input.
 """
 import os
-import re
 import sys
 
 import build
-from shell import Refusal, error_line, q, redact, shown_path
+from shell import Refusal, error_line, q, redact, unverified_report
 import load_verify as lv
 
 CONFIG_LABELS = ("_GraphConfig", "_NsPrefDef", "_n10sValidatorConfig")
@@ -60,11 +59,11 @@ def read_env_file(path):
                 continue
             key, sep, value = line.partition("=")
             if not sep:
-                raise Refusal(f"{shown_path(path)} line {number} is not KEY=VALUE")
+                raise Refusal(f"the env file: line {number} is not KEY=VALUE")
             values[key.strip()] = value.strip().strip('"').strip("'")
     missing = [k for k in ("NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD") if not values.get(k)]
     if missing:
-        raise Refusal(f"{shown_path(path)} lacks {', '.join(missing)}")
+        raise Refusal(f"the env file lacks {', '.join(missing)}")
     return values
 
 
@@ -85,7 +84,7 @@ def verified_hash(report_path):
         rep = json.load(f)
     fails = build.report_earned(rep)
     if fails:
-        raise Refusal(f"{shown_path(report_path)} is not a verified projection report: {'; '.join(fails)}")
+        raise unverified_report(fails)
     return rep["determinism_hash_sorted"]
 
 
@@ -135,11 +134,9 @@ def main(argv):
         build.need(opts, "--source", "--target-env", "--report")
         unknown = sorted(set(opts) - {"--source", "--target-env", "--report", "--replace", "--batch", "--query-timeout"})
         if rest or unknown:
-            # A plain flag name is shown; anything else (a value, a --flag=value) is only counted.
-            named = [a for a in unknown if re.fullmatch(r"--[a-z][a-z-]*", a)]
-            others = len(rest) + len(unknown) - len(named)
-            raise Refusal("unexpected arguments: " + " ".join(named + ([f"and {others} other(s)"] if others else []))
-                          + "; the flags are --source, --target-env, --report, --replace, --batch, --query-timeout")
+            # Counted, never shown: an unknown option or a stray value is text the user supplied.
+            raise Refusal(f"unknown option(s) or argument(s): {len(rest) + len(unknown)}; the flags are --source, "
+                          "--target-env, --report, --replace, --batch, --query-timeout")
         try:
             size = int(opts.get("--batch", 1000))
         except ValueError:

@@ -526,7 +526,7 @@ def options(argv, multi=("--shapes",), flags=("--verify",)):
             opts[a] = True
         elif a.startswith("--"):
             if not args:
-                raise Refusal(f"{a.split('=', 1)[0]} needs a value")
+                raise Refusal("the last option has no value")
             if a in multi:
                 opts.setdefault(a, []).append(args.pop(0))
             else:

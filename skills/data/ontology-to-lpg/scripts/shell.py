@@ -53,23 +53,22 @@ def scrub(text, secrets):
 
 
 class Refusal(ValueError):
-    """A refusal the script words itself: fixed text that names flags, keys and checks, never a URL,
-    an env value or a library's message, so it can be printed as it is."""
-
-
-def shown_path(path):
-    """A file path as it may be printed: as it is, unless it looks like a URL or holds an @."""
-    text = str(path)
-    return "<a path that looks like a URL>" if "://" in text or "@" in text else text
+    """A refusal the script words itself: fixed text that names only the script's own flags, keys
+    and checks, and counts. It never holds text the user supplied (a path, a value, an unknown
+    option, a report's content) or a library's message, so it can be printed as it is."""
 
 
 def error_line(context, exc):
     """What an error path prints: a Refusal's own text, or else the fixed context and the exception's
-    type name, with the path of a missing file when shown_path allows it. Never a library's message,
-    which can carry a URL or a credential from the arguments, the environment or a file."""
+    type name. Never a library's message or a path, which can carry a URL or a credential from the
+    arguments, the environment or a file."""
     if isinstance(exc, Refusal):
         return str(exc)
-    line = f"{context} ({type(exc).__name__})"
-    if isinstance(exc, FileNotFoundError) and exc.filename:
-        line += f": {shown_path(exc.filename)}"
-    return line
+    return f"{context} ({type(exc).__name__})"
+
+
+def unverified_report(fails):
+    """The refusal for a projection report that did not earn its pass: a count, never the report's
+    content; build.py check-report lists each failed check."""
+    return Refusal(f"the projection report is not a verified report ({len(fails)} check(s) failed); "
+                   "run build.py check-report on it to see which")

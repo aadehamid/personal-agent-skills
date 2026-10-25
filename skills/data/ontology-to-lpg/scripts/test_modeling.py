@@ -645,14 +645,13 @@ class Secrets(unittest.TestCase):
         self.assertNotIn(CANARY, out)
         self.assertNotIn(CANARY2, out)
 
-    def test_an_error_prints_its_type_and_a_plain_missing_path_only(self):
+    def test_an_error_prints_its_type_only(self):
         from shell import Refusal, error_line
         self.assertEqual(error_line("x failed", ValueError(f"bad {CANARY}")), "x failed (ValueError)")
-        self.assertEqual(error_line("x failed", FileNotFoundError(2, "No such file", "/a/b.ttl")),
-                         "x failed (FileNotFoundError): /a/b.ttl")
-        self.assertEqual(error_line("x failed", FileNotFoundError(2, "No such file", f"http://{CANARY}@h")),
-                         "x failed (FileNotFoundError): <a path that looks like a URL>")
+        self.assertEqual(error_line("x failed", FileNotFoundError(2, "No such file", f"/a/{TOKEN}.ttl")),
+                         "x failed (FileNotFoundError)")
         self.assertEqual(error_line("x failed", Refusal("missing --report")), "missing --report")
+
 
     def test_triplestore_reports_store_no_credential(self):
         for counts, name in ((None, ""), ({"urn:x": 1}, ".failed")):
@@ -662,6 +661,88 @@ class Secrets(unittest.TestCase):
                     text = f.read()
                 self.assertNotIn(CANARY, text + out)
                 self.assertNotIn(CANARY2, text + out)
+
+
+
+TOKEN = "ghp_Z9tokenLike0123456789"   # a token-shaped string with no URL or @ in it
+
+
+class NoUserText(unittest.TestCase):
+    """A refusal or error line never holds text the user supplied: no path, no value, no unknown option
+    (quick check of 8bf10b2). Each path is tried with a token-shaped path and a --secret TOKEN argument."""
+
+    def tokenpath(self, content=None, suffix=".env"):
+        folder = os.path.join(tempfile.mkdtemp(), TOKEN)
+        os.mkdir(folder)
+        path = os.path.join(folder, TOKEN + suffix)
+        if content is not None:
+            with open(path, "w") as f:
+                f.write(content)
+        return path
+
+    def clean(self, out):
+        self.assertNotIn(TOKEN, out)
+
+    def test_copy_graph(self):
+        bad_env = self.tokenpath(f"{TOKEN}\n")
+        for argv in (["--source", "bolt://h", "--target-env", bad_env, "--report", passing_report(self)],
+                     ["--source", "bolt://h", "--target-env", self.tokenpath(), "--report", passing_report(self)],
+                     ["--source", "bolt://h", "--target-env", bad_env, "--report", passing_report(self), "--secret", TOKEN],
+                     ["--source", "bolt://h", "--target-env", bad_env, "--report", self.tokenpath(suffix=".json")]):
+            with self.subTest(argv=argv[-2:]), mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "pw"}):
+                code, out = run_main(cg.main, argv)
+                self.assertEqual(code, 2, out)
+                self.clean(out)
+        code, out = run_main(cg.main, ["--source", "bolt://h", "--target-env", bad_env, "--report", "r", "--secret", TOKEN])
+        self.assertIn("unknown option(s) or argument(s): 1", out)
+
+    def test_triplestore(self):
+        tmp = tempfile.mkdtemp()
+        nt = os.path.join(tmp, "inferred.nt")
+        open(nt, "w").close()
+        module = os.path.join(TEMPLATES, "library-module.ttl")
+        unearned = self.tokenpath(json.dumps({"passed": False}), ".json")
+        base = ["--gsp", "http://h/ds", "--query", "http://h/q", "--inferred", nt, "--report", os.path.join(tmp, "r.json")]
+        for argv in (["--env", self.tokenpath(f"{TOKEN}\n"), "--inferred", nt, "--report", os.path.join(tmp, "r.json"), module],
+                     base + [self.tokenpath(suffix=".ttl")],
+                     base + ["--projection-report", unearned, module],
+                     base + ["--projection-report", self.tokenpath(suffix=".json"), module],
+                     base + ["--cq", self.tokenpath(suffix=".rq"), module],
+                     base + ["--secret", TOKEN, self.tokenpath(suffix=".ttl")]):
+            with self.subTest(argv=argv[-3:]):
+                code, out = run_main(ts.main, argv)
+                self.assertEqual(code, 2, out)
+                self.clean(out)
+
+    def test_model_review(self):
+        for argv in (["--env", self.tokenpath()], ["--env", self.tokenpath(f"{TOKEN}\n")],
+                     ["--uri", "bolt://h", "--secret", TOKEN], ["--uri", "bolt://h", "--limit", TOKEN],
+                     ["--uri", "bolt://h", "--query-timeout", TOKEN]):
+            with self.subTest(argv=argv), mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "pw"}):
+                code, out = run_main(mr.main, argv)
+                self.assertEqual(code, 2, out)
+                self.clean(out)
+
+    def test_load_verify(self):
+        tmp = tempfile.mkdtemp()
+        common = ["--bolt", "bolt://h", "--import-dir", tmp, "--merged", "m", "--loadable", "l", "--inferred", "i",
+                  "--report", os.path.join(tmp, "r.json"), "--shapes", os.path.join(TEMPLATES, "library-shapes.ttl")]
+        config = os.path.join(TEMPLATES, "projection-config.json")
+        module = os.path.join(TEMPLATES, "library-module.ttl")
+        for argv in (["--config", self.tokenpath(suffix=".json")] + common + [module],
+                     ["--config", config, "--manual-cases", self.tokenpath("{}", ".json")] + common + [module],
+                     ["--config", config, "--manual-cases", self.tokenpath(suffix=".json")] + common + [module],
+                     ["--config", config, "--query-timeout", TOKEN] + common + [module],
+                     ["--config", config] + common + [module, "--" + TOKEN]):
+            with self.subTest(argv=argv[:3]), mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "pw"}):
+                code, out = run_main(lv.main, argv)
+                self.assertEqual(code, 2, out)
+                self.clean(out)
+
+    def test_an_option_without_a_value_is_not_echoed(self):
+        with self.assertRaises(ValueError) as caught:
+            build.options(["--" + TOKEN])
+        self.assertNotIn(TOKEN, str(caught.exception))
 
 
 if __name__ == "__main__":

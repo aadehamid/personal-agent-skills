@@ -71,7 +71,7 @@ from rdflib.collection import Collection
 from rdflib.namespace import OWL, RDF, RDFS, SH, XSD
 
 import build
-from shell import Refusal, error_line, q, scrub, shown_path
+from shell import Refusal, error_line, q, scrub
 import check_projection_rules as cpr
 import in_graph_shapes as igs
 
@@ -517,7 +517,7 @@ def read_manual_cases(path):
         cases = json.load(f)
     if not isinstance(cases, list) or not all(isinstance(c, dict) and c.get("target") and c.get("param")
                                               and str(c.get("cypher") or "").strip() for c in cases):
-        raise Refusal(f"{shown_path(path)} must be a JSON list of objects with target, path, param and cypher")
+        raise Refusal("the manual cases file must be a JSON list of objects with target, path, param and cypher")
     return cases
 
 

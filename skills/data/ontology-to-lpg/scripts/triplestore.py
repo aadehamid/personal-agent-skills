@@ -50,7 +50,7 @@ from rdflib.namespace import OWL, RDF
 
 import build
 import load_verify as lv
-from shell import Refusal, error_line, q, redact, shown_path
+from shell import Refusal, error_line, q, redact, unverified_report
 
 DEFAULT_BASE = "urn:lpg-projection:graph:"
 
@@ -66,7 +66,7 @@ def read_env_file(path):
                 continue
             key, sep, value = line.partition("=")
             if not sep:
-                raise Refusal(f"{shown_path(path)} line {number} is not KEY=VALUE")
+                raise Refusal(f"the --env file: line {number} is not KEY=VALUE")
             values[key.strip()] = value.strip().strip('"').strip("'")
     return values
 
@@ -181,11 +181,10 @@ def main(argv):
             return stop("the projection report could not be read", exc)
         earned = build.report_earned(projection)
         if earned:
-            return stop("", Refusal(f"{shown_path(opts['--projection-report'])} is not a verified projection report: "
-                                    f"{'; '.join(earned)}"))
+            return stop("", unverified_report(earned))
         export = projection.get("export_predicate_counts")
         if not isinstance(export, dict):
-            return stop("", Refusal(f"{shown_path(opts['--projection-report'])} has no export_predicate_counts"))
+            return stop("", Refusal("the projection report has no export_predicate_counts"))
     try:
         questions = [(p, open(p, encoding="utf-8").read()) for p in opts.get("--cq", [])]
     except Exception as exc:
