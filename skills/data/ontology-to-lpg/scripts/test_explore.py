@@ -55,6 +55,9 @@ def shorten(iri):
     raise ValueError(iri)
 
 
+SCHEMA_EDGES = 2   # the n4sch__ relationships FakeNeo4j adds, beyond the package triples
+
+
 class FakeNeo4j:
     """Answers the Cypher statements explore.py and module_tags.py send, from an edge list."""
 
@@ -64,13 +67,19 @@ class FakeNeo4j:
         self.edges = [(s, shorten(p), o, t) for (s, p, o), t in edges.items()]
         if wrong:
             self.nodes[wrong] = "https://example.org/wrong/0.0.0"
+        # Schema relationships n10s.onto.import writes, tagged by the node they start from; one points at a
+        # node standing for a restriction filler, repeating no single triple.
+        for s, t, o in (("https://example.org/base/p1", "n4sch__EQC", "https://example.org/base/p0"),
+                        ("https://example.org/base/p1", "n4sch__SCO_RESTRICTION", "https://example.org/base/shared")):
+            self.edges.append((s, t, o, self.nodes.get(s)))
         self.mods, self.reqs = mt.module_rows(packages)
         self.set_calls = 0
 
     def __call__(self, stmt, **params):
-        if stmt == explore.CY_EDGES:
+        if stmt == explore.CY_EDGES:   # it leaves out n10s's schema relationships
             f = set(params["frontier"])
-            return [{"s": s, "t": t, "o": o, "g": g} for s, t, o, g in self.edges if s in f or o in f]
+            return [{"s": s, "t": t, "o": o, "g": g} for s, t, o, g in self.edges
+                    if (s in f or o in f) and not t.startswith("n4sch__")]
         if stmt == explore.CY_NODES:
             return [{"uri": u, "g": self.nodes[u]} for u in params["uris"] if u in self.nodes]
         if stmt == explore.CY_MODULES:
@@ -139,17 +148,26 @@ class ModuleTags(Fixture):
             mt.read_packages([a, os.path.join(self.tmp, "app.ttl")])
 
     def test_schema_types_and_prefixes_map_to_predicates(self):
-        self.assertEqual(mt.predicate("n4sch__DOMAIN", PREFIXES), "http://www.w3.org/2000/01/rdf-schema#domain")
-        self.assertEqual(mt.predicate("n4sch__SPO", PREFIXES), "http://www.w3.org/2000/01/rdf-schema#subPropertyOf")
-        self.assertIsNone(mt.predicate("n4sch__OTHER", PREFIXES))
+        for schema in ("n4sch__DOMAIN", "n4sch__SPO", "n4sch__EQC", "n4sch__SCO_RESTRICTION"):
+            self.assertIsNone(mt.predicate(schema, PREFIXES))   # schema: tagged by its start node instead
         self.assertEqual(mt.predicate("skos__broader", PREFIXES), PREFIXES["skos"] + "broader")
         self.assertIsNone(mt.predicate("nope__x", PREFIXES))
 
     def test_check_passes_on_a_correctly_tagged_graph(self):
         nodes, edges = mt.expected_tags(self.packages)
         read_nodes, read_edges, problems = mt.check(FakeNeo4j(self.packages), nodes, edges, PREFIXES)
-        self.assertEqual((read_nodes, read_edges), (len(nodes), len(edges)))
+        self.assertEqual((read_nodes, read_edges), (len(nodes), len(edges) + SCHEMA_EDGES))
         self.assertEqual({k: v for k, v in problems.items() if v}, {})
+
+    def test_a_schema_relationship_takes_its_start_nodes_tag(self):
+        nodes, edges = mt.expected_tags(self.packages)
+        fake = FakeNeo4j(self.packages)
+        _, _, problems = mt.check(fake, nodes, edges, PREFIXES)
+        self.assertEqual({k: v for k, v in problems.items() if v}, {})
+        fake.edges = [(s, t, o, "https://example.org/app/2.0.0" if t == "n4sch__EQC" else g) for s, t, o, g in fake.edges]
+        _, _, problems = mt.check(fake, nodes, edges, PREFIXES)
+        self.assertEqual(problems["wrong_tag"],
+                         ["https://example.org/base/p1 n4sch__EQC https://example.org/base/p0"])
 
     def test_check_finds_a_wrong_tag(self):
         nodes, edges = mt.expected_tags(self.packages)
@@ -185,7 +203,7 @@ class ModuleTags(Fixture):
     def test_tag_writes_both_kinds(self):
         nodes, edges = mt.expected_tags(self.packages)
         fake = FakeNeo4j(self.packages)
-        self.assertEqual(mt.tag(fake, nodes, edges, PREFIXES), (len(nodes), len(edges), 0, 0))
+        self.assertEqual(mt.tag(fake, nodes, edges, PREFIXES), (len(nodes), len(edges) + SCHEMA_EDGES, 0, 0))
         self.assertEqual(fake.set_calls, 2)
 
     def test_the_module_graph_points_at_the_loaded_release_and_keeps_the_pin(self):

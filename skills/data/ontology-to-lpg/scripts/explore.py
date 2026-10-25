@@ -9,7 +9,9 @@ The walk (default 2 hops, --hops to change): every relationship within N hops of
 both directions, with its predicate and its module tag, and the module tag of every node it reaches.
 It runs hop by hop: hop k reads every relationship that touches a node reached at hop k-1. In Neo4j a
 relationship is (source uri, type, target uri) between two :Resource nodes, its type expanded to the
-predicate IRI by the configuration's prefixes (module_tags.predicate), its tag the `graph` property
+predicate IRI by the configuration's prefixes (module_tags.predicate), leaving out n10s's schema
+relationships (n4sch__*, which n10s derives from the ontology; the triples they repeat are ordinary
+relationships too), its tag the `graph` property
 module_tags.py set, and a node's tag its own `graph`. In the store a relationship is a triple with an
 IRI subject and object in a named graph; its tag is derived from the store by module_tags's rules (the
 first graph in dependency order that holds it, the subject's tag for a triple only in the inferred
@@ -40,7 +42,7 @@ DEFAULT_HOPS = 2
 INFERRED = "urn:ontology-to-lpg:inferred"
 BATCH = 400
 
-CY_EDGES = (f"MATCH (a:Resource)-[r]-(b:Resource) WHERE a.uri IN $frontier "
+CY_EDGES = (f"MATCH (a:Resource)-[r]-(b:Resource) WHERE a.uri IN $frontier AND NOT type(r) STARTS WITH '{mt.SCHEMA_PREFIX}' "
             f"RETURN DISTINCT startNode(r).uri AS s, type(r) AS t, endNode(r).uri AS o, r.`{mt.TAG}` AS g")
 CY_NODES = f"MATCH (n:Resource) WHERE n.uri IN $uris RETURN n.uri AS uri, n.`{mt.TAG}` AS g"
 CY_MODULES = "MATCH (a:Module)-[r:REQUIRES]->(b:Module) RETURN a.uri AS source, b.uri AS target, r.pin AS pin"

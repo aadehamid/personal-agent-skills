@@ -1,7 +1,8 @@
 // The walk (add-on F): every relationship within 2 hops of one node, both directions, with its
 // predicate type and module tag, and the tag of the node at each end. Paste into Neo4j Browser; change
-// the IRI, and the 2 in [*1..2] for another hop limit. n10s's schema relationships (n4sch__*) repeat
-// rdfs:domain, rdfs:range and rdfs:subClassOf triples, so they are left out, as explore.py does.
+// the IRI, and the 2 in [*1..2] for another hop limit. n10s's schema relationships (n4sch__*) are derived
+// from the ontology (the triples they repeat are ordinary relationships too), so they are left out, as
+// explore.py does.
 :param iri => 'https://example.org/your-node';
 MATCH p = (start:Resource {uri: $iri})-[*1..2]-(:Resource)
 UNWIND relationships(p) AS r

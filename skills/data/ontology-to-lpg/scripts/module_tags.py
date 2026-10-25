@@ -22,8 +22,11 @@ The tag rules, applied to the package files, never to the graph:
   an edge    the first package in dependency order whose file holds the triple; an inferred triple
              (--inferred, not in any package) takes its subject's tag.
 An edge is read back from the graph as (source uri, type, target uri); its predicate is the type's
-prefix expanded with the configuration's prefixes, and n10s's schema types n4sch__DOMAIN, n4sch__RANGE,
-n4sch__SCO and n4sch__SPO stand for rdfs:domain, rdfs:range, rdfs:subClassOf and rdfs:subPropertyOf.
+prefix expanded with the configuration's prefixes. A relationship whose type starts with n4sch__ is
+schema that n10s.onto.import derives from the ontology (SCO, SPO, DOMAIN, RANGE, EQC and the
+*_RESTRICTION types, some of which point at a restriction's filler and repeat no single triple): it is
+tagged with the tag of the node it starts from, and checked against that, never matched to a triple.
+The triples it repeats are in the graph as ordinary relationships too.
 
 `tag` sets the tags and fails (exit 1) when a node or relationship of the graph has no expected tag:
 the graph holds something no package states. `check` reads every :Resource node and every
@@ -45,16 +48,14 @@ import sys
 from collections import namedtuple
 
 from rdflib import Graph, URIRef
-from rdflib.namespace import DCTERMS, OWL, RDF, RDFS
+from rdflib.namespace import DCTERMS, OWL, RDF
 
 import load_verify as lv
 from shell import Refusal, error_line, q
 
 TAG = lv.MODULE_TAG
-# The relationship types n10s.onto.import writes, and the triple each repeats. Any other n4sch__ type
-# maps to no predicate, so check reports it as a relationship no package states.
-SCHEMA_TYPES = {"n4sch__DOMAIN": str(RDFS.domain), "n4sch__RANGE": str(RDFS.range),
-                "n4sch__SCO": str(RDFS.subClassOf), "n4sch__SPO": str(RDFS.subPropertyOf)}
+# n10s.onto.import's schema relationships: tagged by the node they start from (module docstring).
+SCHEMA_PREFIX = "n4sch__"
 LPG = "https://w3id.org/ontology-to-lpg/module#"
 
 Package = namedtuple("Package", "path ontology version requires graph")
@@ -154,8 +155,8 @@ def expected_tags(packages, inferred=None):
 
 def predicate(rel_type, prefixes):
     """The predicate IRI of a relationship type: SHORTEN's prefix__local expanded, or a schema type."""
-    if rel_type in SCHEMA_TYPES:
-        return SCHEMA_TYPES[rel_type]
+    if rel_type.startswith(SCHEMA_PREFIX):
+        return None
     prefix, sep, local = rel_type.partition("__")
     if not sep or prefix not in prefixes:
         return None
@@ -177,10 +178,11 @@ def compare(graph_nodes, graph_edges, nodes, edges, prefixes):
         elif n["tag"] != want:
             problems["wrong_tag"].append(n["uri"])
     for e in graph_edges:
-        pred = predicate(e["t"], prefixes)
-        key = (e["s"], pred, e["o"])
-        want = edges.get(key)
-        seen_edges.add(key)
+        schema = e["t"].startswith(SCHEMA_PREFIX)
+        key = (e["s"], predicate(e["t"], prefixes), e["o"])
+        want = nodes.get(e["s"]) if schema else edges.get(key)
+        if not schema:
+            seen_edges.add(key)
         label = f"{e['s']} {e['t']} {e['o']}"
         if (e["s"], e["t"], e["o"]) in seen_rels:
             # n10s writes one relationship per triple; two with the same ends and type hide one another
@@ -214,7 +216,10 @@ def tag(run, nodes, edges, prefixes):
     node_rows = [{"uri": n["uri"], "tag": nodes[n["uri"]]} for n in graph_nodes if n["uri"] in nodes]
     edge_rows = []
     for e in graph_edges:
-        want = edges.get((e["s"], predicate(e["t"], prefixes), e["o"]))
+        if e["t"].startswith(SCHEMA_PREFIX):
+            want = nodes.get(e["s"])
+        else:
+            want = edges.get((e["s"], predicate(e["t"], prefixes), e["o"]))
         if want is not None:
             edge_rows.append({"s": e["s"], "t": e["t"], "o": e["o"], "tag": want})
     for rows in chunks(node_rows):
