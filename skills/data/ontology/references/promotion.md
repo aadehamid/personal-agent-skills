@@ -86,10 +86,9 @@ Two engines are worked through; the owner chooses one before the first real use.
 | Language tags | Declared per column (`rr:language`) | No documented column type in 0.20.26; added with `STRLANG` in a CONSTRUCT |
 | Licence | Apache-2.0 | Apache-2.0 for mapping and querying; its SHACL and Datalog engines are not open source |
 | Dependencies | Needs rdflib below 7.3 | Needs rdflib 7.6 or later, and Polars; the two cannot share an environment |
-| Determinism | Same bytes on every run, after the builder's sort | Same bytes, and the same bytes as Morph-KGC |
-| Time, 10,000 rows (70,000 triples), with start-up | 1.9 s | 1.4 s |
+| Determinism | Same bytes on every run, after the builder's sort | Same bytes, and the same bytes as Morph-KGC: both reproduce the committed `loan-states.nt` |
 
-Recommendation for the owner: Morph-KGC, because the mapping is a declarative standard file a reviewer reads without running code, and maplib's language tags need a workaround. maplib suits a source that is already a dataframe in Python, such as a query result. For a one-off conversion, Sparna's Excel 2 RDF (`https://xls2rdf.sparna.fr/`) needs no mapping file, but its output still goes through this section's review.
+Recommendation for the owner: Morph-KGC, because the mapping is a declarative standard file a reviewer reads without running code, and maplib's language tags need a workaround. Speed was not compared with a repeatable benchmark, so it plays no part in the recommendation. maplib suits a source that is already a dataframe in Python, such as a query result. For a one-off conversion, Sparna's Excel 2 RDF (`https://xls2rdf.sparna.fr/`) needs no mapping file, but its output still goes through this section's review.
 
 Packaging, versioning and later releases: `release.md`.
 

@@ -62,6 +62,17 @@ class BuildTabular(unittest.TestCase):
                          "--verify"])
         self.assertEqual(code, 0, out)
 
+    def test_only_the_governed_triples_are_written(self):
+        # maplib maps rows into a named staging graph and writes the default graph; no staging
+        # (raw:) triple may reach the output, and the subjects come from the slug column.
+        self.assertEqual(run(self.args())[0], 0)
+        with open(self.out, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+        self.assertFalse([l for l in lines if "library/raw#" in l], "a staging triple reached the output")
+        subjects = sorted({l.split(" ", 1)[0] for l in lines})
+        self.assertEqual(subjects, ["<https://id.example.org/library/on-loan>", "<https://id.example.org/library/overdue>",
+                                    "<https://id.example.org/library/returned>"])
+
     def test_the_example_gives_seven_triples_per_row(self):
         self.assertEqual(run(self.args())[0], 0)
         with open(self.out, encoding="utf-8") as f:
