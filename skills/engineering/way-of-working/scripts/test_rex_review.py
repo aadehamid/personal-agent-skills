@@ -63,6 +63,7 @@ FAKE = textwrap.dedent(r'''
         out({"blocks": blocks})
     if cmd in ("split", "run"):
         first = "startq" if "startq" in s else "unknownq" if "unknownq" in s else \
+            "migrateeditor" if "migrateeditor" in s else \
             "trustq" if any(x.startswith("trust") for x in s) else "ready"
         write("phase", first)
         out({"block_ids": ["block:new"], **({"window_id": "win:3"} if cmd == "run" else {})})
@@ -74,6 +75,9 @@ FAKE = textwrap.dedent(r'''
         if "procfailreuse" in s and b == "block:rev": fail()
         if "procfailmid" in s and phase == "working": fail()
         if "procmalformed" in s and phase == "working": print("garbage"); sys.exit(0)
+        # Valid JSON whose child is not an object (round 2, finding 2).
+        if ("procbadchild" in s and phase == "working") or ("badchildreuse" in s and b == "block:rev"):
+            out({"child": "not-an-object", "last_exit": None})
         child = {"name": BIN, "argv0": BIN, "path": "/opt/bin/" + BIN, "cwd": top}
         if "reuseelsewhere" in s and b == "block:rev": child["cwd"] = "/elsewhere/repo"
         if "nodechild" in s: child.update(name="node", argv0="node", path="/usr/local/bin/node")
@@ -113,12 +117,17 @@ FAKE = textwrap.dedent(r'''
         if "capfail" in s and phase == "working": fail()
         if phase == "startq":
             print("  Hooks need review\n  Press enter to confirm or esc to go back"); sys.exit(0)
+        if phase == "migrateeditor":
+            # The question and its choices above Kimi's own empty input line (round 2, finding 4).
+            print("  Migrate kimi-cli data to Kimi Code?\n  1. Migrate\n  2. Skip\n" + editor()); sys.exit(0)
         if phase == "unknownq":
             print("  Migrate kimi-cli data to Kimi Code?\n  1. Migrate   2. Skip"); sys.exit(0)
         if phase == "trustq":
             if "trustspoof" in s:
                 print("  some text\n   ❯ Trust and continue\n     Exit"); sys.exit(0)
-            where = "/elsewhere/repo" if "trustelsewhere" in s else top
+            where = "/elsewhere/repo" if ("trustelsewhere" in s or "trustdecoy" in s) else top
+            # "trustdecoy": this work tree's path printed just above a dialog that names another.
+            if "trustdecoy" in s: print("  " + top)
             print(" ───\n  Trust this folder?\n  ↑↓ navigate · Enter select · Esc exit\n \n"
                   "  %s\n \n  No project integrations or instructions to activate.\n \n"
                   "  Trust is remembered for this folder.\n  Tool approvals follow your permission settings.\n \n"
@@ -128,6 +137,11 @@ FAKE = textwrap.dedent(r'''
         if phase in ("sent", "asked"):
             pending = PROMPT_LINE if phase == "sent" else "Write your final review report"
             print(("  Run this command?\n" if "mixed" in s else "") + editor(pending)); sys.exit(0)
+        if phase == "working" and "unknownmid" in s:
+            open(report, "w").write("PARTIAL\n")
+            print("  Migrate kimi-cli data to Kimi Code?\n  1. Migrate   2. Skip"); sys.exit(0)
+        if phase == "working" and "midtrust" in s:
+            print("  Trust this folder?\n \n  %s\n \n   \u276f Trust and continue\n     Exit" % top); sys.exit(0)
         if phase == "working":
             if "question" in s:
                 print("  Run this command?\n  → Run (once) (y)"); sys.exit(0)
@@ -274,10 +288,11 @@ class RexReview(unittest.TestCase):
                                                  "--sandbox", "enabled", "--force", "--trust"])
 
     def test_prompt_text_goes_first_and_enter_as_its_own_key(self):
+        # Between them, one fresh look of the pane (round 2, finding 7).
         r, calls = self.run_case("ok")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         i = calls.index("send")
-        self.assertEqual(calls[i + 1], "send-key")
+        self.assertEqual(calls[i + 1:i + 5], ["block call process", "block call program_status", "capture", "send-key"])
         self.assertEqual(self.keys()[0][-1], "enter")
 
     def test_a_reviewer_running_under_another_program_name_still_finishes(self):
@@ -334,6 +349,21 @@ class RexReview(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertNotIn("send-key", calls)
 
+    def test_trust_needs_the_path_on_the_dialogs_own_line(self):
+        # Round 2, finding 3: this work tree's path elsewhere on screen does not authorize a dialog
+        # that names another folder.
+        r, calls = self.run_case("trustdecoy", kind="kimi")
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("send-key", calls)
+
+    def test_a_question_above_kimis_empty_input_line_gets_no_prompt(self):
+        # Round 2, finding 4: the migration question and its choices beat the ready input line.
+        r, calls = self.run_case("migrateeditor", kind="kimi")
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("send", calls)
+        self.assertNotIn("send-key", calls)
+        self.assertEqual(r.stdout.splitlines()[-2], "Reviewer did not start: it is waiting on a question or an unknown screen.")
+
     def test_a_spoofed_trust_choice_gets_no_key(self):
         r, calls = self.run_case("trustspoof", kind="kimi")
         self.assertEqual(r.returncode, 1)
@@ -363,10 +393,13 @@ class RexReview(unittest.TestCase):
         self.assertIn("The prompt sat unsent on the input line; sent Enter.", r.stderr)
 
     def test_an_unsent_marker_beside_a_question_gets_no_key(self):
-        # Finding 1: a question on screen wins over the unsent prompt; no Enter answers it.
+        # Finding 1: a question on screen wins over the unsent prompt; no Enter answers it. Round 2,
+        # finding 7: the look right before the prompt's own Enter sees the question, so even that
+        # Enter is held.
         r, _ = self.run_case("mixed")
         self.assertEqual(r.returncode, 1)
-        self.assertEqual(len(self.keys()), 1)   # the prompt's own Enter only
+        self.assertEqual(len(self.keys()), 0)
+        self.assertIn("Held the Enter after typing: the pane shows blocked.", r.stderr)
         self.assertRegex(r.stdout.splitlines()[-2], r"the reviewer is waiting on a question")
 
     def test_a_prompt_that_stays_unsent_stops_after_three_enters(self):
@@ -397,6 +430,32 @@ class RexReview(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertRegex(r.stdout.splitlines()[-2], r"the reviewer exited; the file at the report path may be partial")
         self.assertNotRegex(r.stdout, r"(?m)^PARTIAL$")
+
+    def test_an_unknown_screen_mid_review_ends_blocked_without_the_partial_file(self):
+        # Round 2, finding 1: unknown screens keep the blocked count, so the run ends blocked within
+        # two minutes, and never prints the partial file.
+        r, calls = self.run_case("unknownmid", kind="kimi")
+        self.assertEqual(r.returncode, 1)
+        self.assertRegex(r.stdout.splitlines()[-2], r"waiting on a question; the file at the report path may be partial")
+        self.assertNotRegex(r.stdout, r"(?m)^PARTIAL$")
+        self.assertLess(calls.count("capture"), 100)
+
+    def test_a_trust_dialog_mid_review_gets_no_key_and_ends_blocked(self):
+        r, calls = self.run_case("midtrust", kind="kimi")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(len(self.keys()), 1)   # the prompt's own Enter only
+        self.assertRegex(r.stdout.splitlines()[-2], r"the reviewer is waiting on a question")
+        self.assertLess(calls.count("capture"), 100)
+
+    def test_a_process_child_that_is_not_an_object_is_unreadable(self):
+        # Round 2, finding 2: in the wait, and on a labelled pane before reuse.
+        r, _ = self.run_case("procbadchild")
+        self.assertEqual(r.returncode, 1)
+        self.assertRegex(r.stdout.splitlines()[-2], r"rex cannot read the reviewer's pane")
+        r, calls = self.run_case("reuse,badchildreuse")
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("block close", calls)
+        self.assertRegex(r.stdout.splitlines()[-2], r"rex cannot read the process of the pane block:rev")
 
     def test_a_failed_process_query_mid_review_is_not_an_exit(self):
         # Finding 3: twelve failed looks end the wait as unreadable, never as exited.

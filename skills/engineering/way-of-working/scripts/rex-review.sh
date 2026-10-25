@@ -116,8 +116,9 @@ esac
 # shell or exited pane is ever closed.
 proc_state() {
   local out
+  local out st
   out=$(rx block call -b "$1" process 2>/dev/null) || { echo unreadable; return; }
-  printf '%s' "$out" | python3 -c '
+  st=$(printf '%s' "$out" | python3 -c '
 import json, os, sys
 expected, top = sys.argv[1].split(), sys.argv[2]
 try:
@@ -126,8 +127,10 @@ try:
 except (ValueError, AssertionError):
     print("unreadable"); sys.exit()
 child = p.get("child")
-if not child:
+if child is None:
     print("exited" if p.get("last_exit") is not None else "unreadable"); sys.exit()
+if not isinstance(child, dict) or not child:
+    print("unreadable"); sys.exit()
 names = {child.get("name") or "", child.get("argv0") or ""} | {os.path.basename(child.get(k) or "") for k in ("path", "invoked_path")}
 names = {n.lstrip("-") for n in names if n}
 if names & set(expected):
@@ -136,7 +139,9 @@ if names & set(expected):
 elif names & {"zsh", "bash", "sh", "fish", "login"}:
     print("shell")
 else:
-    print("other")' "$expected" "$top"
+    print("other")' "$expected" "$top" 2>/dev/null) || st=""
+  # Anything the parser could not turn into a word, such as a crash on an odd shape, is unreadable.
+  echo "${st:-unreadable}"
 }
 
 # The pane labelled $label (empty if none), and the number of panes in the window that holds
@@ -208,18 +213,23 @@ show_pane() { rx capture -b "$review_pane" --trim 2>/dev/null | tail -n "$1" || 
 #   gone        the pane's program exited
 #   starting    the login shell that starts the reviewer is still in front (startup only)
 #   unreadable  rex could not give the process or the screen
-#   blocked     the program reports blocked (OSC 7501), or a question is on the bottom lines
-#   working     the program reports working, or a busy marker shows
-#   trust       Kimi asks to trust this work tree, with "Trust and continue" selected
+#   blocked     the program reports blocked (OSC 7501)
+#   working     the program reports working
+#   trust       Kimi's trust dialog, "Trust and continue" selected, naming this work tree on
+#               its own path line, the one between its question and its choices
+#   blocked     a known question is on the bottom lines
+#   working     a busy marker shows
 #   unsent      the reviewer's own input line still holds the prompt
 #   changing    the screen moved since the last look
-#   idle        the reviewer's own input line shows, empty, and nothing moved
-#   unknown     the screen stayed put without the reviewer's input line: an unknown screen
+#   idle        the reviewer's own input line shows, empty, and nothing moved; called with
+#               "strict" (before anything is typed), also no other question or choice list
+#               on the bottom lines, such as Kimi's data-migration question above its input
+#   unknown     anything else that stays put: treated as a question
 # Only the bottom lines are read, so the same words quoted higher up, such as in a diff, count
 # for nothing. A failed look leaves the last screen as it was.
 last_screen=$(mktemp "${TMPDIR:-/tmp}/rex-review.screen.XXXXXX")
 pane_status() {
-  local proc reported screen
+  local proc reported screen strict="${1:-}"
   # Liveness asks only whether the pane's program still runs: a reviewer can show up under
   # another name (the Cursor agent's pane title named node on 2026-10-24). The stricter check
   # of name and directory is for reusing a pane, above.
@@ -240,7 +250,7 @@ print((root or {}).get("state", ""))' || true)
   screen=$(rx capture -b "$review_pane" --trim 2>/dev/null) || { echo unreadable; return; }
   printf '%s' "$screen" | python3 -c '
 import os, re, sys
-kind, reported, last_path, top = sys.argv[1:5]
+kind, reported, last_path, top, strict = sys.argv[1:6]
 lines = sys.stdin.read().splitlines()[-40:]
 screen = "\n".join(lines)
 bottom = "\n".join(lines[-12:])
@@ -256,9 +266,14 @@ editor = {
 ready_text = {"kimi": ("",), "cursor": ("Plan, search, build anything", "Add a follow-up"), "codex": None}[kind]
 question = re.search(r"Run this command\?|Skip & tell the agent|Press enter to confirm|Hooks need review|"
                      r"\(y/n\)|\[y/N\]|Allow once|Trust this folder\?", "\n".join(dialog))
-trust = (kind == "kimi" and any(l.strip() == "Trust this folder?" for l in dialog)
-         and any(re.match(r"^\s*❯\s*Trust and continue\s*$", l) for l in dialog)
-         and any(l.strip().startswith("/") and os.path.realpath(l.strip()) == top for l in dialog))
+# Trust counts only for the dialog'"'"'s own path line: the single absolute path between its
+# question and its selected choice. A path anywhere else on screen counts for nothing.
+asked_at = next((i for i, l in enumerate(dialog) if l.strip() == "Trust this folder?"), None)
+choice_at = next((i for i, l in enumerate(dialog) if re.match(r"^\s*❯\s*Trust and continue\s*$", l)), None)
+trust = False
+if kind == "kimi" and asked_at is not None and choice_at is not None and asked_at < choice_at:
+    paths = [l.strip() for l in dialog[asked_at + 1:choice_at] if l.strip().startswith("/")]
+    trust = len(paths) == 1 and os.path.realpath(paths[0]) == top
 inputs = [m.group("text") for m in (re.match(editor, l) for l in lines[-12:]) if m]
 held = any(t.startswith(("Read AGENTS.md", "Write your final review report", "[Pasted text")) for t in inputs)
 # Codex: its idle placeholder text was not checked live (its hook-review prompt stood in the
@@ -266,6 +281,10 @@ held = any(t.startswith(("Read AGENTS.md", "Write your final review report", "[P
 ready = any(t in ready_text for t in inputs) if ready_text is not None else bool(inputs) and not held
 if kind == "kimi" and ready:
     ready = "context:" in bottom
+others = [l for l in lines[-12:] if not re.match(editor, l)]
+choices = any(re.search(r"\?\s*$", l) or re.match(r"^\s*(\d+[.)]\s|❯\s|\[[ xX]\]\s)", l) for l in others)
+if strict and choices:
+    ready = False
 if reported == "blocked":
     print("blocked")
 elif reported == "working":
@@ -283,7 +302,7 @@ elif screen != last:
 elif ready:
     print("idle")
 else:
-    print("unknown")' "$kind" "$reported" "$last_screen" "$top"
+    print("unknown")' "$kind" "$reported" "$last_screen" "$top" "$strict"
 }
 
 # Every prompt waits for the reviewer's own empty input line, in a new pane or a reused one.
@@ -295,7 +314,7 @@ else:
 step="waiting for the reviewer to be ready"
 settled=0 starting=0 unread=0 unknown=0 trusted=0
 for _ in $(seq 1 90); do
-  st=$(pane_status)
+  st=$(pane_status strict)
   [ "$st" = starting ] || starting=0
   [ "$st" = unreadable ] || unread=0
   [ "$st" = unknown ] || unknown=0
@@ -310,9 +329,11 @@ for _ in $(seq 1 90); do
       if [ "$unread" -ge 10 ]; then stop "Reviewer did not start: rex cannot read its pane." "rex capture -s $REX_SESSION -b $review_pane --trim | tail -n 30; then run: $rerun"; fi ;;
     trust)
       if [ "$trusted" -ge 1 ]; then show_pane 30; stop "Reviewer did not start: Kimi still asks to trust $top after Trust and continue." "$answer, then run: $rerun"; fi
-      rx send-key -b "$review_pane" enter >/dev/null
-      trusted=1
-      echo "Kimi asked to trust $top; chose Trust and continue." >&2 ;;
+      if [ "$(pane_status strict)" = trust ]; then
+        rx send-key -b "$review_pane" enter >/dev/null
+        trusted=1
+        echo "Kimi asked to trust $top; chose Trust and continue." >&2
+      fi ;;
     blocked|unsent)
       show_pane 30
       stop "Reviewer did not start: it is waiting on a question or an unknown screen." "$answer, then run: $rerun" ;;
@@ -333,12 +354,19 @@ echo "Report file: $report" >&2
 prompt="Read AGENTS.md and the repository's review standards file (for example REVIEW_STANDARDS.md) first, and apply them. Run the ce-code-review skill (instructions: $HOME/.agents/skills/ce-code-review/SKILL.md) on branch $branch, diff vs main. Verify: $verify. For each finding, name the kind of defect and list every place in the repository that has it, including places outside the diff. Say how this could pass review while still being wrong. Report findings only; do not apply them. When the review is finished, write the final report as Markdown to exactly this path: $report. This is required even if the review skill also saves its own report elsewhere. Then reply with that path."
 
 # Text first, then Enter as its own key, a moment later: an Enter sent with the text can
-# land as a new line in the input box (Kimi, 2026-10-24). The poll below sends up to three
-# more while the input line still holds the prompt.
+# land as a new line in the input box (Kimi, 2026-10-24). A fresh look comes right before the
+# Enter, which goes only while the input line still holds the text, so a question or status
+# that appeared in that second gets no key. The poll below sends up to three more the same way.
 send_prompt() {
+  local st
   rx send -b "$review_pane" "$1" >/dev/null
   sleep 1
-  rx send-key -b "$review_pane" enter >/dev/null
+  st=$(pane_status)
+  if [ "$st" = unsent ]; then
+    rx send-key -b "$review_pane" enter >/dev/null
+  else
+    echo "Held the Enter after typing: the pane shows $st." >&2
+  fi
 }
 
 print_if_stable() {
@@ -395,16 +423,18 @@ for _ in $(seq 1 720); do
   [ "$SECONDS" -lt 3600 ] || break
   status=$(pane_status)
   [ "$status" = idle ] && idle_streak=$((idle_streak + 1)) || idle_streak=0
-  [ "$status" = blocked ] || blocked=0
+  case "$status" in blocked|trust|unknown) ;; *) blocked=0 ;; esac
   [ "$status" = unreadable ] || unread=0
   case "$status" in
     unsent)
       if [ "$enters" -ge 3 ]; then
         ended="unsent" reason="the prompt stayed unsent after three Enters" next="$rerun"; break
       fi
-      rx send-key -b "$review_pane" enter >/dev/null || true
       enters=$((enters + 1)) idle_unworked=0
-      echo "The prompt sat unsent on the input line; sent Enter." >&2
+      if [ "$(pane_status)" = unsent ]; then
+        rx send-key -b "$review_pane" enter >/dev/null || true
+        echo "The prompt sat unsent on the input line; sent Enter." >&2
+      fi
       ;;
     gone|starting)
       ended="gone" reason="the reviewer exited" next="$rerun"; break ;;
@@ -440,8 +470,12 @@ for _ in $(seq 1 720); do
           next="$rerun"; break
         fi
       elif [ "$idle_streak" -ge 6 ] && [ -z "$asked" ]; then
-        send_prompt "Write your final review report as Markdown to exactly this path: $report. Then reply with that path."
-        asked=1 worked="" idle_unworked=0 idle_streak=0
+        # Asking types into the pane, so it needs the strict look: no other question showing.
+        if [ "$(pane_status strict)" = idle ]; then
+          send_prompt "Write your final review report as Markdown to exactly this path: $report. Then reply with that path."
+          asked=1 worked="" idle_unworked=0
+        fi
+        idle_streak=0
       elif [ "$idle_streak" -ge 6 ]; then
         ended="idle" reason="the reviewer finished without writing the report, even when asked" next="$rerun"; break
       fi
@@ -450,6 +484,10 @@ for _ in $(seq 1 720); do
   sleep 5
 done
 
+# A wait that ran out while the reviewer sat on a question ends blocked, not timed out.
+if [ "$ended" = timeout ] && [ "$blocked" -gt 0 ]; then
+  ended="blocked" reason="the reviewer is waiting on a question" next="$answer, then run: $next_on_failure"
+fi
 case "$ended" in
   timeout|idle)
     print_if_stable

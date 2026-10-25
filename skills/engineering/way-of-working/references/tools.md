@@ -41,5 +41,5 @@ pane (`REX_SESSION` set) and outside Herdr, `herdr-review.sh` hands off to
 - **What it cannot tell.** Rex shows the status a program reports with OSC 7501
   (`https://www.superlogical.com/rex/docs/build/program-status`). On 2026-10-24 Claude Code
   reported one; Kimi Code 2.3.1, the Cursor agent CLI 2026.10.22 and Codex CLI 0.164.0 did
-  not. So `rex-review.sh` reads the reviewer's state from its screen, and uses a reported
-  status when one appears.
+  not. So `rex-review.sh` reads the reviewer's state from the pane's process and the bottom
+  of its screen, and a reported status, when one appears, comes first.
