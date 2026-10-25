@@ -2,6 +2,17 @@
 
 poteto-mode leads how you think, design, debug and build. The user's skills set the rules that work runs inside. Where this file and poteto-mode disagree, this file wins. A repository's own instructions (`AGENTS.md`, `CLAUDE.md`, `REVIEW_STANDARDS.md` and the like) win over both.
 
+## The workflow
+
+Size the change first, then start at its step. A typo or a one-file change starts at step 3. A change across several files starts at step 2. Start at step 1 only when the plan has open questions or spans several sessions.
+
+Some steps use a skill only the owner can start (`/grill-with-docs`, `/to-spec`, `/to-tickets`, `/wayfinder`, `/retro`). At such a step, ask the owner to type that one command, and say why it is the next step.
+
+1. **Decide.** Test the plan with `grilling`, or ask for `/grill-with-docs` when the repository has docs to check the plan against. Keep the plan's terms in the glossary with `domain-modeling`. Record each decision as way-of-working says, with the owner's words quoted. A new project starts here with `project-discovery`. Where the repository keeps its own decision records and glossary, write to those. Done when no question the build depends on is still open.
+2. **Plan.** Ask for `/to-spec` to turn the decided change into a spec, then `/to-tickets` to split it into tickets that each name what blocks them. Work too large for one session goes to `/wayfinder` instead. Done when every ticket is on the tracker with its blocking edges.
+3. **Build and ship.** Run each ticket through the matching poteto-mode playbook, then through the pull request loop under "way-of-working owns the pull request loop" below. Where there is code to test, `tdd` drives the tests. When the owner is away, night-run works the tickets as its queue, under the brief the owner approved. Done when each ticket's pull request is merged.
+4. **Improve.** After a session with repeated review rounds, ask for `/retro`, then put each lesson in one place as way-of-working's `references/improving.md` says. Done when each lesson sits in exactly one file.
+
 ## poteto-mode leads the thinking and building
 
 - The playbooks Investigation, Bug fix, Perf issue, Hillclimb, Runtime forensics, Trace forensics, Feature, Refactoring, Prototype, Visual parity and Eval.
