@@ -376,7 +376,7 @@ def verify(answers, releases):
 
 
 def tag(answers, releases):
-    """Tag the committed package on HEAD. Returns (exit code, lines)."""
+    """Tag the commit that holds the package (with a remote, after the merge). Returns (exit code, lines)."""
     a = answers
     setup, top, remotes = git_setup(releases)
     if setup == "none":
@@ -394,19 +394,25 @@ def tag(answers, releases):
     # commit, or the package's own commit after a fast-forward or squash.
     commit = git("log", "-1", "--format=%H", "--", rel, cwd=top).stdout.strip()
     if setup == "remote":
-        # Refresh the remote-tracking branches first (a fetch reads; it never pushes), so a branch deleted or
-        # rewritten on the remote cannot vouch for the merge; a fetch that fails stops the tag.
+        # The evidence is each remote's branch heads as the remote reports them now (git ls-remote), never the
+        # cached remote-tracking refs, so a branch deleted or rewritten on the remote cannot vouch for the merge.
+        # A fetch first brings those commits here (it reads; it never pushes); any failure stops the tag.
+        heads = []
         for r in remotes:
-            fetched = git("fetch", "--quiet", "--prune", r, cwd=top)
-            if fetched.returncode != 0:
-                return 1, [f"cannot refresh {r}'s branches, so the merge cannot be confirmed: {fetched.stderr.strip()}"]
-        held_by = [b.strip() for b in git("branch", "-r", "--contains", commit, cwd=top).stdout.splitlines()
-                   if b.strip() and "->" not in b]
-        if not held_by:
+            fetched = git("fetch", "--quiet", r, cwd=top)
+            listed = git("ls-remote", "--heads", r, cwd=top)
+            if fetched.returncode != 0 or listed.returncode != 0:
+                return 1, [f"cannot read {r}'s branches, so the merge cannot be confirmed"]
+            default = git("ls-remote", "--symref", r, "HEAD", cwd=top).stdout.split("\n")[0]
+            default_ref = default.split()[1] if default.startswith("ref:") else ""
+            for line in listed.stdout.splitlines():
+                sha, ref = line.split("\t")
+                if git("merge-base", "--is-ancestor", commit, sha, cwd=top).returncode == 0:
+                    heads.append((ref != default_ref, r, ref, sha))
+        if not heads:
             return 1, [f"{rel} is not on a remote branch yet: tag it after the release merges (release.md, rule 16)"]
-        default = git("rev-parse", "--abbrev-ref", f"{remotes[0]}/HEAD", cwd=top).stdout.strip()
-        branch = default if default in held_by else held_by[0]
-        commit = git("log", "-1", "--first-parent", "--format=%H", branch, "--", rel, cwd=top).stdout.strip() or commit
+        _, _, _, branch_sha = sorted(heads)[0]   # the remote's default branch first
+        commit = git("log", "-1", "--first-parent", "--format=%H", branch_sha, "--", rel, cwd=top).stdout.strip() or commit
     lines = []
     if git("rev-parse", "-q", "--verify", f"refs/tags/{name}", cwd=top).returncode == 0:
         lines.append(f"{name} already exists; nothing tagged")
