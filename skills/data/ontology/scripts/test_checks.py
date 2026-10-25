@@ -441,9 +441,17 @@ class QskosChecks(OneBreak, unittest.TestCase):
         self.broken(lambda g: g.add((lib("renewal"), URIRef(str(SKOS) + "subjectIndicator"), lib("Loan"))),
                     "skos-term", "skos:subjectIndicator is in the SKOS namespace but is not a SKOS term")
 
-    def test_subject_outside_http(self):
-        self.broken(lambda g: g.add((URIRef("urn:example:note"), RDF.type, OWL.NamedIndividual)),
-                    "uri-scheme", "<urn:example:note> is not an http or https IRI")
+    def test_concept_outside_http(self):
+        def mutate(g):
+            for p, o in list(g.predicate_objects(lib("renewal"))):
+                g.add((URIRef("urn:example:renewal"), p, o))
+            g.remove((lib("renewal"), None, None))
+        self.broken(mutate, "uri-scheme", "<urn:example:renewal> is not an http or https IRI")
+
+    def test_non_skos_subject_outside_http_passes(self):
+        g = skeleton()
+        g.add((URIRef("urn:example:note"), RDF.type, OWL.NamedIndividual))
+        self.assertEqual(check_taxonomy.check(g), [])
 
 
 class RequirementsChecks(OneBreak, unittest.TestCase):

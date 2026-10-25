@@ -50,7 +50,7 @@ qSKOS (Mader, Haslhofer and Isaac; its wiki page "Quality Issues", `SOURCES.md` 
 | Disjoint Labels Violation (SKOS S13) | `disjoint-labels` |
 | Mapping Clashes (SKOS S46); Mapping Relations Misuse | `mapping`. Misuse counts only when both concepts are declared in the files, since an external target's scheme is unknown there. |
 | Undefined SKOS Resources | `skos-term` |
-| HTTP URI Scheme Violation | `uri-scheme` |
+| HTTP URI Scheme Violation | `uri-scheme`, for SKOS concepts, schemes and collections; other subjects, such as a `urn:` source record, are left alone |
 | Missing In-Links; Missing Out-Links; Broken Links | Left out. They need the web or a remote index, and the script runs offline, so it gives the same answer on every run. Mapping to outside vocabularies is a Step 7 choice (`integration.md`), not a rule for every concept. |
 
 ## Soundness checks on every change

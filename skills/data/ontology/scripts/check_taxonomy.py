@@ -67,7 +67,8 @@ qSKOS checks (references/quality.md, "The qSKOS issues", has the table and what 
                  joins two concepts declared in the files that share a scheme (Mapping Relations Misuse)
   skos-term      every IRI in the SKOS namespace is a term the SKOS Reference defines (Undefined SKOS
                  Resources); a misspelled or deprecated SKOS term fails
-  uri-scheme     every IRI used as a subject is an http or https IRI (HTTP URI Scheme Violation)
+  uri-scheme     every SKOS concept, concept scheme and collection has an http or https IRI (HTTP URI
+                 Scheme Violation); other subjects, such as a urn: source record, are not checked
 
 Exit 0 when every check passes, 1 when any fails (one line per failure), 2 when a file
 cannot be read or parsed, or when the arguments are wrong.
@@ -270,7 +271,9 @@ def qskos(g, concepts, short):
         for term in (s, p, o):
             if isinstance(term, URIRef) and str(term).startswith(str(SKOS)) and term not in SKOS_TERMS:
                 fails.append(("skos-term", f"{short(term)} is in the SKOS namespace but is not a SKOS term"))
-    for s in sorted({s for s in g.subjects() if isinstance(s, URIRef)}):
+    skos_resources = {s for kind in (SKOS.Concept, SKOS.ConceptScheme, SKOS.Collection, SKOS.OrderedCollection)
+                      for s in g.subjects(RDF.type, kind) if isinstance(s, URIRef)}
+    for s in sorted(skos_resources):
         if not str(s).startswith(("http://", "https://")):
             fails.append(("uri-scheme", f"{short(s)} is not an http or https IRI"))
 
