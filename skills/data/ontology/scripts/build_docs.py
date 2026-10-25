@@ -5,12 +5,16 @@
 Run: python3 build_docs.py --jar <widoco.jar> --releases <releases folder> --docs <docs folder>
          [--package <module>/<version>]...
 
-For each package (every released one, or each --package), Widoco reads releases/<module>/<version>/<module>.ttl
-and writes its pages to <docs>/<module>/<version>/, which is emptied first; then docs-source.json records the
-module, the version, the SHA-256 of the package's manifest.json, and the Widoco jar's file name, so check_docs.py
-can tell when the pages no longer describe the package. Widoco runs locally (Java); nothing leaves the machine.
+For each package (every released one, or each --package), the builder first checks the package against its
+manifest: every file the manifest lists, <module>.ttl among them, has the SHA-256 the manifest records. Only then
+does Widoco read releases/<module>/<version>/<module>.ttl, into a temporary folder beside <docs>/<module>/<version>/.
+When Widoco succeeds, docs-source.json records the module, the version, the SHA-256 of the package's manifest.json
+and the Widoco jar's file name, and the new folder replaces the old one; when anything fails, the old pages stay as
+they were. check_docs.py can then tell when the pages no longer describe the package. Widoco runs locally (Java);
+nothing leaves the machine.
 
-Exit 0 on success, 1 when Widoco fails on a package, 2 when an input is missing or the arguments are wrong.
+Exit 0 on success, 1 when a package does not match its manifest or Widoco fails on it, 2 when an input is missing
+or the arguments are wrong.
 """
 import argparse
 import json
@@ -18,26 +22,62 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 
 from check_docs import packages, sha256
 
 
+def package_problems(package, module):
+    """Why the package does not match its manifest: a missing or changed file, or no Turtle listed."""
+    try:
+        with open(os.path.join(package, "manifest.json"), encoding="utf-8") as f:
+            files = json.load(f).get("files")
+    except (OSError, ValueError):
+        return ["its manifest.json cannot be read"]
+    if not isinstance(files, dict) or f"{module}.ttl" not in files:
+        return [f"its manifest lists no {module}.ttl"]
+    problems = []
+    for name, expected in sorted(files.items()):
+        path = os.path.join(package, name)
+        if not os.path.isfile(path):
+            problems.append(f"{name} is missing")
+        elif sha256(path) != expected:
+            problems.append(f"{name} does not match the SHA-256 in its manifest")
+    return problems
+
+
 def build(jar, releases, docs, module, version):
     package = os.path.join(releases, module, version)
-    out = os.path.join(docs, module, version)
-    if os.path.isdir(out):
-        shutil.rmtree(out)
-    os.makedirs(out)
-    run = subprocess.run(["java", "-jar", jar, "-ontFile", os.path.join(package, f"{module}.ttl"), "-outFolder", out,
-                          "-rewriteAll", "-noPlaceHolderText", "-lang", "en"],
-                         capture_output=True, text=True, stdin=subprocess.DEVNULL)
-    if run.returncode != 0 or not os.path.isfile(os.path.join(out, "index-en.html")):
-        print(f"FAIL widoco: {module} {version}: {(run.stdout + run.stderr).strip()[-500:]}")
+    problems = package_problems(package, module)
+    if problems:
+        print(f"FAIL package: {module} {version}: {'; '.join(problems)}")
         return False
-    with open(os.path.join(out, "docs-source.json"), "w", encoding="utf-8") as f:
-        json.dump({"module": module, "version": version, "manifest_sha256": sha256(os.path.join(package, "manifest.json")),
-                   "built_with": os.path.basename(jar)}, f, indent=2, sort_keys=True)
-        f.write("\n")
+    out = os.path.join(docs, module, version)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    staging = tempfile.mkdtemp(prefix=f".{version}.building-", dir=os.path.dirname(out))
+    try:
+        run = subprocess.run(["java", "-jar", jar, "-ontFile", os.path.join(package, f"{module}.ttl"), "-outFolder",
+                              staging, "-rewriteAll", "-noPlaceHolderText", "-lang", "en"],
+                             capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        if run.returncode != 0 or not os.path.isfile(os.path.join(staging, "index-en.html")):
+            print(f"FAIL widoco: {module} {version}: {(run.stdout + run.stderr).strip()[-500:]}")
+            return False
+        with open(os.path.join(staging, "docs-source.json"), "w", encoding="utf-8") as f:
+            json.dump({"module": module, "version": version,
+                       "manifest_sha256": sha256(os.path.join(package, "manifest.json")),
+                       "built_with": os.path.basename(jar)}, f, indent=2, sort_keys=True)
+            f.write("\n")
+        old = None
+        if os.path.isdir(out):
+            old = staging + ".old"
+            os.rename(out, old)
+        os.rename(staging, out)
+        staging = None
+        if old:
+            shutil.rmtree(old)
+    finally:
+        if staging and os.path.isdir(staging):
+            shutil.rmtree(staging)
     print(f"built {out}")
     return True
 

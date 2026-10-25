@@ -34,11 +34,24 @@ class Docs(unittest.TestCase):
         for version in ("1.0.0", "1.1.0"):
             package = os.path.join(self.releases, "lending", version)
             os.makedirs(package)
-            with open(os.path.join(package, "manifest.json"), "w") as f:
-                json.dump({"module": "lending", "version": version}, f)
             with open(os.path.join(package, "lending.ttl"), "w") as f:
                 f.write(LENDING_TTL)
+            with open(os.path.join(package, "manifest.json"), "w") as f:
+                json.dump({"module": "lending", "version": version,
+                           "files": {"lending.ttl": hashlib.sha256(LENDING_TTL.encode()).hexdigest()}}, f)
             self.write_source("lending", version)
+        # A stand-in for java on PATH: FAKE_JAVA=ok writes an index page into -outFolder, fail exits 1.
+        self.bin = os.path.join(self.root, "bin")
+        os.makedirs(self.bin)
+        fake = os.path.join(self.bin, "java")
+        with open(fake, "w") as f:
+            f.write('#!/bin/sh\necho called >> "$FAKE_JAVA_LOG"\n[ "$FAKE_JAVA" = ok ] || exit 1\n'
+                    'while [ $# -gt 0 ]; do [ "$1" = -outFolder ] && out=$2; shift; done\n'
+                    'echo NEW > "$out/index-en.html"\n')
+        os.chmod(fake, 0o755)
+        self.java_log = os.path.join(self.root, "java.log")
+        self.jar = os.path.join(self.root, "widoco.jar")
+        open(self.jar, "w").close()
 
     def tearDown(self):
         shutil.rmtree(self.root)
@@ -92,6 +105,63 @@ class Docs(unittest.TestCase):
             shutil.rmtree(os.path.join(self.docs, "lending", "1.0.0"))
             self.assertEqual(check_docs.main(["--releases", self.releases, "--docs", self.docs]), 1)
             self.assertEqual(check_docs.main(["--releases", self.releases, "--docs", os.path.join(self.root, "no")]), 2)
+
+    def build_with_fake_java(self, mode, *packages):
+        env = {"PATH": self.bin + os.pathsep + os.environ["PATH"], "FAKE_JAVA": mode, "FAKE_JAVA_LOG": self.java_log}
+        saved = {k: os.environ.get(k) for k in env}
+        os.environ.update(env)
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+                code = build_docs.main(["--jar", self.jar, "--releases", self.releases, "--docs", self.docs,
+                                        *[a for p in packages for a in ("--package", p)]])
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        return code, out.getvalue()
+
+    def write_old_pages(self):
+        with open(os.path.join(self.docs, "lending", "1.1.0", "index-en.html"), "w") as f:
+            f.write("OLD")
+
+    def leftovers(self):
+        return [n for n in os.listdir(os.path.join(self.docs, "lending")) if n.startswith(".")]
+
+    def test_a_turtle_changed_after_release_stops_the_build_before_widoco(self):
+        with open(os.path.join(self.releases, "lending", "1.1.0", "lending.ttl"), "a") as f:
+            f.write("<https://id.example.org/library/Extra> a <http://www.w3.org/2002/07/owl#Class> .\n")
+        code, out = self.build_with_fake_java("ok", "lending/1.1.0")
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL package: lending 1.1.0: lending.ttl does not match the SHA-256 in its manifest", out)
+        self.assertFalse(os.path.exists(self.java_log), "Widoco ran on a package that does not match its manifest")
+
+    def test_a_manifest_that_lists_no_turtle_stops_the_build(self):
+        with open(os.path.join(self.releases, "lending", "1.1.0", "manifest.json"), "w") as f:
+            json.dump({"module": "lending", "version": "1.1.0", "files": {}}, f)
+        code, out = self.build_with_fake_java("ok", "lending/1.1.0")
+        self.assertEqual(code, 1, out)
+        self.assertIn("its manifest lists no lending.ttl", out)
+
+    def test_a_failed_widoco_run_keeps_the_previous_pages(self):
+        self.write_old_pages()
+        code, out = self.build_with_fake_java("fail", "lending/1.1.0")
+        self.assertEqual(code, 1, out)
+        with open(os.path.join(self.docs, "lending", "1.1.0", "index-en.html")) as f:
+            self.assertEqual(f.read(), "OLD")
+        self.assertEqual(check_docs.check(self.releases, self.docs), [])
+        self.assertEqual(self.leftovers(), [])
+
+    def test_a_successful_run_replaces_the_previous_pages(self):
+        self.write_old_pages()
+        code, out = self.build_with_fake_java("ok", "lending/1.1.0")
+        self.assertEqual(code, 0, out)
+        with open(os.path.join(self.docs, "lending", "1.1.0", "index-en.html")) as f:
+            self.assertEqual(f.read(), "NEW\n")
+        self.assertEqual(check_docs.check(self.releases, self.docs), [])
+        self.assertEqual(self.leftovers(), [])
 
     @unittest.skipUnless(os.environ.get("WIDOCO_JAR"), "set WIDOCO_JAR to a Widoco jar to run Widoco")
     def test_build_writes_pages_and_a_source_record_the_check_accepts(self):
