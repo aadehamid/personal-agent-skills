@@ -253,6 +253,28 @@ class Steps(Base):
         self.assertIn("lpg-local", last[1])   # the local Neo4j still removed
         self.assertFalse(d.local_up)
 
+    def test_a_failed_step_whose_clean_up_fails_keeps_its_own_failure_and_retries(self):
+        class Breaking(FakeRun):
+            downs = 0
+
+            def __call__(self, cmd, cwd=None, env=None, capture=False):
+                if "explore.py" in " ".join(cmd):
+                    return 1, ""
+                if "down" in cmd and "lpg-explore" in cmd and any("roundtrip" in c for c, _, _ in self.calls):
+                    self.downs += 1
+                    self.calls.append((list(cmd), cwd, None))
+                    raise OSError("docker went away")
+                return super().__call__(cmd, cwd, env, capture)
+        fake, logged = Breaking(), []
+        d = rp.Driver(self.run_config(), run=fake, ready=lambda url: True, sleep=lambda s: None, log=logged.append)
+        with self.assertRaises(rp.Failed) as caught:
+            d.run_steps(["project", "load", "explore"])
+        self.assertIn("explore.py compare", str(caught.exception))
+        self.assertEqual(fake.downs, 2)   # the step's own removal, then finish()'s retry
+        self.assertEqual(sum("could not be removed" in line for line in logged), 2)
+        self.assertIn("lpg-local", fake.calls[-1][0])   # the local Neo4j still removed
+        self.assertEqual(len(d.fusekis), 1)               # still tracked: it was never removed
+
     def test_a_step_that_needs_the_local_neo4j_says_so(self):
         d = self.driver(self.run_config(), FakeRun())
         with self.assertRaises(rp.Failed):

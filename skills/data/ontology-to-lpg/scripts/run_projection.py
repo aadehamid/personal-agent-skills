@@ -628,9 +628,9 @@ class Driver:
 
     def fuseki_down(self, base_env):
         base, env = base_env
-        if base_env in self.fusekis:
-            self.fusekis.remove(base_env)
         self.run(base + ["down", "-v"], env=env, capture=True)
+        if base_env in self.fusekis:   # tracked until removed, so finish() retries a failed removal
+            self.fusekis.remove(base_env)
 
     def rdf_store_fuseki(self, key):
         c = self.cfg[key]
@@ -733,7 +733,7 @@ class Driver:
                     "--inferred", self.out_file("inferred.nt"), "--projection-report", self.out_file("projection-report.json"),
                     "--report", self.out_file("triplestore-report.json"), *self.data)
         finally:
-            self.fuseki_down(self.fusekis[-1])
+            self.remove(lambda b=self.fusekis[-1]: self.fuseki_down(b))
 
     def step_copy(self):
         self.need("projection-report.json", "inferred.nt")
@@ -784,7 +784,7 @@ class Driver:
                         *target, "--sparql", ds + "/query", "--queries", self.cfg["queries"], "--report", report,
                         *(["--files"] if self.files else []), env=env)
         finally:
-            self.fuseki_down(self.fusekis[-1])
+            self.remove(lambda b=self.fusekis[-1]: self.fuseki_down(b))
 
     def step_rebuild(self):
         r = self.cfg["rebuild"]
@@ -864,10 +864,14 @@ class Driver:
         if self.local_up and not self.cfg.get("keep_neo4j"):
             teardowns.append(self.neo4j_down)
         for teardown in teardowns:
-            try:
-                teardown()
-            except Exception as exc:  # noqa: BLE001 (any failure; the next removal still runs)
-                self.log(f"WARNING {q(error_line('a container could not be removed', exc))}")
+            self.remove(teardown)
+
+    def remove(self, teardown):
+        """Runs one container removal; a failure is said, never raised, so it cannot hide a step's own."""
+        try:
+            teardown()
+        except Exception as exc:  # noqa: BLE001 (any failure; the next removal still runs)
+            self.log(f"WARNING {q(error_line('a container could not be removed', exc))}")
 
     def run_steps(self, steps):
         try:
