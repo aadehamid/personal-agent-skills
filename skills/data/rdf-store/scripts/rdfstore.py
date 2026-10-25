@@ -554,6 +554,42 @@ def write_atomically(path, data, tmp=None):
             os.remove(tmp)
 
 
+def publish_all(outputs, new_folder=None):
+    """Write every (path, make_bytes) output, or none of them. Each is written to a temporary file
+    beside its path first; only when all are written are they renamed into place. If a write fails,
+    the temporary files go; if a rename fails, so do the outputs this call already published, and a
+    folder it created."""
+    created = bool(new_folder) and not os.path.exists(new_folder)
+    if created:
+        os.makedirs(new_folder)
+    staged, published = [], []
+    try:
+        for path, make in outputs:
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(path)), prefix=".rdfstore.")
+            os.close(fd)
+            staged.append((tmp, path))
+            with open(tmp, "wb") as f:
+                f.write(make())
+        for tmp, path in staged:
+            os.replace(tmp, path)
+            published.append(path)
+    except BaseException:
+        for path in published:
+            if os.path.exists(path):
+                os.remove(path)
+        if created and os.path.isdir(new_folder):
+            for name in os.listdir(new_folder):
+                if name.startswith(".rdfstore."):
+                    os.remove(os.path.join(new_folder, name))
+            if not os.listdir(new_folder):
+                os.rmdir(new_folder)
+        raise
+    finally:
+        for tmp, _ in staged:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+
+
 def report_paths(argv):
     """Every value given to --report, read before the full parse so a bad option cannot keep an old report."""
     return [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "--report"]
@@ -677,15 +713,14 @@ def main(argv):
             ttl = opts.get("--ttl-dir")
             side = [os.path.join(ttl, f"graph-{n}.ttl") for n in range(1, len(graphs) + 1)] + [os.path.join(ttl, "graphs.tsv")] if ttl else []
             refuse_aliases([opts["--out"]] + side, [opts["--env"]] if "--env" in opts else [])
-            write_atomically(opts["--out"], nquads_text(exported))
+            outputs = [(opts["--out"], lambda: nquads_text(exported))]
             if ttl:
-                os.makedirs(ttl, exist_ok=True)
-                index = []
                 for path, g in zip(side, graphs):
                     triples = [ox.Triple(q.subject, q.predicate, q.object) for q in exported.quads_for_graph_name(ox.NamedNode(g))]
-                    write_atomically(path, ox.serialize(triples, format=ox.RdfFormat.TURTLE))
-                    index.append(f"{os.path.basename(path)}\t{g}\n")
-                write_atomically(side[-1], "".join(index).encode("utf-8"))
+                    outputs.append((path, lambda t=triples: ox.serialize(t, format=ox.RdfFormat.TURTLE)))
+                index = "".join(f"{os.path.basename(path)}\t{g}\n" for path, g in zip(side, graphs))
+                outputs.append((side[-1], lambda: index.encode("utf-8")))
+            publish_all(outputs, ttl)
             print(f"wrote {opts['--out']}: {len(exported)} quads in {len(graphs)} graphs")
             return 0
         passed, report = roundtrip(store, dataset)

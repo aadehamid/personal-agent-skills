@@ -846,6 +846,50 @@ class CommandLine(unittest.TestCase):
         finally:
             close(server)
 
+    def test_a_failed_side_file_leaves_no_export_output(self):
+        folder, files = release_files()
+        server, store = gsp_server()
+        real = rs.ox.serialize
+        calls = {"turtle": 0}
+
+        def serialize(data, *a, **kw):
+            if kw.get("format") == rs.ox.RdfFormat.TURTLE:
+                calls["turtle"] += 1
+                if calls["turtle"] == 2:
+                    raise OSError("disk full on the second Turtle file")
+            return real(data, *a, **kw)
+        try:
+            store.publish(rs.pack(files))
+            out, ttl = os.path.join(folder, "export.nq"), os.path.join(folder, "ttl")
+            rs.ox.serialize = serialize
+            code = rs.main(["export", "--store", "fuseki", "--gsp", store.gsp, "--query", store.query_url,
+                            "--out", out, "--ttl-dir", ttl])
+        finally:
+            rs.ox.serialize = real
+            close(server)
+        self.assertEqual(code, 1)
+        self.assertEqual(calls["turtle"], 2)
+        self.assertFalse(os.path.exists(out))
+        self.assertFalse(os.path.exists(ttl))
+        self.assertEqual([f for f in os.listdir(folder) if f.startswith(".rdfstore.")], [])
+
+    def test_a_failed_rename_removes_what_was_already_published(self):
+        folder = tempfile.mkdtemp()
+        real, count = os.replace, {"n": 0}
+
+        def replace(src, dst):
+            count["n"] += 1
+            if count["n"] == 2:
+                raise OSError("rename failed")
+            real(src, dst)
+        os.replace = replace
+        try:
+            with self.assertRaises(OSError):
+                rs.publish_all([(os.path.join(folder, "a.nq"), lambda: b"a"), (os.path.join(folder, "b.ttl"), lambda: b"b")])
+        finally:
+            os.replace = real
+        self.assertEqual(os.listdir(folder), [])
+
     def test_export_takes_no_update_endpoint(self):
         folder = tempfile.mkdtemp()
         r = self.run_cli("export", "--store", "fuseki", "--gsp", "http://h/d", "--query", "http://h/q",
