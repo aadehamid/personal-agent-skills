@@ -12,6 +12,12 @@ CONSTRUCT {
     GRAPH ?g { ?ontology dcterms:requires ?pin . }
     GRAPH ?h { ?required a owl:Ontology ; owl:versionIRI ?loaded . }
     FILTER(STRSTARTS(STR(?pin), CONCAT(STR(?required), "/")) || ?pin = ?loaded)
+    # The longest matching ontology IRI wins, as module_tags.required_package picks it.
+    FILTER NOT EXISTS {
+      GRAPH ?h2 { ?longer a owl:Ontology ; owl:versionIRI ?other . }
+      FILTER(STRLEN(STR(?longer)) > STRLEN(STR(?required)) &&
+             (STRSTARTS(STR(?pin), CONCAT(STR(?longer), "/")) || ?pin = ?other))
+    }
   }
   # Outside the OPTIONAL: inside it ?version is not yet bound. With no ?pin it stays unbound.
   BIND(IRI(CONCAT(STR(?version), "#requires-", ENCODE_FOR_URI(STR(?pin)))) AS ?requirement)

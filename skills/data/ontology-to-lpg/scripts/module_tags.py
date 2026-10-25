@@ -22,8 +22,8 @@ The tag rules, applied to the package files, never to the graph:
   an edge    the first package in dependency order whose file holds the triple; an inferred triple
              (--inferred, not in any package) takes its subject's tag.
 An edge is read back from the graph as (source uri, type, target uri); its predicate is the type's
-prefix expanded with the configuration's prefixes, and n10s's schema types n4sch__DOMAIN, n4sch__RANGE
-and n4sch__SCO stand for rdfs:domain, rdfs:range and rdfs:subClassOf.
+prefix expanded with the configuration's prefixes, and n10s's schema types n4sch__DOMAIN, n4sch__RANGE,
+n4sch__SCO and n4sch__SPO stand for rdfs:domain, rdfs:range, rdfs:subClassOf and rdfs:subPropertyOf.
 
 `tag` sets the tags and fails (exit 1) when a node or relationship of the graph has no expected tag:
 the graph holds something no package states. `check` reads every :Resource node and every
@@ -51,7 +51,10 @@ import load_verify as lv
 from shell import Refusal, error_line, q
 
 TAG = lv.MODULE_TAG
-SCHEMA_TYPES = {"n4sch__DOMAIN": str(RDFS.domain), "n4sch__RANGE": str(RDFS.range), "n4sch__SCO": str(RDFS.subClassOf)}
+# The relationship types n10s.onto.import writes, and the triple each repeats. Any other n4sch__ type
+# maps to no predicate, so check reports it as a relationship no package states.
+SCHEMA_TYPES = {"n4sch__DOMAIN": str(RDFS.domain), "n4sch__RANGE": str(RDFS.range),
+                "n4sch__SCO": str(RDFS.subClassOf), "n4sch__SPO": str(RDFS.subPropertyOf)}
 LPG = "https://w3id.org/ontology-to-lpg/module#"
 
 Package = namedtuple("Package", "path ontology version requires graph")
@@ -70,6 +73,12 @@ CONSTRUCT {{
     GRAPH ?g {{ ?ontology dcterms:requires ?pin . }}
     GRAPH ?h {{ ?required a owl:Ontology ; owl:versionIRI ?loaded . }}
     FILTER(STRSTARTS(STR(?pin), CONCAT(STR(?required), "/")) || ?pin = ?loaded)
+    # The longest matching ontology IRI wins, as module_tags.required_package picks it.
+    FILTER NOT EXISTS {{
+      GRAPH ?h2 {{ ?longer a owl:Ontology ; owl:versionIRI ?other . }}
+      FILTER(STRLEN(STR(?longer)) > STRLEN(STR(?required)) &&
+             (STRSTARTS(STR(?pin), CONCAT(STR(?longer), "/")) || ?pin = ?other))
+    }}
   }}
   # Outside the OPTIONAL: inside it ?version is not yet bound. With no ?pin it stays unbound.
   BIND(IRI(CONCAT(STR(?version), "#requires-", ENCODE_FOR_URI(STR(?pin)))) AS ?requirement)

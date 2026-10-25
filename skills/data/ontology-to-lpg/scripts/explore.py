@@ -13,7 +13,10 @@ predicate IRI by the configuration's prefixes (module_tags.predicate), its tag t
 module_tags.py set, and a node's tag its own `graph`. In the store a relationship is a triple with an
 IRI subject and object in a named graph; its tag is derived from the store by module_tags's rules (the
 first graph in dependency order that holds it, the subject's tag for a triple only in the inferred
-graph) and a node's tag likewise, so agreement also proves the tags. Both answers become one sorted
+graph) and a node's tag likewise, so agreement also proves the tags. The inferred graph is the named
+graph the projection's inferred.nt was loaded into: --inferred-graph, by default
+urn:ontology-to-lpg:inferred (load it with rdfstore.py --graph inferred.nt=<that IRI>). A triple in any
+other graph that is not a package is kept with no tag, so it shows as a difference. Both answers become one sorted
 list of [subject, predicate, object, tag] and one of [node, tag]; `walk` prints both stores' counts
 and whether they are equal, and the modules reached.
 
@@ -115,8 +118,9 @@ class StoreSide:
     """A SPARQL store holding one named graph per package (and INFERRED). select(query) returns rows of
     {variable: value} with every value a string (an IRI's text, a literal's lexical form, true/false)."""
 
-    def __init__(self, select):
+    def __init__(self, select, inferred_graph=None):
         self.select = select
+        self.inferred = inferred_graph or INFERRED
         heads = self.select(SP_HEADERS)
         by_graph = {}
         for r in heads:
@@ -151,8 +155,12 @@ class StoreSide:
             known = [g for g in graphs if g in self.rank]
             if known:
                 out.add((*key, self.version[min(known, key=self.rank.get)]))
-            elif INFERRED in graphs:
+            elif self.inferred in graphs:
                 inferred_only.append(key)
+            else:
+                # a graph that is neither a package nor the inferred graph: kept, with no tag, so the
+                # comparison shows it instead of losing it
+                out.add((*key, None))
         subjects = self.node_tags(sorted({k[0] for k in inferred_only}))
         out.update((*k, subjects[k[0]]) for k in inferred_only)
         return out
@@ -209,7 +217,7 @@ def http_select(endpoint):
 def options(argv):
     opts, i = {}, 0
     known = {"--config", "--uri", "--env", "--sparql", "--iri", "--hops", "--queries", "--report", "--query-timeout",
-             "--output"}
+             "--output", "--inferred-graph"}
     while i < len(argv):
         if argv[i] not in known or i + 1 >= len(argv):
             raise Refusal("an unknown flag, or a flag without its value")
@@ -261,7 +269,7 @@ def main(argv):
         with GraphDatabase.driver(uri, auth=auth) as driver, driver.session(database=database) as raw:
             session = lv.Timed(raw, timeout)
             neo = Neo4jSide(lambda stmt, **params: session.run(stmt, params).data(), prefixes)
-            store = StoreSide(http_select(opts["--sparql"]))
+            store = StoreSide(http_select(opts["--sparql"]), opts.get("--inferred-graph"))
             if command == "walk":
                 results = [compare_walk(neo, store, opts["--iri"], hops)]
                 module_map = None

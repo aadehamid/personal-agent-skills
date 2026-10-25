@@ -140,6 +140,8 @@ class ModuleTags(Fixture):
 
     def test_schema_types_and_prefixes_map_to_predicates(self):
         self.assertEqual(mt.predicate("n4sch__DOMAIN", PREFIXES), "http://www.w3.org/2000/01/rdf-schema#domain")
+        self.assertEqual(mt.predicate("n4sch__SPO", PREFIXES), "http://www.w3.org/2000/01/rdf-schema#subPropertyOf")
+        self.assertIsNone(mt.predicate("n4sch__OTHER", PREFIXES))
         self.assertEqual(mt.predicate("skos__broader", PREFIXES), PREFIXES["skos"] + "broader")
         self.assertIsNone(mt.predicate("nope__x", PREFIXES))
 
@@ -214,6 +216,22 @@ class ModuleTags(Fixture):
         out = ds.query(mt.CONSTRUCT).graph
         self.assertEqual(len(list(out.subject_objects(URIRef(mt.LPG + "requires")))), len(mt.module_rows(packages)[1]))
 
+    def test_the_construct_takes_the_longest_matching_ontology_as_modules_does(self):
+        nested = write(self.tmp, "nested.ttl", BASE.replace("<https://example.org/base>", "<https://example.org/base/ext>")
+                       .replace("<https://example.org/base/1.1.0>", "<https://example.org/base/ext/1.0.0>"))
+        pin = APP.replace("<https://example.org/base/1.0.0>", "<https://example.org/base/ext/0.9.0>")
+        app = write(self.tmp, "app2.ttl", pin)
+        packages = mt.read_packages([app, os.path.join(self.tmp, "base.ttl"), nested])
+        ds = Dataset(default_union=False)
+        for p in packages:
+            g = ds.graph(URIRef(p.version))
+            for t in p.graph:
+                g.add(t)
+        out = ds.query(mt.CONSTRUCT).graph
+        self.assertEqual({str(o) for o in out.objects(URIRef("https://example.org/app/2.0.0"), URIRef(mt.LPG + "requires"))},
+                         {r["target"] for r in mt.module_rows(packages)[1]})
+        self.assertEqual({r["target"] for r in mt.module_rows(packages)[1]}, {"https://example.org/base/ext/1.0.0"})
+
     def test_the_construct_gives_the_same_module_graph(self):
         ds = Dataset(default_union=False)
         for p in self.packages:
@@ -251,6 +269,21 @@ class Walk(Fixture):
             explore.Neo4jSide(FakeNeo4j(self.packages, wrong="https://example.org/base/p1"), PREFIXES),
             store(self.packages), "https://example.org/app/sys", 1)
         self.assertFalse(result["equal"])
+
+    def test_the_inferred_graph_takes_its_name_from_the_option_and_any_other_graph_shows(self):
+        rdf_type = URIRef(PREFIXES["rdf"] + "type")
+        extra = (URIRef("https://example.org/app/sys"), rdf_type, URIRef("https://example.org/base/Thing"))
+        for name, tag in (("urn:x:inferred", "https://example.org/app/2.0.0"), ("urn:x:stray", None)):
+            ds = Dataset(default_union=False)
+            for p in self.packages:
+                g = ds.graph(URIRef(p.version))
+                for t in p.graph:
+                    g.add(t)
+            ds.graph(URIRef(name)).add(extra)
+            side = explore.StoreSide(lambda q, ds=ds: [{str(k): str(v) for k, v in r.asdict().items()} for r in ds.query(q)],
+                                     "urn:x:inferred")
+            edges, _ = explore.walk(side, "https://example.org/app/sys", 1)
+            self.assertIn([str(extra[0]), str(extra[1]), str(extra[2]), tag], edges, name)
 
     def test_the_module_maps_agree(self):
         self.assertEqual(explore.Neo4jSide(FakeNeo4j(self.packages), PREFIXES).modules(), store(self.packages).modules())
