@@ -320,6 +320,12 @@ class Git(Workspace):
         self.assertEqual(subprocess.run(["git", "ls-remote", "--tags", bare], env=CLEAN_ENV, capture_output=True,
                                         text=True).stdout.strip(), "")
         git("push", "-q", "origin", "lending-v1.0.0", cwd=self.root)
+        git("push", "-q", "origin", "--delete", "main", cwd=self.root)   # the branch is gone on the remote
+        git("tag", "-d", "lending-v1.0.0", cwd=self.root)
+        code, out = run(["tag", path, "--releases", self.releases])
+        self.assertEqual(code, 1)   # the stale origin/main no longer vouches for the merge
+        self.assertIn("tag it after the release merges", out)
+        git("push", "-q", "origin", "HEAD:refs/heads/main", cwd=self.root)
         code, out = run(["tag", path, "--releases", self.releases])
         self.assertIn("lending-v1.0.0 already exists; nothing tagged", out)
         self.assertIn("lending-v1.0.0 is on origin", out)

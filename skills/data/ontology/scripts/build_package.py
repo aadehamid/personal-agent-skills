@@ -394,6 +394,12 @@ def tag(answers, releases):
     # commit, or the package's own commit after a fast-forward or squash.
     commit = git("log", "-1", "--format=%H", "--", rel, cwd=top).stdout.strip()
     if setup == "remote":
+        # Refresh the remote-tracking branches first (a fetch reads; it never pushes), so a branch deleted or
+        # rewritten on the remote cannot vouch for the merge; a fetch that fails stops the tag.
+        for r in remotes:
+            fetched = git("fetch", "--quiet", "--prune", r, cwd=top)
+            if fetched.returncode != 0:
+                return 1, [f"cannot refresh {r}'s branches, so the merge cannot be confirmed: {fetched.stderr.strip()}"]
         held_by = [b.strip() for b in git("branch", "-r", "--contains", commit, cwd=top).stdout.splitlines()
                    if b.strip() and "->" not in b]
         if not held_by:
