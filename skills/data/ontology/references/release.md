@@ -1,6 +1,6 @@
 # Versioning, release packages and publication
 
-Serves Step 10, and every module release from Step 4 on. Read it before you classify a change, build or approve a release, deprecate a term, or publish a catalog.
+Serves Step 10, and every module release from Step 4 on. Read it before you classify a change, build or approve a release, deprecate a term, or publish a catalog. When a user has files but no packages yet, run the interview in `packaging-walkthrough.md`: it asks for each answer these rules need and ends with `scripts/build_package.py` writing the package.
 
 ## The rule
 
@@ -25,7 +25,7 @@ Serves Step 10, and every module release from Step 4 on. Read it before you clas
 
 ## The release package
 
-8. **Give every module the same package, built by one script:** the module's Turtle and JSON-LD, its shapes, a DCAT record, a changelog, and a manifest with the SHA-256 of each file and the module versions it requires. `scripts/check_packages.py` reads this layout: `releases/<module>/<version>/` holding `<module>.ttl`, `shapes.ttl` and `manifest.json`, whose `files` maps each other file to its SHA-256 and whose `depends_on` maps each required module to its version. *Why:* consumers validate against a package, not a working tree, and one builder keeps every package the same shape.
+8. **Give every module the same package, built by one script:** the module's Turtle and JSON-LD, its shapes, a DCAT record, a changelog, and a manifest with the SHA-256 of each file and the module versions it requires. `scripts/build_package.py build <answers.yaml> --releases <dir>` is that script for any project: it reads one module's answers (`templates/package-answers.yaml`), writes the package to a staging folder, runs `check_packages.py`'s package check and `check_changelogs.py` on it, and moves it into place only when both pass. `scripts/check_packages.py` reads this layout: `releases/<module>/<version>/` holding `<module>.ttl`, `shapes.ttl` and `manifest.json`, whose `files` maps each other file to its SHA-256 and whose `depends_on` maps each required module to its version. *Why:* consumers validate against a package, not a working tree, and one builder keeps every package the same shape.
 9. **Make the builder deterministic, and give it `--verify`, which fails unless the written package equals a fresh build.** The check script runs `--verify` for every package. *Why:* a hand edit to a package, or a drift in its sources, then fails the check.
 10. **Never change a released package; cut a new release instead.** *Why:* consumers pinned it by version and checksum.
 11. **Name each dependency's version with `dcterms:requires` on the header and an entry in the manifest; import no module.** The build fails if a named version does not exist. *Why:* an import pulls a moving target into a pinned release.
@@ -36,7 +36,15 @@ Serves Step 10, and every module release from Step 4 on. Read it before you clas
 
 14. **Until the owner approves, build a release candidate (`1.0.0-rc.1`):** the candidate label in `owl:versionInfo`, the version IRI, the catalog and the manifest, and no `dcterms:issued`. *Why:* a candidate cannot be mistaken for a release.
 15. **Cut in one commit after the approval:** drop the stage, set `dcterms:issued` and `dcterms:modified` from the cut date (never copied from an earlier release), update the test that pins the version, rebuild, and remove the candidate package. *Why:* only the release is left to consume.
-16. **Tag the merge commit after the merge.** Records written before the merge say the tag comes at merge, never that it exists. *Why:* the tag records the immutable commit the release was built from.
+16. **With a remote, tag the merge commit after the merge.** Records written before the merge say the tag comes at merge, never that it exists. *Why:* the tag records the immutable commit the release was built from.
+
+## Without a remote
+
+Releases need neither git nor a remote: a package's integrity is its manifest, whose SHA-256 for every file `check_packages.py` and `build_package.py verify` recompute. Rules 15 and 16 assume a remote and a pull-request flow; without one, follow the setup `build_package.py git --releases <dir>` reports:
+
+- **No git:** the manifest's hashes are the whole guarantee. Keep the `verify` line in the check script, and keep an earlier release's folder exactly as it was written (rule 10).
+- **Git with no remote:** commit the package, then `build_package.py tag` tags `<module>-v<version>` on that commit; from then on `verify` also compares the written files with the tag's copy.
+- **Git with a remote:** as rules 15 and 16, through a pull request. `build_package.py tag` tags locally and says whether the remote holds the tag; it never pushes.
 
 ## Before every release
 
