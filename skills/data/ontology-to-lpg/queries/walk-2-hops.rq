@@ -1,0 +1,8 @@
+# The walk: every triple within 2 hop(s) of ?start, both directions, with its named graph.
+SELECT DISTINCT ?s ?p ?o ?g WHERE {
+  VALUES ?start { <https://example.org/your-node> }
+  { GRAPH ?g { { ?start ?p ?o . BIND(?start AS ?s) } UNION { ?s ?p ?start . BIND(?start AS ?o) } } }
+  UNION
+  { GRAPH ?g1 { { ?start ?q1 ?n1 } UNION { ?n1 ?q1 ?start } } FILTER(isIRI(?n1)) GRAPH ?g { { ?n1 ?p ?o . BIND(?n1 AS ?s) } UNION { ?s ?p ?n1 . BIND(?n1 AS ?o) } } }
+  FILTER(isIRI(?s) && isIRI(?o))
+}
