@@ -29,22 +29,25 @@ Commands:
 Store options:
   fuseki      --gsp <Graph Store URL> --query <SPARQL query URL> [--update <SPARQL update URL>]
               With --update the whole dataset is published in one SPARQL Update request, which
-              SPARQL 1.1 Update says "SHOULD be treated atomically"; without it each
-              graph is replaced by its own HTTP PUT, and a failure part way leaves a mixed store.
+              SPARQL 1.1 Update says "SHOULD be treated atomically" (not a guarantee); without it
+              each graph is replaced by its own HTTP PUT. Either failure ends the run with exit 1;
+              reload the store then. A blank node in two graphs is refused before any request.
   databricks  --env <file> [--table <name>]   the file holds DATABRICKS_HOST, DATABRICKS_TOKEN,
               DATABRICKS_HTTP_PATH, DATABRICKS_CATALOG, DATABRICKS_SCHEMA. --table defaults to
-              rdf_quads. The rows go to <table>__staging, which is exported and compared first; only
-              a staging copy with the same hash replaces <table>, in one CREATE OR REPLACE ... AS
-              SELECT, so a failure before that leaves the previous table as it was. The token is
-              never printed: it is removed from every error message.
+              rdf_quads. The rows go to a staging table of this run's own (<table>__staging_<random>),
+              which is exported and compared first; only a staging copy with the same hash replaces
+              <table>, in one CREATE OR REPLACE ... AS SELECT, so a failure before that leaves the
+              previous table as it was; the staging table is always dropped. The token is never
+              printed: it is removed from every message and from the report.
 
 The proof is the hash (references/no-loss.md): each dataset is canonicalized with RDFC-1.0
 (pyoxigraph's implementation), its quads are written in canonical N-Quads form and sorted, and the
 SHA-256 of that text is the dataset's hash. Equal hashes mean isomorphic datasets, blank nodes
 included. Counts per graph and per predicate are reported as a quick check only.
 
-Reports are fail-closed: --report is deleted before anything else is done; it is written, by a
-rename, when the comparison ran (passed true or false, with the diff); a failed request leaves none.
+Reports are fail-closed: --report is deleted before anything else, even before the options are
+checked; its folder must take a file before any store is touched; it is written, by a rename, when
+the comparison ran (passed true or false, with the diff); a failed request leaves none.
 
 Exit 0 on a pass, 1 when the round trip or a store request failed, 2 on bad input. Bad input is
 found before any store is touched.
@@ -56,6 +59,7 @@ import os
 import sys
 import tempfile
 import time
+import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -117,7 +121,7 @@ def parse_graph_options(values, files):
             raise BadInput(f"--graph names {path}, which is not one of the input files")
         if real in named:
             raise BadInput(f"--graph names {path} twice")
-        if path.endswith(".nq"):
+        if path.endswith(".nq") or inputs[real].endswith(".nq"):
             raise BadInput(f"{path} is N-Quads and keeps its own graph names; --graph does not apply")
         named[real] = iri
     return named
@@ -144,9 +148,11 @@ def pack(paths, named=None):
     for scope, path in enumerate(paths):
         quads = read_quads(path)
         if path.endswith(".nq"):
-            graphs = {q.graph_name.value for q in quads if isinstance(q.graph_name, ox.NamedNode)}
             if any(isinstance(q.graph_name, ox.DefaultGraph) for q in quads):
                 raise BadInput(f"{path} has default-graph quads; give every quad a named graph")
+            if any(not isinstance(q.graph_name, ox.NamedNode) for q in quads):
+                raise BadInput(f"{path} names a graph with a blank node; give every graph an IRI")
+            graphs = {q.graph_name.value for q in quads}
         else:
             graphs = {named.get(os.path.realpath(path)) or graph_iri(quads, path)}
         for g in sorted(graphs):
@@ -158,6 +164,17 @@ def pack(paths, named=None):
             check_term(q)
             dataset.add(ox.Quad(apart(q.subject, scope), q.predicate, apart(q.object, scope), target or q.graph_name))
     return dataset
+
+
+def shared_blank_nodes(dataset):
+    """Blank nodes that occur in more than one graph. A Graph Store Protocol store keeps each graph
+    as its own document, so it cannot hold one blank node in two graphs."""
+    where = {}
+    for q in dataset:
+        for n in (q.subject, q.object):
+            if isinstance(n, ox.BlankNode):
+                where.setdefault(n, set()).add(q.graph_name.value)
+    return sorted(n.value for n, gs in where.items() if len(gs) > 1)
 
 
 # ---- skolemization -----------------------------------------------------------------------
@@ -222,9 +239,11 @@ def diff(exp_lines, act_lines, limit=20):
     return out, len(missing), len(extra)
 
 
-def compare(expected, actual):
-    """(passed, report) for two datasets; each side is canonicalized once."""
-    el, al = canonical_lines(expected), canonical_lines(actual)
+def compare(expected, actual, expected_lines=None):
+    """(passed, report) for two datasets; each side is canonicalized once, and the expected side's
+    lines can be passed in when one dataset is compared twice."""
+    el = expected_lines if expected_lines is not None else canonical_lines(expected)
+    al = canonical_lines(actual)
     he, ha = lines_hash(el), lines_hash(al)
     ge, pe = counts(expected)
     ga, pa = counts(actual)
@@ -381,11 +400,12 @@ class DatabricksStore:
     connector, so it works on Free Edition's serverless warehouse with its outbound limits."""
 
     BATCH = 2000
-    secrets = ()
 
     def __init__(self, connection, table):
         self.connection, self.table = connection, table
-        self.staging = table + "__staging"
+        # One staging table per run, so two runs on one live table never verify or promote each
+        # other's rows.
+        self.staging = f"{table}__staging_{uuid.uuid4().hex[:12]}"
 
     @staticmethod
     def check_env(env_path, table):
@@ -394,9 +414,10 @@ class DatabricksStore:
                                "DATABRICKS_CATALOG", "DATABRICKS_SCHEMA") if not env.get(k)]
         if missing:
             raise BadInput(f"{env_path} lacks {', '.join(missing)}")
-        for part in (env["DATABRICKS_CATALOG"], env["DATABRICKS_SCHEMA"], table):
+        # The messages name the setting, never its value, which could hold anything, the token included.
+        for name, part in (("DATABRICKS_CATALOG", env["DATABRICKS_CATALOG"]), ("DATABRICKS_SCHEMA", env["DATABRICKS_SCHEMA"]), ("--table", table)):
             if not part.replace("_", "").isalnum():
-                raise BadInput(f"catalog, schema and table names must be letters, digits and _: {part}")
+                raise BadInput(f"{name} must be letters, digits and _ only")
         return env
 
     @classmethod
@@ -404,9 +425,7 @@ class DatabricksStore:
         from databricks import sql
         connection = sql.connect(server_hostname=env["DATABRICKS_HOST"].removeprefix("https://").rstrip("/"),
                                  http_path=env["DATABRICKS_HTTP_PATH"], access_token=env["DATABRICKS_TOKEN"])
-        store = cls(connection, f"{env['DATABRICKS_CATALOG']}.{env['DATABRICKS_SCHEMA']}.{table}")
-        store.secrets = (env["DATABRICKS_TOKEN"],)
-        return store
+        return cls(connection, f"{env['DATABRICKS_CATALOG']}.{env['DATABRICKS_SCHEMA']}.{table}")
 
     def _export(self, table):
         with self.connection.cursor() as cur:
@@ -422,6 +441,9 @@ class DatabricksStore:
     def promote(self):
         with self.connection.cursor() as cur:
             cur.execute(f"CREATE OR REPLACE TABLE {self.table} AS SELECT * FROM {self.staging}")
+
+    def drop_staging(self):
+        with self.connection.cursor() as cur:
             cur.execute(f"DROP TABLE IF EXISTS {self.staging}")
 
     def export(self):
@@ -436,20 +458,29 @@ def roundtrip(store, dataset):
     report = {}
     if isinstance(store, DatabricksStore):
         rows = to_rows(dataset)   # BadInput here leaves the store untouched
-        store.stage(rows)
-        passed, staged = compare(dataset, store._export(store.staging))
-        report["staging"] = {"hashes_equal": passed, **({"diff": staged["diff"]} if not passed else {})}
-        if not passed:
-            report.update(staged)
-            report["published"] = False
-            return False, report
-        store.promote()
+        expected = canonical_lines(dataset)
+        try:
+            store.stage(rows)
+            passed, staged = compare(dataset, store._export(store.staging), expected)
+            report["staging"] = {"hashes_equal": passed}
+            if not passed:
+                report.update(staged)
+                report["published"] = False
+                return False, report
+            store.promote()
+        finally:
+            store.drop_staging()
     else:
         for q in dataset:
             check_term(q)
+        shared = shared_blank_nodes(dataset)
+        if shared:
+            raise BadInput(f"{len(shared)} blank nodes occur in more than one graph, which a Graph Store "
+                           "Protocol store cannot hold; skolemize them or keep each in one graph")
+        expected = None
         store.publish(dataset)
     loaded = time.time()
-    passed, result = compare(dataset, store.export())
+    passed, result = compare(dataset, store.export(), expected)
     report.update(result)
     report["published"] = True
     report["seconds"] = {"load": round(loaded - started, 1), "export_and_compare": round(time.time() - loaded, 1)}
@@ -462,7 +493,7 @@ ALLOWED = {
     "skolemize": {"--authority", "--out", "--graph"},
     "pack": {"--out", "--graph"},
     "roundtrip": {"--store", "--gsp", "--query", "--update", "--env", "--table", "--report", "--graph"},
-    "export": {"--store", "--gsp", "--query", "--update", "--env", "--table", "--out", "--ttl-dir"},
+    "export": {"--store", "--gsp", "--query", "--env", "--table", "--out", "--ttl-dir"},
     "compare": set(),
 }
 
@@ -498,12 +529,34 @@ def redact(text, secrets):
     return text
 
 
-def write_atomically(path, data):
-    folder = os.path.dirname(os.path.abspath(path))
-    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".rdfstore.")
-    with os.fdopen(fd, "wb") as f:
-        f.write(data)
-    os.replace(tmp, path)
+def redact_all(value, secrets):
+    """The value with every secret removed from every string in it, however deep."""
+    if isinstance(value, str):
+        return redact(value, secrets)
+    if isinstance(value, dict):
+        return {redact_all(k, secrets): redact_all(v, secrets) for k, v in value.items()}
+    if isinstance(value, list):
+        return [redact_all(v, secrets) for v in value]
+    return value
+
+
+def write_atomically(path, data, tmp=None):
+    """Write by rename; a temporary file left by a failed write or rename is removed."""
+    if tmp is None:
+        fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(path)), prefix=".rdfstore.")
+        os.close(fd)
+    try:
+        with open(tmp, "wb") as f:
+            f.write(data)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def report_paths(argv):
+    """Every value given to --report, read before the full parse so a bad option cannot keep an old report."""
+    return [argv[i + 1] for i, a in enumerate(argv[:-1]) if a == "--report"]
 
 
 def refuse_aliases(outputs, protected):
@@ -516,17 +569,22 @@ def refuse_aliases(outputs, protected):
         raise BadInput(f"an output would overwrite an input or the credential file: {sorted(clash)[0]}")
 
 
-def store_from(opts):
+def store_from(opts, secrets):
+    """The store kind and a factory for it. A Databricks token joins `secrets` as soon as the env file
+    is read, before anything that could print a message."""
     kind = opts.get("--store")
     if kind == "fuseki":
         if "--gsp" not in opts or "--query" not in opts or "--env" in opts or "--table" in opts:
             raise BadInput("--store fuseki takes --gsp, --query and optionally --update")
-        return kind, lambda: FusekiStore(opts["--gsp"], opts["--query"], opts.get("--update")), ()
+        return kind, lambda: FusekiStore(opts["--gsp"], opts["--query"], opts.get("--update"))
     if kind == "databricks":
         if "--env" not in opts or any(k in opts for k in ("--gsp", "--query", "--update")):
             raise BadInput("--store databricks takes --env and optionally --table")
+        token = read_env_file(opts["--env"]).get("DATABRICKS_TOKEN")
+        if token:
+            secrets.append(token)
         env = DatabricksStore.check_env(opts["--env"], opts.get("--table", "rdf_quads"))
-        return kind, lambda: DatabricksStore.from_env(env, opts.get("--table", "rdf_quads")), (env["DATABRICKS_TOKEN"],)
+        return kind, lambda: DatabricksStore.from_env(env, opts.get("--table", "rdf_quads"))
     raise BadInput("--store must be fuseki or databricks")
 
 
@@ -539,14 +597,21 @@ def main(argv):
         print(__doc__, file=sys.stderr)
         return 2
     command, rest = argv[0], argv[1:]
-    secrets, report_path = (), None
+    secrets, report_tmp = [], None
     try:
+        # An old report goes before anything can fail, unless the path is also another argument
+        # (an input or the env file), which the parse below refuses.
+        for path in report_paths(rest):
+            others = {os.path.realpath(a) for a in rest if a != path and os.path.exists(a)}
+            if os.path.realpath(path) not in others and os.path.isfile(path):
+                os.remove(path)
         opts, files = options(command, rest)
         report_path = opts.get("--report")
         if report_path:
             refuse_aliases([report_path], files + ([opts["--env"]] if "--env" in opts else []))
-            if os.path.exists(report_path):
-                os.remove(report_path)
+            # The report's folder must take a file before any store is touched.
+            fd, report_tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(report_path)), prefix=".rdfstore.")
+            os.close(fd)
         if command == "compare":
             if len(files) != 2:
                 raise BadInput("compare takes two N-Quads files")
@@ -557,7 +622,10 @@ def main(argv):
         if command == "export":
             if files or "--out" not in opts:
                 raise BadInput("export takes --out and no input files")
-            kind, make, secrets = store_from(opts)
+            kind, make = store_from(opts, secrets)
+            ttl = opts.get("--ttl-dir")
+            if ttl and os.path.exists(ttl) and (not os.path.isdir(ttl) or os.listdir(ttl)):
+                raise BadInput("--ttl-dir must be an empty folder or not exist yet, so no old graph file stays beside the new ones")
             refuse_aliases([opts["--out"]], [opts["--env"]] if "--env" in opts else [])
         else:
             if not files:
@@ -589,39 +657,51 @@ def main(argv):
             print(f"wrote {opts['--out']}: {len(dataset)} quads in {len(counts(dataset)[0])} graphs")
             return 0
         if command == "roundtrip":
-            kind, make, secrets = store_from(opts)
+            kind, make = store_from(opts, secrets)
             dataset = pack(files, named)
             if kind == "databricks":
                 to_rows(dataset)
+            elif shared_blank_nodes(dataset):
+                raise BadInput("blank nodes occur in more than one graph, which a Graph Store Protocol store "
+                               "cannot hold; skolemize them or keep each in one graph")
     except (BadInput, OSError, SyntaxError, ValueError) as exc:
         print(f"ERROR {redact(str(exc), secrets)}", file=sys.stderr)
+        if report_tmp and os.path.exists(report_tmp):
+            os.remove(report_tmp)
         return 2
     try:
         store = make()
         if command == "export":
             exported = store.export()
+            graphs = named_graphs(exported)
+            ttl = opts.get("--ttl-dir")
+            side = [os.path.join(ttl, f"graph-{n}.ttl") for n in range(1, len(graphs) + 1)] + [os.path.join(ttl, "graphs.tsv")] if ttl else []
+            refuse_aliases([opts["--out"]] + side, [opts["--env"]] if "--env" in opts else [])
             write_atomically(opts["--out"], nquads_text(exported))
-            if opts.get("--ttl-dir"):
-                os.makedirs(opts["--ttl-dir"], exist_ok=True)
+            if ttl:
+                os.makedirs(ttl, exist_ok=True)
                 index = []
-                for n, g in enumerate(named_graphs(exported), 1):
-                    name = f"graph-{n}.ttl"
+                for path, g in zip(side, graphs):
                     triples = [ox.Triple(q.subject, q.predicate, q.object) for q in exported.quads_for_graph_name(ox.NamedNode(g))]
-                    write_atomically(os.path.join(opts["--ttl-dir"], name), ox.serialize(triples, format=ox.RdfFormat.TURTLE))
-                    index.append(f"{name}\t{g}\n")
-                write_atomically(os.path.join(opts["--ttl-dir"], "graphs.tsv"), "".join(index).encode("utf-8"))
-            print(f"wrote {opts['--out']}: {len(exported)} quads in {len(counts(exported)[0])} graphs")
+                    write_atomically(path, ox.serialize(triples, format=ox.RdfFormat.TURTLE))
+                    index.append(f"{os.path.basename(path)}\t{g}\n")
+                write_atomically(side[-1], "".join(index).encode("utf-8"))
+            print(f"wrote {opts['--out']}: {len(exported)} quads in {len(graphs)} graphs")
             return 0
         passed, report = roundtrip(store, dataset)
+        report["store"] = kind
+        report = redact_all(report, secrets)
+        if report_tmp:
+            write_atomically(opts["--report"], json.dumps(report, indent=2).encode("utf-8"), report_tmp)
     except BadInput as exc:
         print(f"ERROR {redact(str(exc), secrets)}", file=sys.stderr)
         return 2
-    except Exception as exc:  # a failed request: the store, the network or the warehouse
-        print(f"FAIL a store request failed: {type(exc).__name__}: {redact(str(exc), secrets)}. No report was written.")
+    except Exception as exc:  # a failed request (the store, the network, the warehouse) or a local write
+        print(f"FAIL a store request or write failed: {type(exc).__name__}: {redact(str(exc), secrets)}. No report was written.")
         return 1
-    report["store"] = kind
-    if report_path:
-        write_atomically(report_path, json.dumps(report, indent=2).encode("utf-8"))
+    finally:
+        if report_tmp and os.path.exists(report_tmp):
+            os.remove(report_tmp)
     print(json.dumps({k: v for k, v in report.items() if k != "graph_counts"}, indent=2))
     print("PASS the store's copy has the same RDFC-1.0 hash" if passed else "FAIL the store's copy differs")
     return 0 if passed else 1

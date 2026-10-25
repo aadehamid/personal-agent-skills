@@ -126,6 +126,7 @@ class GspHandler(http.server.BaseHTTPRequestHandler):
     fault = None       # applied to what GET and the graph query see, to plant a store's mistake
     fail_put = None    # the PUT number (1-based) that answers 500
     fail_update = False
+    fail_update_after_first = False   # applies the first operation, then answers 500
     requests = None    # list of (method, query string)
 
     def log_message(self, *args):
@@ -179,6 +180,9 @@ class GspHandler(http.server.BaseHTTPRequestHandler):
             self.requests.append(("UPDATE", ""))
             if self.fail_update:
                 return self._send(500, b"update failed")
+            if self.fail_update_after_first:
+                self.store.update(body.split(" ;\n")[0])
+                return self._send(500, b"update failed part way")
             self.store.update(body)   # pyoxigraph applies one update request as one transaction
             return self._send(204)
         self.requests.append(("QUERY", ""))
@@ -415,33 +419,74 @@ class DeltaTable(unittest.TestCase):
         store.BATCH = 3
         passed, report = rs.roundtrip(store, release_dataset())
         self.assertTrue(passed, report)
-        self.assertGreater(sum(s.startswith("INSERT INTO c.s.t__staging") for s in conn.statements), 1)
-        self.assertNotIn("c.s.t__staging", conn.tables)
+        self.assertGreater(sum(s.startswith(f"INSERT INTO {store.staging}") for s in conn.statements), 1)
+        self.assertEqual(sorted(conn.tables), ["c.s.t"])
         self.assertEqual(rs.dataset_hash(rs.from_rows(conn.tables["c.s.t"])), rs.dataset_hash(release_dataset()))
 
     def test_a_failure_on_any_batch_leaves_the_previous_table(self):
-        for which in ("first", "middle", "last"):
+        batches = -(-len(rs.to_rows(release_dataset())) // 4)
+        self.assertGreater(batches, 3)
+        for which, number in (("first", 1), ("middle", batches // 2), ("last", batches)):
             with self.subTest(which):
                 count = {"n": 0}
 
-                def fail(sql, _n, which=which):
+                def fail(sql, _n, number=number):
                     if not sql.startswith("INSERT"):
                         return False
                     count["n"] += 1
-                    return {"first": 1, "middle": 2, "last": 4}[which] == count["n"]
+                    return count["n"] == number
                 conn = FakeConnection(fail_on=fail, tables={"c.s.t": OLD_ROWS})
                 store = rs.DatabricksStore(conn, "c.s.t")
                 store.BATCH = 4
                 with self.assertRaises(RuntimeError):
                     rs.roundtrip(store, release_dataset())
-                self.assertEqual(conn.tables["c.s.t"], OLD_ROWS)
+                self.assertEqual(count["n"], number)
+                self.assertEqual(conn.tables, {"c.s.t": OLD_ROWS})
+
+    def test_a_failed_promotion_leaves_the_previous_table_and_drops_staging(self):
+        conn = FakeConnection(fail_on=lambda sql, _n: " AS SELECT * FROM " in sql, tables={"c.s.t": OLD_ROWS})
+        with self.assertRaises(RuntimeError):
+            rs.roundtrip(rs.DatabricksStore(conn, "c.s.t"), release_dataset())
+        self.assertEqual(conn.tables, {"c.s.t": OLD_ROWS})
+
+    def test_a_failed_staging_drop_or_live_read_fails_the_run(self):
+        for name, fail in (("drop", lambda sql, _n: sql.startswith("DROP TABLE")),
+                           ("live read", lambda sql, _n: sql.startswith("SELECT") and "__staging_" not in sql)):
+            with self.subTest(name):
+                conn = FakeConnection(fail_on=fail, tables={"c.s.t": OLD_ROWS})
+                with self.assertRaises(RuntimeError):
+                    rs.roundtrip(rs.DatabricksStore(conn, "c.s.t"), release_dataset())
+
+    def test_two_runs_on_one_table_never_promote_each_others_rows(self):
+        conn = FakeConnection(tables={"c.s.t": OLD_ROWS})
+        a, b = rs.DatabricksStore(conn, "c.s.t"), rs.DatabricksStore(conn, "c.s.t")
+        self.assertNotEqual(a.staging, b.staging)
+        mine, theirs = release_dataset(), release_dataset()
+        add_a_triple(theirs)
+        a.stage(rs.to_rows(mine))
+        b.stage(rs.to_rows(theirs))      # B writes between A's check and A's promotion
+        a.promote()
+        self.assertEqual(rs.dataset_hash(rs.from_rows(conn.tables["c.s.t"])), rs.dataset_hash(mine))
+
+    def test_a_successful_run_canonicalizes_three_times(self):
+        calls = []
+        real = rs.canonical_lines
+        rs.canonical_lines = lambda d: calls.append(1) or real(d)
+        try:
+            passed, _ = rs.roundtrip(rs.DatabricksStore(FakeConnection(), "c.s.t"), release_dataset())
+        finally:
+            rs.canonical_lines = real
+        self.assertTrue(passed)
+        self.assertEqual(len(calls), 3)
 
     def test_a_staging_copy_that_differs_is_never_published(self):
-        conn = FakeConnection(fault=change_a_literal, fault_table="c.s.t__staging", tables={"c.s.t": OLD_ROWS})
-        passed, report = rs.roundtrip(rs.DatabricksStore(conn, "c.s.t"), release_dataset())
+        conn = FakeConnection(fault=change_a_literal, tables={"c.s.t": OLD_ROWS})
+        store = rs.DatabricksStore(conn, "c.s.t")
+        conn.fault_table = store.staging
+        passed, report = rs.roundtrip(store, release_dataset())
         self.assertFalse(passed)
         self.assertFalse(report["published"])
-        self.assertEqual(conn.tables["c.s.t"], OLD_ROWS)
+        self.assertEqual(conn.tables, {"c.s.t": OLD_ROWS})
 
     def test_unsupported_terms_are_refused_before_any_statement(self):
         ds = ox.Dataset([ox.Quad(ox.NamedNode("http://s"), ox.NamedNode("http://p"),
@@ -467,7 +512,13 @@ class GraphStoreProtocol(unittest.TestCase):
             close(server)
 
     def test_a_clean_round_trip_replaces_each_graph_with_one_put(self):
-        passed, report, handler = self.roundtrip()
+        server, store = gsp_server()
+        try:
+            server.handler.store.add(ox.Quad(ox.NamedNode("http://old"), ox.NamedNode("http://p"), ox.Literal("old"), G_LIB))
+            passed, report = rs.roundtrip(store, release_dataset())
+            handler = server.handler
+        finally:
+            close(server)
         self.assertTrue(passed, report)
         methods = [m for m, _ in handler.requests]
         self.assertEqual(methods.count("PUT"), 2)
@@ -487,6 +538,28 @@ class GraphStoreProtocol(unittest.TestCase):
             self.assertEqual([q.object.value for q in server.handler.store], ["old"])
         finally:
             close(server)
+
+    def test_an_update_that_fails_part_way_fails_the_run(self):
+        # SPARQL 1.1 Update only says a request SHOULD be atomic; a store that applies part of it and
+        # then fails must end the run with an error, never a pass.
+        server, store = gsp_server(update=True, fail_update_after_first=True)
+        try:
+            with self.assertRaises(Exception):
+                rs.roundtrip(store, release_dataset())
+        finally:
+            close(server)
+
+    def test_a_blank_node_in_two_graphs_is_refused_before_any_request(self):
+        for update in (False, True):
+            with self.subTest(update=update):
+                server, store = gsp_server(update=update)
+                ds = ox.Dataset([ox.Quad(ox.BlankNode("b"), ox.NamedNode("http://p"), ox.Literal(g), ox.NamedNode(g)) for g in ("http://g1", "http://g2")])
+                try:
+                    with self.assertRaises(rs.BadInput):
+                        rs.roundtrip(store, ds)
+                    self.assertEqual(server.handler.requests, [])
+                finally:
+                    close(server)
 
     def test_a_failed_put_stops_the_round_trip(self):
         server, store = gsp_server(fail_put=2)
@@ -635,10 +708,74 @@ class CommandLine(unittest.TestCase):
         folder, files = release_files()
         report = os.path.join(folder, "report.json")
         write(folder, "report.json", '{"hashes_equal": true}')
-        r = self.run_cli("roundtrip", "--store", "fuseki", "--gsp", "http://127.0.0.1:9/ds/data",
-                         "--query", "http://127.0.0.1:9/ds/query", "--report", report, *files)
+        server, store = gsp_server(update=True, fail_update=True)
+        try:
+            r = self.run_cli("roundtrip", "--store", "fuseki", "--gsp", store.gsp, "--query", store.query_url,
+                             "--update", store.update_url, "--report", report, *files)
+        finally:
+            close(server)
         self.assertEqual(r.returncode, 1)
         self.assertFalse(os.path.exists(report))
+        self.assertEqual([f for f in os.listdir(folder) if f.startswith(".rdfstore.")], [])
+
+    def test_an_option_error_also_removes_the_earlier_report(self):
+        folder, files = release_files()
+        report = os.path.join(folder, "report.json")
+        for bad in (["--tabel", "x"], ["--store", "fuseki", "--store", "fuseki"], ["--gsp"]):
+            with self.subTest(bad):
+                write(folder, "report.json", '{"hashes_equal": true}')
+                r = self.run_cli("roundtrip", "--report", report, *files, *bad)
+                self.assertEqual(r.returncode, 2)
+                self.assertFalse(os.path.exists(report))
+
+    def test_a_report_folder_that_cannot_take_a_file_stops_before_the_store(self):
+        folder, files = release_files()
+        server, store = gsp_server(update=True)
+        try:
+            r = self.run_cli("roundtrip", "--store", "fuseki", "--gsp", store.gsp, "--query", store.query_url,
+                             "--update", store.update_url, "--report", os.path.join(folder, "missing", "r.json"), *files)
+            self.assertEqual(r.returncode, 2)
+            self.assertEqual(server.handler.requests, [])
+        finally:
+            close(server)
+
+    def test_n_quads_with_a_blank_graph_name_is_refused(self):
+        folder = tempfile.mkdtemp()
+        path = write(folder, "d.nq", '<http://s> <http://p> "v" _:g .\n')
+        self.assertEqual(self.run_cli("pack", "--out", os.path.join(folder, "o.nq"), path).returncode, 2)
+
+    def test_a_graph_option_through_a_link_to_n_quads_is_refused(self):
+        folder = tempfile.mkdtemp()
+        path = write(folder, "d.nq", '<http://s> <http://p> "v" <http://g> .\n')
+        link = os.path.join(folder, "alias")
+        os.symlink(path, link)
+        out = os.path.join(folder, "o.nq")
+        r = self.run_cli("pack", "--out", out, "--graph", f"{link}=https://example.org/x", path)
+        self.assertEqual(r.returncode, 2)
+        self.assertFalse(os.path.exists(out))
+
+    def test_a_repeated_option_exits_2(self):
+        folder, files = release_files()
+        self.assertEqual(self.run_cli("pack", "--out", os.path.join(folder, "a.nq"), "--out", os.path.join(folder, "b.nq"), *files).returncode, 2)
+
+    def test_pack_reads_n_triples(self):
+        folder = tempfile.mkdtemp()
+        path = write(folder, "g.nt", '<http://s> <http://p> "v" .\n')
+        out = os.path.join(folder, "o.nq")
+        self.assertEqual(self.run_cli("pack", "--out", out, "--graph", f"{path}=http://g", path).returncode, 0)
+        with open(out) as f:
+            self.assertEqual(f.read(), '<http://s> <http://p> "v" <http://g> .\n')
+
+    def test_a_failed_write_leaves_no_temporary_file(self):
+        folder = tempfile.mkdtemp()
+        real = os.replace
+        os.replace = lambda *a: (_ for _ in ()).throw(OSError("disk full"))
+        try:
+            with self.assertRaises(OSError):
+                rs.write_atomically(os.path.join(folder, "out.nq"), b"x")
+        finally:
+            os.replace = real
+        self.assertEqual(os.listdir(folder), [])
 
     def test_the_token_is_never_printed_when_the_env_file_is_incomplete(self):
         folder, files = release_files()
@@ -661,6 +798,59 @@ class CommandLine(unittest.TestCase):
                 self.assertNotIn("dapiSECRET123", r.stdout + r.stderr)
                 self.assertIn("[redacted]", r.stdout)
                 self.assertFalse(os.path.exists(report))
+
+    def test_a_token_in_an_identifier_is_never_printed(self):
+        folder, files = release_files()
+        base = "DATABRICKS_HOST=https://h\nDATABRICKS_TOKEN=dapiSECRET123\nDATABRICKS_HTTP_PATH=/p\n"
+        for name, env_text, extra in (
+                ("catalog", base + "DATABRICKS_CATALOG=x-dapiSECRET123\nDATABRICKS_SCHEMA=s\n", []),
+                ("schema", base + "DATABRICKS_CATALOG=c\nDATABRICKS_SCHEMA=x-dapiSECRET123\n", []),
+                ("table", base + "DATABRICKS_CATALOG=c\nDATABRICKS_SCHEMA=s\n", ["--table", "x-dapiSECRET123"])):
+            with self.subTest(name):
+                env = write(folder, "db.env", env_text)
+                r = self.run_cli("roundtrip", "--store", "databricks", "--env", env, *extra, *files)
+                self.assertEqual(r.returncode, 2)
+                self.assertNotIn("dapiSECRET123", r.stdout + r.stderr)
+
+    def test_a_token_inside_the_data_is_redacted_from_a_mismatch(self):
+        folder = tempfile.mkdtemp()
+        data = write(folder, "lib.ttl", LIBRARY + '<https://example.org/x> <https://example.org/p> "dapiSECRET123" .\n')
+        env = write(folder, "db.env", "DATABRICKS_HOST=https://h\nDATABRICKS_TOKEN=dapiSECRET123\nDATABRICKS_HTTP_PATH=/p\n"
+                                      "DATABRICKS_CATALOG=c\nDATABRICKS_SCHEMA=s\n")
+        report = os.path.join(folder, "r.json")
+        r = self.run_cli("roundtrip", "--store", "databricks", "--env", env, "--report", report, data,
+                         env={"PYTHONPATH": FakeDatabricks.install("empty")})
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        with open(report) as f:
+            saved = f.read()
+        self.assertIn("missing from the store", saved)
+        self.assertNotIn("dapiSECRET123", r.stdout + r.stderr + saved)
+
+    def test_export_refuses_an_output_that_a_side_file_would_overwrite(self):
+        folder, files = release_files()
+        server, store = gsp_server()
+        try:
+            store.publish(rs.pack(files))
+            ttl = os.path.join(folder, "ttl")
+            for out in (os.path.join(ttl, "graph-1.ttl"), os.path.join(ttl, "graphs.tsv")):
+                with self.subTest(out=os.path.basename(out)):
+                    r = self.run_cli("export", "--store", "fuseki", "--gsp", store.gsp, "--query", store.query_url,
+                                     "--out", out, "--ttl-dir", ttl)
+                    self.assertEqual(r.returncode, 2)
+                    self.assertFalse(os.path.exists(ttl))
+            os.makedirs(ttl)
+            write(ttl, "graph-9.ttl", "old")
+            r = self.run_cli("export", "--store", "fuseki", "--gsp", store.gsp, "--query", store.query_url,
+                             "--out", os.path.join(folder, "x.nq"), "--ttl-dir", ttl)
+            self.assertEqual(r.returncode, 2)
+        finally:
+            close(server)
+
+    def test_export_takes_no_update_endpoint(self):
+        folder = tempfile.mkdtemp()
+        r = self.run_cli("export", "--store", "fuseki", "--gsp", "http://h/d", "--query", "http://h/q",
+                         "--update", "http://h/u", "--out", os.path.join(folder, "x.nq"))
+        self.assertEqual(r.returncode, 2)
 
     def test_export_writes_the_store_and_one_turtle_file_per_graph(self):
         folder, files = release_files()
