@@ -1,0 +1,4 @@
+notation,slug,label,definition,source
+LS-1,on-loan,On loan,"The state of a loan from checkout up to and including its due date, while the copy has not been returned.","Example lending policy, edition 2026-01, clause 3.5"
+LS-2,overdue,Overdue,"The state of a loan from the day after its due date until the copy is returned.","Example lending policy, edition 2026-01, clause 3.5"
+LS-3,returned,Returned,"The state of a loan whose copy has been checked in, which closes the loan.","Example lending policy, edition 2026-01, clause 3.6"

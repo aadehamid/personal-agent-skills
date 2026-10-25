@@ -68,6 +68,29 @@ Working a backlog of a few hundred rows goes fastest as one answer register, bui
 2. **Give the builder one source of targets: a decision record.** Where a draft ledger and an approved decision disagree, record the approved target, update the ledger, and mark where it disagreed. *Why:* a builder that chooses between sources at write time is authoring meaning.
 3. **Test the builder from outside.** Tests read each staging value from the source and check it sits on its recorded target in the built graph, with every value a rule produces; pin measured splits so that routing every value one way fails. Prove the tests by sending one field to the wrong target and watching them fail. *Why:* conservation counts balance even when a field lands on the wrong property.
 
+## From a spreadsheet to triples
+
+When the source is a spreadsheet or CSV export, write the conversion as a reviewed mapping and run it as a deterministic build step: `scripts/build_tabular.py` builds, and `--verify` fails unless the committed output equals a fresh build (`release.md`, rules 9 and 19). The worked example is `templates/tabular/`: three loan states in `loan-states.csv`, mapped two ways to the same 21 triples in `loan-states.nt`.
+
+1. **Review the mapping, not the output.** The mapping file goes through the pull request like a builder; the output is regenerated, never edited. *Why:* a reviewer reads one rule per column instead of every row, and `--verify` catches an edited cell, an edited mapping or a hand edit to the output.
+2. **Keep identity in the mapping:** build each IRI from the row's stable key (a slug or local ID column, `identity-taxonomy.md`, Step 2, rule 2), never from the row's position or its label. *Why:* a re-sorted sheet must not remint identities.
+3. **Map every value in its final form,** language tag and datatype included, and mint no blank nodes; the builder refuses them. *Why:* the output then passes `check_taxonomy.py` like hand-written data.
+4. **Pin the engine's version** in the check script's command line. *Why:* a new engine release can change the output, which `--verify` would then report as a data change.
+
+Two engines are worked through; the owner chooses one before the first real use. *Decision pending.*
+
+| | RML run by Morph-KGC | maplib (OTTR-style templates over Polars) |
+|---|---|---|
+| Mapping | `loan-states.rml.ttl`: a declarative RML file (YARRRML also accepted by Morph-KGC) | `loan-states.maplib.py`: a Python template plus one SPARQL CONSTRUCT |
+| Reviewability | Any RML reader can read it; no code runs | Python; a reviewer reads code |
+| Language tags | Declared per column (`rr:language`) | No documented column type in 0.20.26; added with `STRLANG` in a CONSTRUCT |
+| Licence | Apache-2.0 | Apache-2.0 for mapping and querying; its SHACL and Datalog engines are not open source |
+| Dependencies | Needs rdflib below 7.3 | Needs rdflib 7.6 or later, and Polars; the two cannot share an environment |
+| Determinism | Same bytes on every run, after the builder's sort | Same bytes, and the same bytes as Morph-KGC |
+| Time, 10,000 rows (70,000 triples), with start-up | 1.9 s | 1.4 s |
+
+Recommendation for the owner: Morph-KGC, because the mapping is a declarative standard file a reviewer reads without running code, and maplib's language tags need a workaround. maplib suits a source that is already a dataframe in Python, such as a query result. For a one-off conversion, Sparna's Excel 2 RDF (`https://xls2rdf.sparna.fr/`) needs no mapping file, but its output still goes through this section's review.
+
 Packaging, versioning and later releases: `release.md`.
 
 ## Example predicate definitions

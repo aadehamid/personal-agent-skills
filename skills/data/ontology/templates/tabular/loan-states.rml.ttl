@@ -1,0 +1,18 @@
+# The loan-state code list from loan-states.csv, as an RML mapping run by Morph-KGC
+# (references/promotion.md, "From a spreadsheet to triples"). rml:source is relative to this folder.
+@prefix rr: <http://www.w3.org/ns/r2rml#> .
+@prefix rml: <http://semweb.mmlab.be/ns/rml#> .
+@prefix ql: <http://semweb.mmlab.be/ns/ql#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix lib: <https://id.example.org/library/> .
+
+<#LoanState> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "loan-states.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:template "https://id.example.org/library/{slug}" ; rr:class skos:Concept ] ;
+  rr:predicateObjectMap [ rr:predicate skos:inScheme ; rr:object lib:loan-state ] ,
+    [ rr:predicate skos:topConceptOf ; rr:object lib:loan-state ] ,
+    [ rr:predicate skos:notation ; rr:objectMap [ rml:reference "notation" ] ] ,
+    [ rr:predicate skos:prefLabel ; rr:objectMap [ rml:reference "label" ; rr:language "en" ] ] ,
+    [ rr:predicate skos:definition ; rr:objectMap [ rml:reference "definition" ; rr:language "en" ] ] ,
+    [ rr:predicate dcterms:source ; rr:objectMap [ rml:reference "source" ; rr:language "en" ] ] .
