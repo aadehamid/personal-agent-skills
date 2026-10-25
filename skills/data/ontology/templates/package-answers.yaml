@@ -1,0 +1,30 @@
+# Answers for one module release, filled in during the packaging walk-through
+# (references/packaging-walkthrough.md). Save the copy as release/<module>-<version>.yaml and keep it:
+# scripts/build_package.py builds from it, and its verify command rebuilds from it in the check script:
+#   uv run --no-project --with rdflib --with pyyaml --with pyshacl python3 <skill>/scripts/build_package.py \
+#     build release/lending-1.0.0.yaml --releases releases
+# File paths are relative to this file. This example packages the library skeleton as a first release.
+
+module: lending                                   # Q1: the module's short name
+version: 1.0.0                                    # Q2: MAJOR.MINOR.PATCH; a candidate is 1.0.0-rc.1
+ontology_iri: https://id.example.org/library/lending   # Q3: the module's IRI; versions sit under it
+title: Library lending                            # Q4: a title for the header and the catalog
+description: Lending activities, loan states, and the classes and properties a loan needs.
+sources:                                          # Q5: the Turtle files that make the module
+  - ontology-skeleton.ttl
+shapes:                                           # Q6: the module's own SHACL shapes (may be empty)
+  - shapes-skeleton.ttl
+requires: {}                                      # Q7: modules this one uses, each already released,
+                                                  #     such as {core: 1.0.0}
+issued: 2026-10-25                                # Q8: the cut date; leave it out for a candidate
+rights: All rights reserved.                      # Q9: rights, unless the header already states them
+changes:                                          # Q10: one line per change: what, why, classification
+  - First release of the lending module, a major (release.md, rule 6).
+known_gaps:                                       # Q11: what this release still lacks, or "none"
+  - gap: Holds are not modelled
+    reason: no holds export exists yet.
+    record: parked list, trigger "a holds export".
+approval:                                         # Q12: who approved, where, and their exact words
+  who: The ontology owner
+  recorded_in: decisions/0003-lending-release.md
+  words: Approve lending 1.0.0.

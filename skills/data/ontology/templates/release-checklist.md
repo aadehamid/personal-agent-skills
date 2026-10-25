@@ -13,4 +13,4 @@
 - [ ] **Known gaps stated.** The changelog's "Known gaps" section lists each gap with `Reason:` and `Record:`, or says "None."; `scripts/check_changelogs.py` passes (`release.md`, rule 18): <gaps, or none>.
 - [ ] **Candidate cut.** The candidate label, `dcterms:issued` and the candidate package are handled as `release.md` rules 14 and 15 say.
 - [ ] **Check script passes** on the head, and the review ran with every finding fixed or answered (`governance.md`, rules 15 and 20).
-- [ ] **Tag after merge.** Tag the merge commit `<module>-v<version>` once the PR has merged; until then, records say the tag comes at merge (`release.md`, rule 16).
+- [ ] **Tagged.** With a remote: tag the merge commit `<module>-v<version>` once the PR has merged; until then, records say the tag comes at merge (`release.md`, rule 16). With git and no remote: `build_package.py tag` on the commit that holds the package. With no git: not applicable; the manifest's hashes are the guarantee (`release.md`, "Without a remote").
