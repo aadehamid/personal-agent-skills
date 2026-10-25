@@ -170,7 +170,7 @@ def check(g, allowed_namespaces=(), code_properties=()):
         name = short(c)
         per_lang = defaultdict(int)
         for lab in g.objects(c, SKOS.prefLabel):
-            per_lang[getattr(lab, "language", None)] += 1
+            per_lang[lang_key(lab)] += 1
         if not per_lang:
             fails.append(("label", f"{name} has no skos:prefLabel"))
         for lang, n in per_lang.items():

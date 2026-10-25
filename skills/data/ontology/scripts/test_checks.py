@@ -565,19 +565,32 @@ class QskosRoundTwo(OneBreak, unittest.TestCase):
                      (SKOS.definition, Literal("A test concept.", lang="en"))):
             g.add((c, p, o))
 
-    def test_siblings_under_a_transitive_parent_only(self):
-        # renewal sits under lending-activity, hold-request under hold-activity; both reach circulation only
-        # through skos:broaderTransitive, so they are siblings there, and neither is the other's ancestor.
-        def mutate(g):
-            self.concept(g, "hold-activity", "circulation", "C-3", "Holds")
-            self.concept(g, "hold-request", "hold-activity", "C-3-1", "Hold request")
-            g.set((lib("renewal"), SKOS.broader, lib("lending-activity")))
-            for c in ("renewal", "hold-request"):
-                g.add((lib(c), SKOS.broaderTransitive, lib("circulation")))
-                g.add((lib("circulation"), SKOS.narrowerTransitive, lib(c)))
-            g.add((lib("renewal"), SKOS.related, lib("hold-request")))
-            g.add((lib("hold-request"), SKOS.related, lib("renewal")))
-        self.broken(mutate, "related", "lib:hold-request and lib:renewal are siblings and also skos:related")
+    def transitive_siblings(self, state):
+        """renewal sits under lending-activity, hold-request under hold-activity, and they are related; state(g, c)
+        says that each reaches circulation transitively. Neither is the other's ancestor."""
+        g = skeleton()
+        self.concept(g, "hold-activity", "circulation", "C-3", "Holds")
+        self.concept(g, "hold-request", "hold-activity", "C-3-1", "Hold request")
+        g.set((lib("renewal"), SKOS.broader, lib("lending-activity")))
+        for c in ("renewal", "hold-request"):
+            state(g, lib(c))
+        g.add((lib("renewal"), SKOS.related, lib("hold-request")))
+        g.add((lib("hold-request"), SKOS.related, lib("renewal")))
+        return check_taxonomy.check(g)
+
+    # Each direction alone also fails "reciprocal" (its inverse is missing), so the sibling failure is asserted present.
+    def test_siblings_under_a_parent_stated_by_broader_transitive(self):
+        fails = self.transitive_siblings(lambda g, c: g.add((c, SKOS.broaderTransitive, lib("circulation"))))
+        self.assertIn(("related", "lib:hold-request and lib:renewal are siblings and also skos:related"), fails)
+
+    def test_siblings_under_a_parent_stated_by_narrower_transitive(self):
+        fails = self.transitive_siblings(lambda g, c: g.add((lib("circulation"), SKOS.narrowerTransitive, c)))
+        self.assertIn(("related", "lib:hold-request and lib:renewal are siblings and also skos:related"), fails)
+
+    def test_two_preferred_labels_whose_tags_differ_only_in_case(self):
+        g = skeleton()
+        g.add((lib("overdue"), SKOS.prefLabel, Literal("Late", lang="EN")))
+        self.assertIn(("label", "lib:overdue has 2 skos:prefLabel values in language en"), check_taxonomy.check(g))
 
     def test_self_link_through_a_declared_subproperty(self):
         p = lib("localRelated")
