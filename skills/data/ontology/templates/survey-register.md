@@ -1,4 +1,4 @@
-<!-- Copy at Step 0. Rules: references/foundations.md, "Step 0", and references/external-ontologies.md. A row is done only when every cell holds a fact you read in the publisher's own copy; write "not checked" rather than a guess, and the gate stays open. Delete every comment. -->
+<!-- Copy at Step 0. Rules: references/foundations.md, "Step 0", and references/external-ontologies.md. In the framework, boundary and survey tables, a row is done only when every cell holds a fact you read in the publisher's own copy; write "not checked" rather than a guess, and the gate stays open. The registry-search table records your own searches instead (its note says how). Delete every comment. -->
 
 # Step 0: reference framework and survey
 
@@ -25,6 +25,17 @@ Checked <YYYY-MM-DD>.
 | Local concept | Framework element | How they differ | Reason | Mapping (`exactMatch`, `closeMatch` or none) |
 |---|---|---|---|---|
 | <local term> | <ID and name> | <what the local term includes or excludes that the framework does not> | <the evidence, by tier> | <match> |
+
+## Registry searches
+
+<!-- One row per registry in references/external-ontologies.md, "The registries to search", and one per further search you ran. These cells record what you did, not a publisher's fact: the date, the exact query terms, and the hits by name as the registry listed them. "no hits" is a complete answer for a search that found nothing; never leave the row out. A search you could not run is "not run", with the reason, and the gate stays open. -->
+
+| Registry | Date | Query terms | Hits (names), or "no hits" |
+|---|---|---|---|
+| Linked Open Vocabularies (vocabulary and term search) | <YYYY-MM-DD> | <terms> | <hits> |
+| BARTOC | <YYYY-MM-DD> | <terms> | <hits> |
+| Open Knowledge Graphs | <YYYY-MM-DD> | <terms> | <hits> |
+| DBpedia Archivo | <YYYY-MM-DD> | <terms> | <hits> |
 
 ## Survey of public ontologies and code lists
 
