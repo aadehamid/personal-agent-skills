@@ -112,6 +112,12 @@ class CheckCandidates(unittest.TestCase):
                          [("term", "'reservation': its passage never uses reservation")])
         self.assertEqual(check_candidates.term_warnings(load(REGISTER)), [])
 
+    def test_a_term_found_only_inside_a_longer_word_is_a_warning(self):
+        register = load(REGISTER)
+        register["candidates"][2]["term"] = "Renew"   # the passage has "Renewal", not "renew"
+        self.assertEqual(check_candidates.term_warnings(register),
+                         [("term", "'Renew': its passage never uses Renew")])
+
     def test_main_exit_codes(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):

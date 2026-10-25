@@ -74,8 +74,10 @@ def term_warnings(register):
     for row in register.get("candidates") or [] if isinstance(register, dict) else []:
         if not isinstance(row, dict) or not row.get("term") or not row.get("source_passage"):
             continue
-        passage = squash(str(row["source_passage"])).casefold()
-        missing = [w for w in re.findall(r"[A-Za-z]{4,}", str(row["term"])) if w.casefold() not in passage]
+        # Whole words only: "renew" inside "renewal" is not the term. A plural "s" either way still counts.
+        words = set(re.findall(r"[a-z]+", squash(str(row["source_passage"])).casefold()))
+        missing = [w for w in re.findall(r"[A-Za-z]{4,}", str(row["term"]))
+                   if not {w.casefold(), w.casefold() + "s", w.casefold().removesuffix("s")} & words]
         if missing:
             warnings.append(("term", f"{row['term']!r}: its passage never uses {', '.join(missing)}"))
     return warnings
