@@ -44,7 +44,7 @@ Releases need neither git nor a remote: a package's integrity is its manifest, w
 
 - **No git:** the manifest's hashes are the whole guarantee. Keep the `verify` line in the check script, and keep an earlier release's folder exactly as it was written (rule 10).
 - **Git with no remote:** commit the package, then `build_package.py tag` tags `<module>-v<version>` on that commit; from then on `verify` also compares the written files with the tag's copy.
-- **Git with a remote:** as rules 15 and 16, through a pull request. `build_package.py tag` tags locally and says whether the remote holds the tag; it never pushes.
+- **Git with a remote:** as rules 15 and 16, through a pull request. After the merge, `build_package.py tag` tags the commit that brought the package onto the merged branch (the merge commit, or the package's own commit after a fast-forward or squash) and says whether the remote holds the tag; before the merge it refuses. It never pushes.
 
 ## Before every release
 

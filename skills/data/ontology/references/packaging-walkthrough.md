@@ -36,7 +36,7 @@ Ask these in order. Each answer goes into a copy of `templates/package-answers.y
 
 **Q2. Version.** "Which version is this? For a first release that's usually 1.0.0. If it still waits for approval, we make a candidate, 1.0.0-rc.1." Example: `1.0.0`. Why: consumers pin a version, and a candidate can never be mistaken for a release (`release.md`, rules 2 and 14). Default: `1.0.0-rc.1` until someone has approved it, then `1.0.0`. For a later release, classify the change first (`release.md`, rules 3 and 4).
 
-**Q3. The module's IRI.** "What is the module's web address, the IRI in its owl:Ontology line? Versions get added after it." Example: `https://id.example.org/library/lending` gives the version IRI `https://id.example.org/library/lending/1.0.0`. Why: that IRI names the module in every store and every dependency; changing it later changes the module's identity. Default: the subject of the `owl:Ontology` line already in their file.
+**Q3. The module's IRI.** "What is the module's web address, the IRI in its owl:Ontology line? Versions get added after it." Example: `https://id.example.org/library/lending` gives the version IRI `https://id.example.org/library/lending/1.0.0`. Why: that IRI names the module in every store and every dependency; changing it later changes the module's identity. Default: the subject of the `owl:Ontology` line already in their file. It must be that IRI: the build refuses a source whose `owl:Ontology` names a different one, so change the file first if the IRI should change.
 
 **Q4. Title and one-line description.** "What should the module be called, and what is in it, in one sentence?" Example: "Library lending: lending activities, loan states, and the classes and properties a loan needs." Why: they go on the header and in the catalog record people search. Default: the existing `dcterms:title`, and a sentence drafted from the file for them to correct.
 
@@ -63,6 +63,9 @@ Done when every question has an answer the user has confirmed, and the answers f
 1. Run `build_package.py build release/<module>-<version>.yaml --releases releases`. It refuses a wrong or missing answer with the reason (exit 2): fix that answer with the user and run it again.
 2. Show the user what it wrote: the folder tree (`<module>.ttl`, `.jsonld`, `shapes.ttl`, `catalog.ttl`, `CHANGELOG.md`, `manifest.json`) and the manifest's version, dependencies, triple count and approval.
 3. Run `build_package.py verify release/<module>-<version>.yaml --releases releases`, and add the same line to the project's check script (`templates/check.sh`, section 3), so a later edit to a source or to the package fails the check.
-4. With git: once the package and its answers file are committed, run `build_package.py tag release/<module>-<version>.yaml --releases releases`. It tags `<module>-v<version>` on this machine and says whether a remote holds the tag; pushing it is the user's call.
+4. Tag it, by the setup from Step 2, with `build_package.py tag release/<module>-<version>.yaml --releases releases`:
+   - **Git, no remote:** once the package and its answers file are committed. It tags `<module>-v<version>` on the commit that holds the package.
+   - **Git with a remote:** only after the release has merged (`release.md`, rule 16). Before that, `tag` refuses and says to wait. After the merge it tags the commit that brought the package in and says whether the remote holds the tag; pushing the tag is the user's call.
+   - **No git:** nothing to tag; the manifest is the guarantee.
 
-Done when the package passes `build` and `verify`, the user has seen its manifest, and (with git) it is tagged or the user has chosen to tag later.
+Done when the package passes `build` and `verify`, the user has seen its manifest, and (with git) it is tagged, or, with a remote, the user knows to tag it after the merge.

@@ -34,7 +34,8 @@ A package is written to a staging folder, checked with check_packages.check_pack
 check_changelogs.check_text, and only then moved into place; a released folder is never overwritten
 (rule 10). Git is optional (release.md, "Without a remote"): with no git the manifest's hashes are the whole
 guarantee; with git, `tag` tags <module>-v<version> on the commit that last changed the package and `verify` also compares
-the written files with the tag's copy; with a remote, `tag` and `git` say whether the tag is on the remote.
+the written files with the tag's copy; with a remote, `tag` waits until the package is on a remote branch, tags the commit that brought it in there
+(rule 16), and says whether the remote holds the tag.
 Nothing here pushes.
 
 Exit 0 on success, 1 when a check fails, 2 when the arguments or the answers are wrong.
@@ -172,6 +173,10 @@ def module_graph(answers, releases):
     iri = URIRef(a["ontology_iri"])
     if any(True for _ in g.subject_objects(OWL.imports)):
         raise Refusal("a source holds owl:imports; name dependencies under requires instead (release.md, rule 11)")
+    others = sorted(str(s) for s in g.subjects(RDF.type, OWL.Ontology) if s != iri)
+    if others:
+        raise Refusal(f"the sources declare the ontology {others[0]}, not ontology_iri {a['ontology_iri']}; "
+                      "give the IRI the sources use, or change the sources (packaging-walkthrough.md, Q3)")
     for p in HEADER_SET:
         g.remove((iri, p, None))
     if a["rights"]:
@@ -384,8 +389,18 @@ def tag(answers, releases):
         return 1, [f"commit the package first: {rel} has uncommitted changes"]
     name = tag_name(a)
     # The tag goes on the commit that last changed the package, not on HEAD: a later, unrelated commit
-    # must not become the release's commit.
+    # must not become the release's commit. With a remote it waits for the merge (release.md, rule 16) and
+    # marks the commit on the merged branch's first-parent line that brought the package in: the merge
+    # commit, or the package's own commit after a fast-forward or squash.
     commit = git("log", "-1", "--format=%H", "--", rel, cwd=top).stdout.strip()
+    if setup == "remote":
+        held_by = [b.strip() for b in git("branch", "-r", "--contains", commit, cwd=top).stdout.splitlines()
+                   if b.strip() and "->" not in b]
+        if not held_by:
+            return 1, [f"{rel} is not on a remote branch yet: tag it after the release merges (release.md, rule 16)"]
+        default = git("rev-parse", "--abbrev-ref", f"{remotes[0]}/HEAD", cwd=top).stdout.strip()
+        branch = default if default in held_by else held_by[0]
+        commit = git("log", "-1", "--first-parent", "--format=%H", branch, "--", rel, cwd=top).stdout.strip() or commit
     lines = []
     if git("rev-parse", "-q", "--verify", f"refs/tags/{name}", cwd=top).returncode == 0:
         lines.append(f"{name} already exists; nothing tagged")

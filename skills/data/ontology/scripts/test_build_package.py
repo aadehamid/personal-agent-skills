@@ -194,6 +194,12 @@ class Build(Workspace):
         self.assertEqual(code, 2)
         self.assertIn("a release needs issued", out)
 
+    def test_an_iri_other_than_the_sources_ontology_is_refused(self):
+        code, out = self.build(ontology_iri="https://id.example.org/library/other")
+        self.assertEqual(code, 2)
+        self.assertIn("the sources declare the ontology https://id.example.org/library/lending", out)
+        self.assertFalse(os.path.exists(os.path.join(self.releases, "lending")))
+
     def test_an_import_is_refused(self):
         with open(os.path.join(self.root, "ontology-skeleton.ttl"), "a", encoding="utf-8") as f:
             f.write("\nlib:lending owl:imports <https://id.example.org/library/core/1.0.0> .\n")
@@ -271,6 +277,28 @@ class Git(Workspace):
         self.assertEqual(code, 0, out)
         self.assertEqual(git("rev-list", "-n", "1", "lending-v1.0.0", cwd=self.root).stdout.strip(), package_commit)
 
+    def test_with_a_remote_the_tag_goes_on_the_merge_commit(self):
+        bare = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, bare)
+        git("init", "-q", "--bare", cwd=bare)
+        git("init", "-q", "-b", "main", cwd=self.root)
+        git("remote", "add", "origin", bare, cwd=self.root)
+        with open(os.path.join(self.root, "README"), "w", encoding="utf-8") as f:
+            f.write("project\n")
+        self.commit_all()
+        git("checkout", "-q", "-b", "release", cwd=self.root)
+        path = self.write_answers()
+        self.assertEqual(run(["build", path, "--releases", self.releases])[0], 0)
+        self.commit_all()
+        git("checkout", "-q", "main", cwd=self.root)
+        git("-c", "user.name=t", "-c", "user.email=t@t", "merge", "-q", "--no-ff", "-m", "merge release", "release", cwd=self.root)
+        merge_commit = git("rev-parse", "HEAD", cwd=self.root).stdout.strip()
+        git("push", "-q", "origin", "main", cwd=self.root)
+        git("fetch", "-q", "origin", cwd=self.root)
+        code, out = run(["tag", path, "--releases", self.releases])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(git("rev-list", "-n", "1", "lending-v1.0.0", cwd=self.root).stdout.strip(), merge_commit)
+
     def test_with_a_remote_it_says_whether_the_tag_is_pushed_and_never_pushes(self):
         bare = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, bare)
@@ -281,6 +309,11 @@ class Git(Workspace):
         code, out = run(["build", path, "--releases", self.releases])
         self.assertIn("git with a remote (origin)", out)
         self.commit_all()
+        code, out = run(["tag", path, "--releases", self.releases])
+        self.assertEqual(code, 1)
+        self.assertIn("tag it after the release merges", out)   # rule 16: not before the merge
+        git("push", "-q", "origin", "HEAD:refs/heads/main", cwd=self.root)
+        git("fetch", "-q", "origin", cwd=self.root)
         code, out = run(["tag", path, "--releases", self.releases])
         self.assertEqual(code, 0, out)
         self.assertIn("lending-v1.0.0 is not on origin; push it when you are ready: git push origin lending-v1.0.0", out)
