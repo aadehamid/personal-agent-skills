@@ -182,6 +182,28 @@ class Docs(unittest.TestCase):
         self.assertEqual(check_docs.check(self.releases, self.docs), [])
         self.assertEqual(self.leftovers(), [])
 
+    def test_a_failed_restore_keeps_the_previous_pages_and_names_where_they_are(self):
+        self.write_old_pages()
+        real_rename = os.rename
+
+        def rename(src, dst):
+            name = os.path.basename(src)
+            if name.startswith(".1.1.0.building-"):
+                if name.endswith(".old"):
+                    raise OSError("injected failure restoring the previous pages")
+                raise OSError("injected failure promoting the new pages")
+            return real_rename(src, dst)
+
+        with mock.patch("build_docs.os.rename", side_effect=rename):
+            code, out = self.build_with_fake_java("ok", "lending/1.1.0")
+        self.assertEqual(code, 1, out)
+        old = [n for n in self.leftovers() if n.endswith(".old")]
+        self.assertEqual(len(old), 1, self.leftovers())
+        old_path = os.path.join(self.docs, "lending", old[0])
+        self.assertIn(f"they are at {old_path}: move that folder back to", out)
+        with open(os.path.join(old_path, "index-en.html")) as f:
+            self.assertEqual(f.read(), "OLD")
+
     @unittest.skipUnless(os.environ.get("WIDOCO_JAR"), "set WIDOCO_JAR to a Widoco jar to run Widoco")
     def test_build_writes_pages_and_a_source_record_the_check_accepts(self):
         shutil.rmtree(self.docs)

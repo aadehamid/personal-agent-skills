@@ -75,7 +75,13 @@ def build(jar, releases, docs, module, version):
             os.rename(staging, out)
         except OSError as exc:
             if old:
-                os.rename(old, out)   # the previous pages go back where check_docs.py looks for them
+                try:
+                    os.rename(old, out)   # the previous pages go back where check_docs.py looks for them
+                except OSError as restore:
+                    # Leave the previous pages where they are and say where, so a person can move them back.
+                    print(f"FAIL promote: {module} {version}: {exc}; restoring the previous pages also failed "
+                          f"({restore}); they are at {old}: move that folder back to {out}")
+                    return False
             print(f"FAIL promote: {module} {version}: {exc}; the previous pages are unchanged")
             return False
         staging = None
