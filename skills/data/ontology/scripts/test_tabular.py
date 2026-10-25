@@ -64,14 +64,14 @@ class BuildTabular(unittest.TestCase):
 
     def test_only_the_governed_triples_are_written(self):
         # maplib maps rows into a named staging graph and writes the default graph; no staging
-        # (raw:) triple may reach the output, and the subjects come from the slug column.
+        # (raw:) triple may reach the output; the subjects are the scheme and the concepts named by the slug column.
         self.assertEqual(run(self.args())[0], 0)
         with open(self.out, encoding="utf-8") as f:
             lines = f.read().splitlines()
         self.assertFalse([l for l in lines if "library/raw#" in l], "a staging triple reached the output")
         subjects = sorted({l.split(" ", 1)[0] for l in lines})
-        self.assertEqual(subjects, ["<https://id.example.org/library/on-loan>", "<https://id.example.org/library/overdue>",
-                                    "<https://id.example.org/library/returned>"])
+        self.assertEqual(subjects, ["<https://id.example.org/library/loan-state>", "<https://id.example.org/library/on-loan>",
+                                    "<https://id.example.org/library/overdue>", "<https://id.example.org/library/returned>"])
 
     def test_the_example_gives_its_rows_and_the_scheme(self):
         self.assertEqual(run(self.args())[0], 0)
