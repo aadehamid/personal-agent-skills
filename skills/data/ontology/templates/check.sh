@@ -53,8 +53,8 @@ PY
 before="$(snapshot)"
 
 # 1. Requirements: schema and conflicts (governance rule 2). Copy the skill's check_requirements.py and
-#    check_taxonomy.py to scripts/ontology/, with check_shapes.py, check_code_lists.py, check_packages.py,
-#    check_changelogs.py and run_regression.py for sections 4, 4b and 5 below.
+#    check_taxonomy.py to scripts/ontology/, with check_sssom.py for section 2b, and check_shapes.py,
+#    check_code_lists.py, check_packages.py, check_changelogs.py and run_regression.py for sections 4, 4b and 5 below.
 # TODO: uv run --no-project --with pyyaml python3 scripts/ontology/check_requirements.py requirements.yaml
 
 # 2. Taxonomy, classes and properties: the mechanical checks (identity-taxonomy.md, Step 3, rule 13), on
@@ -62,6 +62,11 @@ before="$(snapshot)"
 # TODO: data=(); while IFS= read -r -d '' f; do data+=("$f"); done < <(find modules -name '*.ttl' ! -name '*-shapes.ttl' -print0)
 # TODO: [ "${#data[@]}" -gt 0 ] || { echo "no data Turtle under modules/" >&2; exit 1; }   # an empty set must fail, not pass
 # TODO: uv run --no-project --with rdflib python3 scripts/ontology/check_taxonomy.py "${data[@]}"
+
+# 2b. Mappings: every SSSOM mapping set the project keeps (external-ontologies.md, rules 9 to 12). A project
+#     with no mapping set yet runs nothing here.
+# TODO: mappings=(); while IFS= read -r -d '' f; do mappings+=("$f"); done < <(find modules -name '*.sssom.tsv' -print0)
+# TODO: [ "${#mappings[@]}" -eq 0 ] || uv run --no-project --with pyyaml python3 scripts/ontology/check_sssom.py "${mappings[@]}"
 
 # 3. Generated files: every builder rebuilds into a temporary directory and --verify compares
 #    (release.md, rules 9 and 19). One line per module package, then the catalog.
