@@ -71,7 +71,7 @@ before="$(snapshot)"
 
 # 3. Generated files: every builder rebuilds into a temporary directory and --verify compares
 #    (release.md, rules 9 and 19). One line per module package, then the catalog.
-# TODO: python3 release/build_module.py <module> --verify   # one per module
+# TODO: uv run --no-project --with rdflib --with pyyaml --with pyshacl python3 scripts/ontology/build_package.py verify release/<module>-<version>.yaml --releases releases   # one per release (packaging-walkthrough.md)
 # TODO: python3 release/build_catalog.py --verify
 
 # 4. Shapes: every module's shapes, the whole-graph gate and the release-package test (shacl.md),
