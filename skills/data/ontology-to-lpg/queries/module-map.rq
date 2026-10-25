@@ -1,0 +1,24 @@
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX lpgm: <https://w3id.org/ontology-to-lpg/module#>
+# The module graph (module_tags.py modules) from a store with one named graph per package.
+# Each requirement is its own node (?requirement), so a pin stays with the package that names it.
+CONSTRUCT {
+  ?version a lpgm:Module ; lpgm:ontology ?ontology ; lpgm:graph ?g ; lpgm:requires ?loaded .
+  ?requirement a lpgm:Requirement ; lpgm:from ?version ; lpgm:to ?loaded ; lpgm:pin ?pin .
+} WHERE {
+  GRAPH ?g { ?ontology a owl:Ontology ; owl:versionIRI ?version . }
+  OPTIONAL {
+    GRAPH ?g { ?ontology dcterms:requires ?pin . }
+    GRAPH ?h { ?required a owl:Ontology ; owl:versionIRI ?loaded . }
+    FILTER(STRSTARTS(STR(?pin), CONCAT(STR(?required), "/")) || ?pin = ?loaded)
+    # The longest matching ontology IRI wins, as module_tags.required_package picks it.
+    FILTER NOT EXISTS {
+      GRAPH ?h2 { ?longer a owl:Ontology ; owl:versionIRI ?other . }
+      FILTER(STRLEN(STR(?longer)) > STRLEN(STR(?required)) &&
+             (STRSTARTS(STR(?pin), CONCAT(STR(?longer), "/")) || ?pin = ?other))
+    }
+  }
+  # Outside the OPTIONAL: inside it ?version is not yet bound. With no ?pin it stays unbound.
+  BIND(IRI(CONCAT(STR(?version), "#requires-", ENCODE_FOR_URI(STR(?pin)))) AS ?requirement)
+}

@@ -56,7 +56,9 @@ load sorts them); any value JSON cannot hold (dates, times, durations, points) w
 "value": str()}, so it never equals a string;
 the whole serialised with json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=False),
 encoded as UTF-8 and hashed with SHA-256. Schema nodes from onto.import are :Resource nodes and are
-included: they come from the same files on both loads.
+included: they come from the same files on both loads. The reserved property MODULE_TAG (`graph`, add-on
+F) is left out: module_tags.py sets it after step 6 and checks it on its own, so tagging keeps the
+report's hash and a copy still compares equal.
 """
 import json
 import os
@@ -76,6 +78,7 @@ import check_projection_rules as cpr
 import in_graph_shapes as igs
 
 SCHEMA_NS = "neo4j://graph.schema#"
+MODULE_TAG = "graph"   # add-on F's tag; never a SHORTEN key, which is always prefix__local
 EXPORT = ("CALL n10s.rdf.export.cypher('MATCH (n:Resource) OPTIONAL MATCH (n)-[r]->(m) RETURN n, r, m') "
           "YIELD subject, predicate, object, isLiteral, literalType, literalLang "
           "RETURN subject, predicate, object, isLiteral, literalType, literalLang")
@@ -164,9 +167,11 @@ def _plain(value):
 
 def graph_hash(nodes, edges):
     """SHA-256 of the canonical JSON described in the module docstring."""
-    node_list = sorted(([n["uri"], sorted(n["labels"]), {k: _plain(v) for k, v in n["props"].items()}]
+    node_list = sorted(([n["uri"], sorted(n["labels"]),
+                         {k: _plain(v) for k, v in n["props"].items() if k != MODULE_TAG}]
                         for n in nodes), key=lambda x: x[0])
-    edge_list = sorted(([e["s"], e["t"], e["o"], e["u"] or "", {k: _plain(v) for k, v in (e["props"] or {}).items()}]
+    edge_list = sorted(([e["s"], e["t"], e["o"], e["u"] or "",
+                         {k: _plain(v) for k, v in (e["props"] or {}).items() if k != MODULE_TAG}]
                         for e in edges), key=lambda x: x[:4])
     text = json.dumps({"nodes": node_list, "relationships": edge_list}, sort_keys=True, separators=(",", ":"),
                       ensure_ascii=False)
