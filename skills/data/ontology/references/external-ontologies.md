@@ -13,14 +13,14 @@ Search the web for the domain plus "ontology", "OWL", "vocabulary" and "code lis
 
 ### The registries to search
 
-Search all four for the domain's main nouns and record each hit, or the empty search, in `templates/survey-register.md`. A registry's listing is a lead; assess the source itself (below).
+Search all four for the domain's main nouns and record each search in the registry-search table of `templates/survey-register.md`: the registry, the date, the query terms, and the hits by name, or "no hits". Each hit worth assessing then gets its own row in the survey table. A registry's listing is a lead; assess the source itself (below).
 
 | Registry | What it holds | How to search it |
 |---|---|---|
-| Linked Open Vocabularies (LOV), https://lov.linkeddata.es/ | Reusable RDF vocabularies with curated metadata: versions, who maintains them, and which vocabularies reuse which | Vocabulary search and term search on the site; a SPARQL endpoint and dump; a REST API (`/dataset/lov/api`) |
+| Linked Open Vocabularies (LOV), https://lov.linkeddata.es/ | Reusable RDF vocabularies with curated metadata: versions, who maintains them, and which vocabularies reuse which | The vocabulary search and the term search on the site: this is the search to record. LOV also documents a SPARQL endpoint and a REST API (`/dataset/lov/api`) and offers a dump to download; on 2026-10-24 the endpoint and the API answered with an HTML page instead of results, so they are not verified, and a downloaded dump is data to query yourself, not a search of the registry |
 | BARTOC, https://bartoc.org/ | Knowledge organization systems of every kind (thesauri, classifications, subject headings, ontologies), any subject and language | Keyword search, or search by KOS type and subject; a JSKOS API at `https://bartoc.org/api/` |
 | Open Knowledge Graphs, https://openknowledgegraphs.com/ | Ontologies, vocabularies, taxonomies, data standards and semantic software, drawn from Wikidata and refreshed daily | A search box, with filters by category and type |
-| DBpedia Archivo, https://archivo.dbpedia.org/ | Archived versions of web ontologies, checked for new versions several times a day, each with a star rating for retrievability and quality tests | Its ontology list and `/info` page, which lists every archived version with its tests; `https://archivo.dbpedia.org/download?o=<ontology IRI>&f=ttl` fetches the latest archived version |
+| DBpedia Archivo, https://archivo.dbpedia.org/ | Archived versions of web ontologies, checked for new versions several times a day, each with a star rating for retrievability and quality tests | Its ontology list and `/info` page, which lists every archived version with its tests; `https://archivo.dbpedia.org/download?o=<ontology IRI>&f=<ttl, owl or nt>` fetches the latest archived version in that format (owl when `f` is left out) |
 
 *Why these four:* LOV and Archivo cover RDF vocabularies, BARTOC covers thesauri and classifications that never became RDF, and Open Knowledge Graphs adds standards and tools. Cite the Archivo version you read, from its `/info` page, when the publisher's own copy can change under the same IRI (rule 7). A star rating says the file loads and passes Archivo's tests; it says nothing about fit or licence.
 
@@ -53,4 +53,4 @@ Search all four for the domain's main nouns and record each hit, or the empty se
 
 ## Done when
 
-Every surveyed source has a recorded treatment, licence, version and target step, and every gap is recorded as a finding.
+Every registry in "The registries to search" has a row in the register's registry-search table with its query terms and its hits or "no hits", every surveyed source has a recorded treatment, licence, version and target step, and every gap is recorded as a finding.

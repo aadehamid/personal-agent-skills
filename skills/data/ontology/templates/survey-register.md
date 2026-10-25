@@ -26,6 +26,17 @@ Checked <YYYY-MM-DD>.
 |---|---|---|---|---|
 | <local term> | <ID and name> | <what the local term includes or excludes that the framework does not> | <the evidence, by tier> | <match> |
 
+## Registry searches
+
+<!-- One row per registry in references/external-ontologies.md, "The registries to search", and one per further search you ran. A search with no hits is recorded as "no hits", never left out. -->
+
+| Registry | Date | Query terms | Hits (names), or "no hits" |
+|---|---|---|---|
+| Linked Open Vocabularies (vocabulary and term search) | <YYYY-MM-DD> | <terms> | <hits> |
+| BARTOC | <YYYY-MM-DD> | <terms> | <hits> |
+| Open Knowledge Graphs | <YYYY-MM-DD> | <terms> | <hits> |
+| DBpedia Archivo | <YYYY-MM-DD> | <terms> | <hits> |
+
 ## Survey of public ontologies and code lists
 
 | Source | What it covers | Licence (read in full) | Version or version IRI, date checked | Treatment (map, import, ignore) and why | Target step |
