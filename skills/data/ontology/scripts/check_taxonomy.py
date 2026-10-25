@@ -52,7 +52,8 @@ issues", has the table and the deliberate differences):
   label-chars    no SKOS label holds a character of Unicode category Zl, Zp or C, such as a newline
                  (Unprintable Characters in Labels)
   collision      (also) no two concepts share a preferred, alternative or hidden label, ignoring the
-                 case of the label and of its language tag, in any scheme (Overlapping Labels)
+                 case of the label and of its language tag, in any scheme (Overlapping Labels), except
+                 a preferred label of concepts in different schemes
   disjoint-labels  no resource has the same literal in two of skos:prefLabel, skos:altLabel and
                  skos:hiddenLabel (Disjoint Labels Violation, SKOS S13)
   related        no concept is linked to itself by a SKOS semantic relation or a property declared
@@ -348,7 +349,9 @@ def qskos(g, concepts, short):
                 fails.append(("disjoint-labels", f"{short(s)} has \"{lab}\" as both {' and '.join(preds)}"))
 
     # Overlapping labels: two concepts sharing a preferred, alternative or hidden label, ignoring case,
-    # in any scheme. A shared preferred label inside one scheme is already a "collision" above.
+    # in any scheme. A label every holder has only as its preferred label is left to the per-scheme
+    # "collision" above: inside one scheme it fails there, and across schemes it is allowed, because
+    # each scheme names its own concept and identity is the IRI (references/quality.md).
     holders = defaultdict(dict)  # (lang, lower label) -> {concept: set of label predicates}
     for c in concepts:
         for pred in LABELS:
@@ -359,8 +362,7 @@ def qskos(g, concepts, short):
         if len(by_concept) < 2:
             continue
         group = sorted(by_concept)
-        common = set.intersection(*(set(g.objects(c, SKOS.inScheme)) for c in group))
-        if common and all(preds == {SKOS.prefLabel} for preds in by_concept.values()):
+        if all(preds == {SKOS.prefLabel} and (c, SKOS.inScheme, None) in g for c, preds in by_concept.items()):
             continue
         fails.append(("collision", f"{', '.join(short(c) for c in group)} share the label \"{label}\" ({lang}) "
                                    f"as a preferred, alternative or hidden label"))

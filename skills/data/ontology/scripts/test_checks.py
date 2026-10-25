@@ -642,9 +642,30 @@ class QskosRoundTwo(OneBreak, unittest.TestCase):
         self.broken(lambda g: g.add((lib("renewal"), SKOS.definition, Literal("Prolonger un pr\u00eat.", lang="fr"))),
                     "language", "lib:overdue has no language-tagged literal in fr")
 
-    def test_preferred_labels_shared_across_schemes(self):
-        self.broken(lambda g: g.set((lib("renewal"), SKOS.prefLabel, Literal("Returned", lang="en"))),
-                    "collision", 'lib:renewal, lib:returned share the label "returned" (en)')
+    def test_preferred_labels_shared_across_schemes_pass(self):
+        # Each scheme names its own concept; identity is the IRI (references/quality.md, Overlapping Labels).
+        g = skeleton()
+        g.set((lib("renewal"), SKOS.prefLabel, Literal("Returned", lang="en")))
+        self.assertEqual(check_taxonomy.check(g), [])
+
+    def test_preferred_labels_shared_in_one_scheme_fail_beside_another_scheme(self):
+        # overdue and returned share loan-state; renewal, in another scheme, is not reported.
+        def mutate(g):
+            g.set((lib("overdue"), SKOS.prefLabel, Literal("Returned", lang="en")))
+            g.set((lib("renewal"), SKOS.prefLabel, Literal("Returned", lang="en")))
+        g = skeleton()
+        mutate(g)
+        fails = check_taxonomy.check(g)
+        self.assertEqual(fails, [("collision", 'lib:overdue, lib:returned share the label "returned" (en) in lib:loan-state')])
+
+    def test_preferred_label_shared_with_a_concept_in_no_scheme_fails(self):
+        g = skeleton()
+        g.set((lib("renewal"), SKOS.prefLabel, Literal("Returned", lang="en")))
+        g.remove((lib("renewal"), SKOS.inScheme, None))
+        g.remove((lib("renewal"), SKOS.topConceptOf, None))
+        fails = check_taxonomy.check(g)
+        self.assertIn(("collision", 'lib:renewal, lib:returned share the label "returned" (en) '
+                                    "as a preferred, alternative or hidden label"), fails)
 
     def test_parent_known_only_through_narrower(self):
         # renewal's parent is stated only as circulation skos:narrower renewal, which also fails "parent";
