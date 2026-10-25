@@ -63,7 +63,7 @@ agent_dirs() {
   done | sort -u
 }
 
-mkdir -p "$shared" "$HOME/.claude/skills"
+run mkdir -p "$shared" "$HOME/.claude/skills"
 dirs="$(agent_dirs)"
 echo "agent folders: $(echo "$dirs" | wc -l | tr -d ' ')"
 
