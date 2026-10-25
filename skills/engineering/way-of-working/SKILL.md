@@ -27,6 +27,7 @@ Do this before any other work in a repository. Reading the project's files comes
    - **Herdr binary:** `command -v herdr` prints a path. If it does not, install Herdr (see `references/tools.md`) before relying on the Herdr review path.
    - **Herdr skill:** the `herdr` skill is linked into this agent's skills directory (for example `~/.agents/skills/herdr`, or the agent's own skills folder). If it is missing, link it from the herdr repo's `skills/herdr` (see `references/tools.md`). The skill is what tells an agent how to drive Herdr; without it, the review recipe in `before-push.md` has no instructions to follow.
    - **Server running:** `herdr status` should report the server running. If it is not, start it (see `references/tools.md`). The review commands need a live server.
+   - **Inside Rex instead:** when this agent runs in a Rex pane (`REX_SESSION` set) and not in Herdr, the same command runs the review in Rex. Check `rex whoami --json` answers (see `references/tools.md`, "Rex").
 7. **Match the reader.** Any communication with a person — every reply, status update, email, doc, README, commit and PR description, post, and any text the user asks to edit — follows the clear-writing skill. Documents for agents follow writing-for-agents.
 
 When a step cannot be done — no permission to change CI, a shared hook setup, another owner's pull request — say what you found and ask. Do not skip it silently.

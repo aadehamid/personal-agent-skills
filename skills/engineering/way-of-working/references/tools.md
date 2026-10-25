@@ -8,7 +8,8 @@ Report that distinction; install or link it only within the user's authorization
 
 ## Herdr
 
-Herdr is the terminal multiplexer the independent review prefers (`before-push.md`).
+Herdr is the terminal multiplexer the independent review prefers (`before-push.md`); Rex,
+below, is the other host.
 Install and verify it once per machine:
 
 - **Binary.** Install from the herdr repo's install instructions
@@ -25,3 +26,20 @@ Install and verify it once per machine:
   Herdr pane, install its integration with `herdr integration install <name>`
   (for example `hermes`, `codex`, `claude`). This gives session-resume after a
   server restart and reliable lifecycle state.
+
+## Rex
+
+Rex (Superlogical, beta) is the second host for the independent review. Inside a Rex
+pane (`REX_SESSION` set) and outside Herdr, `herdr-review.sh` hands off to
+`rex-review.sh` (`before-push.md`, "In Rex").
+
+- **App and CLI.** The macOS app is open to beta testers
+  (`https://www.superlogical.com/rex/docs/installation`). The app ships the `rex` CLI
+  and puts it on the path of its own panes. Verify with `rex whoami --json` from a Rex pane.
+- **Skill.** `rex skill setup` installs a `rex` skill stub that runs `rex __internal skill`,
+  the guide for the installed version.
+- **What it cannot tell.** Rex shows the status a program reports with OSC 7501
+  (`https://www.superlogical.com/rex/docs/build/program-status`). On 2026-10-24 Claude Code
+  reported one; Kimi Code 2.3.1, the Cursor agent CLI 2026.10.22 and Codex CLI 0.164.0 did
+  not. So `rex-review.sh` reads the reviewer's state from its screen, and uses a reported
+  status when one appears.
