@@ -14,7 +14,9 @@
 #   --global     also add config/global-snippet.md to every agent's global
 #                instruction file (Claude's ~/.claude/CLAUDE.md, Codex's
 #                ~/.codex/AGENTS.md, and any other agent root that holds a
-#                CLAUDE.md or AGENTS.md), unless that file already contains it.
+#                CLAUDE.md, AGENTS.md, GEMINI.md or .goosehints), unless that
+#                file already contains it, and link config/poteto-mode-split.md
+#                to ~/.agents/poteto-mode-split.md, where the snippet points.
 #                Without these lines, agents rarely load the writing skill on
 #                their own. --claude-md is kept as an alias for the same thing.
 #   --tools      also install each skill's command-line tool: any skill with a
@@ -85,13 +87,15 @@ done
 
 if $global; then
   snippet="$repo/config/global-snippet.md"
+  link "$repo/config/poteto-mode-split.md" "$HOME/.agents/poteto-mode-split.md"
   # Every agent's global instruction file: Claude's CLAUDE.md, Codex's AGENTS.md,
-  # and any other agent root that already holds a CLAUDE.md or AGENTS.md. The
-  # agent_dirs() list is skills folders; their parent is the agent root.
+  # and any other agent root that already holds one of the names below (Gemini
+  # reads GEMINI.md, Goose .goosehints). The agent_dirs() list is skills
+  # folders; their parent is the agent root.
   targets=""
   for d in $dirs; do
     root="$(dirname "$d")"
-    for f in CLAUDE.md AGENTS.md claude.md agents.md; do
+    for f in CLAUDE.md AGENTS.md claude.md agents.md GEMINI.md .goosehints; do
       [ -f "$root/$f" ] && targets="$targets $root/$f"
     done
   done
