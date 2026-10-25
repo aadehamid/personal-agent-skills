@@ -131,6 +131,26 @@ class CheckSssom(unittest.TestCase):
                                 "\tLibrary services\tsemapv:ManualMappingCuration\trole:modeller\t0.9"),
                         "width", "8 cells")
 
+    def test_a_non_exact_match_without_a_comment(self):
+        self.assertOnly(replace(template(), "\t0.9\tLibrary services also covers reference and events; circulation is the "
+                                            "lending part of it.\n", "\t0.9\t\n"), "comment", "skos:broadMatch")
+
+    def test_an_exact_match_needs_no_comment(self):
+        text = replace(template(), "\t0.95\tBoth name one agreement for one copy until a due date.\n", "\t0.95\t\n")
+        self.assertEqual(check_sssom.check_text(text), [])
+
+    def test_no_version_of_the_other_vocabulary(self):
+        self.assertOnly(replace(template(), '#object_source_version: "2026-01"\n', ""), "source-version",
+                        "object_source_version")
+
+    def test_the_version_may_sit_on_every_row(self):
+        text = replace(template(), '#object_source_version: "2026-01"\n', "")
+        lines = text.splitlines(keepends=True)
+        text = "".join(l if l.startswith("#") else
+                       l.rstrip("\n") + ("\tobject_source_version\n" if l.startswith("subject_id") else "\t2026-01\n")
+                       for l in lines)
+        self.assertEqual(check_sssom.check_text(text), [])
+
     def test_main_exit_codes(self):
         with tempfile.TemporaryDirectory() as d:
             bad = os.path.join(d, "bad.sssom.tsv")

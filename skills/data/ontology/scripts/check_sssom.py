@@ -26,6 +26,10 @@ Checks:
   justification  mapping_justification is a SEMAPV matching process the set's SSSOM version defines: the nine of
                  sssom-schema v1.0.0, or with sssom_version 1.1 the thirteen of v1.1.0a5
   width        every row has as many cells as the header
+  comment      every row whose predicate is a SKOS match other than skos:exactMatch has a comment saying what tells
+               the two terms apart (external-ontologies.md, rule 9)
+  source-version  the other vocabulary's version is stated: object_source_version in the metadata block, or on
+               every row (rule 12)
 
 Prints one FAIL line per failure. Exit 0 when nothing fails, 1 when anything fails, 2 when a file cannot be read
 or the arguments are wrong.
@@ -49,6 +53,7 @@ BUILT_IN = {
 }
 MAPPING_PREDICATES = {"skos:exactMatch", "skos:closeMatch", "skos:broadMatch", "skos:narrowMatch",
                       "skos:relatedMatch", "rdfs:seeAlso"}
+NON_EXACT = {"skos:closeMatch", "skos:broadMatch", "skos:narrowMatch", "skos:relatedMatch"}
 REQUIRED_COLUMNS = ("subject_id", "predicate_id", "object_id", "mapping_justification")
 # Columns typed EntityReference in the SSSOM schema that a set is likely to carry.
 ID_COLUMNS = ("subject_id", "predicate_id", "object_id", "mapping_justification", "author_id", "reviewer_id",
@@ -112,6 +117,12 @@ def check_text(text, allowed=frozenset()):
     if any(f[0] == "columns" for f in fails):
         return fails
     known = set(BUILT_IN) | set(curie_map)
+    set_version = str(meta.get("object_source_version") or "").strip()
+    if not set_version and ("object_source_version" not in header or
+                            any(len(r) == len(header) and not dict(zip(header, r))["object_source_version"].strip()
+                                for r in body)):
+        fails.append(("source-version", "the other vocabulary's version is stated neither in the metadata block "
+                                        "(object_source_version) nor on every row"))
     for number, row in enumerate(body, start=2):
         where = f"row {number}"
         if len(row) != len(header):
@@ -135,6 +146,9 @@ def check_text(text, allowed=frozenset()):
                     fails.append(("curie", f"{where} {name}: prefix {value.split(':', 1)[0]} is not declared"))
         if cell["predicate_id"] and cell["predicate_id"] not in MAPPING_PREDICATES | set(allowed):
             fails.append(("predicate", f"{where}: {cell['predicate_id']} is not an allowed mapping predicate"))
+        if cell["predicate_id"] in NON_EXACT and not cell.get("comment", "").strip():
+            fails.append(("comment", f"{where}: a {cell['predicate_id']} needs a comment saying what tells the two "
+                                     f"terms apart"))
         if cell.get("predicate_modifier") and cell["predicate_modifier"] != "Not":
             fails.append(("modifier", f"{where}: predicate_modifier is {cell['predicate_modifier']}, not Not"))
         if cell.get("confidence"):
