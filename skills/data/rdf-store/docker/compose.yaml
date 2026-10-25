@@ -1,0 +1,16 @@
+# Jena Fuseki for the rdf-store skill (references/stores.md). From this folder:
+#   docker compose -p <project> up -d --build    Jena Fuseki 6.2.0, in-memory dataset /ds, rebuilt from
+#                                                the pinned package, jar and base images
+#   docker compose -p <project> down -v          remove the container and its volumes
+# Optional: RDF_FUSEKI_PORT (default 13031). The endpoints are then
+#   Graph Store Protocol  http://127.0.0.1:<port>/ds/data
+#   SPARQL query          http://127.0.0.1:<port>/ds/query
+# Nothing persists: the dataset is in memory, so a restart starts empty.
+
+services:
+  fuseki:
+    build: ./fuseki
+    image: rdf-store-fuseki:6.2.0
+    command: ["--mem", "/ds"]
+    ports:
+      - "127.0.0.1:${RDF_FUSEKI_PORT:-13031}:3030"

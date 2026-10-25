@@ -73,6 +73,15 @@ else
 fi
 
 echo
+echo "== rdf-store skill scripts =="
+(cd skills/data/rdf-store/scripts && uv run --no-project --with pyoxigraph python3 -m unittest -q test_rdf_store)
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  (cd skills/data/rdf-store/docker && docker compose config -q) && echo "  ok  rdf-store docker/compose.yaml parses"
+else
+  echo "  skip  docker compose not available"
+fi
+
+echo
 echo "== shell syntax =="
 while IFS= read -r script; do
   bash -n "$script"

@@ -14,6 +14,7 @@ My own skills for Claude Code and other agents. Each skill is a folder with a `S
 | writing | [wait-what](skills/writing/wait-what/SKILL.md) | Type `/wait-what` when Claude's last message did not make sense. Runs clear-writing's re-pitch mode. |
 | data | [ontology](skills/data/ontology/SKILL.md) | Builds a business ontology from scratch in gated steps (W3C stack), reuses public ontologies by mapping, and hands the result to ontology-to-lpg for a Neo4j projection. |
 | data | [ontology-to-lpg](skills/data/ontology-to-lpg/SKILL.md) | Projects a W3C ontology into a Neo4j property graph in gated steps: design rules, released inputs with listed gaps, check, reason, load with n10s, and a verify step that proves the graph is a complete, repeatable copy. |
+| data | [rdf-store](skills/data/rdf-store/SKILL.md) | Loads RDF releases into Jena Fuseki, any SPARQL 1.1 store or a Databricks Delta table, one named graph per file, and proves nothing was lost by a round trip compared with RDF Dataset Canonicalization (RDFC-1.0). |
 | research | [knowledge-ingest](skills/research/knowledge-ingest/SKILL.md) | Turns saved sources into a linked knowledge base (Obsidian vault or wiki), one article or a backlog of hundreds, and resumes where the last session stopped. Every claim must trace to a source; a mechanical gate (the `kb` CLI) and an independent review catch what the author misses. |
 
 Installed from elsewhere, not stored here:
