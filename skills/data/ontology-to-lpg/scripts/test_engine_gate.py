@@ -612,7 +612,7 @@ class FakeEngine:
     def __exit__(self, *exc):
         return False
 
-    def begin_transaction(self):
+    def begin_transaction(self, timeout=None):   # the driver's signature; load_verify.Timed passes timeout
         engine = self
 
         class Tx:
@@ -1055,7 +1055,7 @@ class RoundNine(unittest.TestCase):
         report = passing_report(self, fail_cases=[dict(ROW, status="failed")])
         code, out, empty, copy = RoundEight.copy_main(self, ["--report", report])
         self.assertEqual(code, 2, out)
-        self.assertIn("not a verified projection report", out)
+        self.assertIn("not a verified report", out)
         empty.assert_not_called()
         copy.assert_not_called()
 
@@ -1064,12 +1064,16 @@ class RoundNine(unittest.TestCase):
         code, out, path = RoundEight.store_main(self, self.tmp(), projection=passing_report(
             self, compiled=[], export_predicate_counts=export))
         self.assertEqual(code, 2, out)
-        self.assertIn("lists no compiled rows", out)
+        self.assertIn("not a verified report", out)
+        self.assertTrue(any("lists no compiled rows" in f for f in build.report_earned(
+            earned_report(compiled=[], export_predicate_counts=export))))
 
     def test_copy_refuses_old_flags(self):
         code, out, _, _ = RoundEight.copy_main(self, ["--report", passing_report(self), "--expect-hash", "h"])
         self.assertEqual(code, 2, out)
-        self.assertIn("--expect-hash", out)
+        # Counted, never echoed: an unknown option is text the user supplied.
+        self.assertIn("unknown option(s) or argument(s): 1", out)
+        self.assertNotIn("--expect-hash", out)
 
     # 5: a wider compiled ignore-list beside a stricter file list fails, whichever matches
     def test_a_stricter_closed_shape_with_no_equal_row_fails_the_case(self):
@@ -1167,7 +1171,11 @@ class AddedCoverage(unittest.TestCase):
         code, out, path = self.store_main(self.tmp(), projection=passing_report(self, passed=False,
                                                                              export_predicate_counts=export))
         self.assertEqual(code, 2, out)
-        self.assertIn("does not say passed: true", out)
+        # The refusal counts failed checks and never echoes the report (shell.unverified_report);
+        # build.report_earned, which check-report prints, names this one.
+        self.assertIn("not a verified report (1 check(s) failed)", out)
+        self.assertTrue(any("does not say passed: true" in f for f in build.report_earned(
+            earned_report(passed=False, export_predicate_counts=export))))
         self.assertFalse(os.path.exists(path))
         code, out, _ = self.store_main(self.tmp(), projection=passing_report(self, export_predicate_counts=export))
         self.assertEqual(code, 0, out)

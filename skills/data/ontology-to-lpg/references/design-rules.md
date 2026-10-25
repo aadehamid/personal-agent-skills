@@ -16,6 +16,15 @@ Serves the design step. Read it before an ontology that will be projected is mod
 
 **Background.** The research closest to these rules is S3PG (Rabbani, Lissandrini, Bonifati and Hose, *Proceedings of the ACM on Management of Data* 2(6), 2024, https://doi.org/10.1145/3698817), which drives the RDF-to-property-graph conversion from SHACL shapes and emits PG-Schema (Angles and others, *Proceedings of the ACM on Management of Data* 1(2), 2023, https://doi.org/10.1145/3589778). Like Rules 1 and 2 here, it lets the shapes decide whether a value becomes a property or a relationship, and how many values it may have. Neo4j's `neo4j-modeling-skill` is background for the same two rules from the graph side. This skill does not run S3PG; the rules stand on the n10s runs recorded in `SOURCES.md`.
 
+## Where this skill departs from neo4j-modeling-skill
+
+Neo4j's `neo4j-modeling-skill` (version 1.0.7, read 2026-10-24) is written for graphs designed in Cypher. A projection keeps what the ontology says, so three of its defaults do not apply here. `scripts/model_review.py` checks the rules the projection does keep (`add-ons.md`, "Reviewing the loaded graph").
+
+- **A SKOS concept or code-list value stays a node.** The modeling skill says, of low-cardinality state such as a status: "Never a `(:Status)` node." In a projection a concept carries an IRI, a definition, a place in a hierarchy (`skos:broader`), mappings and a source, which a label cannot hold. So `rdf:type` gives labels and every concept stays a node, as the mental model below shows. `model_review.py` counts a concept's relationships in both directions: one at ten times its label's median degree (and at least 50) is a WARNING supernode candidate, and one above 100,000 a WARNING supernode. Either is read against the ontology; neither turns the concept into a label.
+- **A link may carry properties.** The modeling skill's decision table answers "Does the connection have its own properties or multiple targets?" with "Intermediate node", and it promotes a relationship that "has >2 properties". Here Rule 4 decides: under 4a a link that carries facts already is a qualified-relation node; under 4b a reifier's literal properties sit on the relationship. A property count alone never promotes a link.
+- **One local heuristic is added.** `model_review.py`'s `reciprocal-type` (INFO) flags one relationship type used from label A to B and from B to A. The modeling skill asks only that direction carry meaning ("Rel direction encodes semantic meaning"); it does not forbid this. In a projection the pattern usually means one ontology property stated both ways where a property and its inverse were meant, so the review points at it without calling it an anti-pattern.
+- **The questions come from the ontology.** Its first default, "list 5+ queries the model must answer before designing", is met by the ontology's competency questions, written as SPARQL and run against the release (the `ontology` skill). The projection answers the same questions in Cypher; it adds none of its own.
+
 ## Mental model
 
 ```

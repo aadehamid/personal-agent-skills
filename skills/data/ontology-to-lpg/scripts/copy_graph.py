@@ -7,7 +7,7 @@ and this script copies the result with plain Cypher over the Python driver.
 
 Run: NEO4J_PASSWORD=<local password> uv run --no-project --with rdflib --with neo4j python3 copy_graph.py \
          --source bolt://127.0.0.1:<port> --target-env <file> --report <projection-report.json> \
-         [--batch 1000] [--replace]
+         [--batch 1000] [--replace] [--query-timeout <seconds>]
 
 --target-env names a file of KEY=VALUE lines: NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD and
 optionally NEO4J_DATABASE (the format of an Aura credentials file). The password is never printed.
@@ -36,7 +36,7 @@ import os
 import sys
 
 import build
-from shell import q
+from shell import Refusal, error_line, q, redact, unverified_report
 import load_verify as lv
 
 CONFIG_LABELS = ("_GraphConfig", "_NsPrefDef", "_n10sValidatorConfig")
@@ -59,19 +59,20 @@ def read_env_file(path):
                 continue
             key, sep, value = line.partition("=")
             if not sep:
-                raise ValueError(f"{path} line {number} is not KEY=VALUE")
+                raise Refusal(f"the env file: line {number} is not KEY=VALUE")
             values[key.strip()] = value.strip().strip('"').strip("'")
     missing = [k for k in ("NEO4J_URI", "NEO4J_USERNAME", "NEO4J_PASSWORD") if not values.get(k)]
     if missing:
-        raise ValueError(f"{path} lacks {', '.join(missing)}")
+        raise Refusal(f"the env file lacks {', '.join(missing)}")
     return values
 
 
 def describe_target(values):
     """The target as it may be printed: never the password, every value shell-quoted."""
+    uri = redact(values["NEO4J_URI"])
     if values.get("NEO4J_DATABASE"):
-        return f"{q(values['NEO4J_URI'])} as {q(values['NEO4J_USERNAME'])} (database {q(values['NEO4J_DATABASE'])})"
-    return f"{q(values['NEO4J_URI'])} as {q(values['NEO4J_USERNAME'])}"
+        return f"{q(uri)} as {q(values['NEO4J_USERNAME'])} (database {q(values['NEO4J_DATABASE'])})"
+    return f"{q(uri)} as {q(values['NEO4J_USERNAME'])}"
 
 
 def verified_hash(report_path):
@@ -83,7 +84,7 @@ def verified_hash(report_path):
         rep = json.load(f)
     fails = build.report_earned(rep)
     if fails:
-        raise ValueError(f"{report_path} is not a verified projection report: {'; '.join(fails)}")
+        raise unverified_report(fails)
     return rep["determinism_hash_sorted"]
 
 
@@ -131,17 +132,24 @@ def main(argv):
     try:
         opts, rest = build.options(argv, flags=("--replace",))
         build.need(opts, "--source", "--target-env", "--report")
-        unknown = sorted(set(opts) - {"--source", "--target-env", "--report", "--replace", "--batch"})
+        unknown = sorted(set(opts) - {"--source", "--target-env", "--report", "--replace", "--batch", "--query-timeout"})
         if rest or unknown:
-            raise ValueError(f"unexpected arguments: {' '.join(rest + unknown)}")
-        size = int(opts.get("--batch", 1000))
+            # Counted, never shown: an unknown option or a stray value is text the user supplied.
+            raise Refusal(f"unknown option(s) or argument(s): {len(rest) + len(unknown)}; the flags are --source, "
+                          "--target-env, --report, --replace, --batch, --query-timeout")
+        try:
+            size = int(opts.get("--batch", 1000))
+        except ValueError:
+            raise Refusal("--batch needs a whole number") from None
+        timeout = lv.query_timeout(opts)
         password = os.environ.get("NEO4J_PASSWORD")
         if not password:
-            raise ValueError("set NEO4J_PASSWORD to the local (source) password")
+            raise Refusal("set NEO4J_PASSWORD to the local (source) password")
         target_values = read_env_file(opts["--target-env"])
         expected = verified_hash(opts["--report"])
     except (OSError, ValueError) as exc:
-        print(f"ERROR {q(exc)}", file=sys.stderr)
+        print(f"ERROR {q(error_line('the arguments, the --target-env file or the report could not be read', exc))}",
+              file=sys.stderr)
         return 2
     from neo4j import GraphDatabase
     try:
@@ -149,7 +157,9 @@ def main(argv):
                 GraphDatabase.driver(target_values["NEO4J_URI"],
                                      auth=(target_values["NEO4J_USERNAME"], target_values["NEO4J_PASSWORD"])) as dst_driver:
             database = target_values.get("NEO4J_DATABASE") or None
-            with src_driver.session() as source, dst_driver.session(database=database) as target:
+            with src_driver.session() as raw_source, dst_driver.session(database=database) as raw_target:
+                # Every statement on either side carries the server-side timeout (load_verify.Timed).
+                source, target = lv.Timed(raw_source, timeout), lv.Timed(raw_target, timeout)
                 # Compared by the server's own database id, before anything is written or deleted:
                 # bolt://127.0.0.1 and bolt://localhost, or neo4j:// and bolt://, can reach one database.
                 if database_identity(source) == database_identity(target):
@@ -171,7 +181,9 @@ def main(argv):
                 copied = copy(source, target, size)
                 target_hash = graph_hash(target)
     except Exception as exc:  # a driver, network or Cypher error
-        print(f"FAIL {q(exc)}; the target may hold a partial copy")
+        # The driver's own text can carry a URI with its password, so only the type is printed.
+        print(f"FAIL the copy stopped on a driver, network or Cypher error ({q(type(exc).__name__)}); "
+              "the target may hold a partial copy")
         return 1
     print(f"copied {q(copied['nodes'])} nodes and {q(copied['relationships'])} relationships to "
           f"{describe_target(target_values)}")
