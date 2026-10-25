@@ -76,6 +76,50 @@ class CheckChangelogs(unittest.TestCase):
         text = GOOD.replace("## Approval\nThe module owner, 2026-10-24.", "## Approval\n- The module owner, 2026-10-24.")
         self.assertEqual(check_changelogs.check_text(text, "lending 1.1.0"), [])
 
+    def run_main(self, argv):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            code = check_changelogs.main(argv)
+        return code, out.getvalue()
+
+    def test_a_releases_folder_with_no_package_fails(self):
+        root = tempfile.mkdtemp()
+        try:
+            code, out = self.run_main(["--releases", root])
+            self.assertEqual(code, 1, out)
+            self.assertIn("FAIL packages:", out)
+        finally:
+            shutil.rmtree(root)
+
+    def test_a_folder_that_is_not_a_version_is_not_a_package(self):
+        root = tempfile.mkdtemp()
+        try:
+            for version, text in (("1.0.0", GOOD), ("notes", "no section here")):
+                package = os.path.join(root, "lending", version)
+                os.makedirs(package)
+                with open(os.path.join(package, "manifest.json"), "w") as f:
+                    f.write("{}")
+                with open(os.path.join(package, "CHANGELOG.md"), "w") as f:
+                    f.write(text)
+            code, out = self.run_main(["--releases", root])
+            self.assertEqual(code, 0, out)
+        finally:
+            shutil.rmtree(root)
+
+    def test_all_packages_exempt_passes(self):
+        root = tempfile.mkdtemp()
+        try:
+            package = os.path.join(root, "lending", "1.0.0")
+            os.makedirs(package)
+            with open(os.path.join(package, "manifest.json"), "w") as f:
+                f.write("{}")
+            with open(os.path.join(package, "CHANGELOG.md"), "w") as f:
+                f.write("# lending 1.0.0\n")
+            code, out = self.run_main(["--releases", root, "--exempt", "lending/1.0.0"])
+            self.assertEqual(code, 0, out)
+        finally:
+            shutil.rmtree(root)
+
     def test_releases_mode_and_exemptions(self):
         root = tempfile.mkdtemp()
         try:

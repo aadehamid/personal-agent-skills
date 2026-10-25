@@ -4,10 +4,13 @@
 Run: python3 check_changelogs.py --releases <releases folder> [--exempt <module>/<version>]...
      python3 check_changelogs.py <CHANGELOG.md>...
 
-With --releases it reads releases/<module>/<version>/CHANGELOG.md for every package that has a manifest.json;
---exempt leaves out a package released before the project adopted the rule, which stays as released (rule 10).
+With --releases it reads releases/<module>/<version>/CHANGELOG.md for every package: a <version> folder named
+X.Y.Z (with an optional pre-release, as check_packages.py counts them) that holds a manifest.json. --exempt leaves out
+a package released before the project adopted the rule, which stays as released (rule 10). A releases folder with no
+package at all fails, since there is nothing to check; one whose packages are all exempt passes.
 
 Checks:
+  packages   --releases finds at least one package
   changelog  every package has a CHANGELOG.md
   section    the changelog has a "Known gaps" heading (any level)
   content    the section says "None." or lists gaps as bullets, one per gap
@@ -23,6 +26,7 @@ import re
 import sys
 
 HEADING = re.compile(r"^#{1,6}\s+known gaps\s*$", re.IGNORECASE)
+VERSION = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$")   # the version folders check_packages.py counts
 
 
 def known_gaps(text):
@@ -76,21 +80,28 @@ def main(argv):
         return 2
     targets = [(path, path) for path in args.files]
     fails = []
+    found = 0
     if args.releases:
         if not os.path.isdir(args.releases):
             print(f"ERROR {args.releases} is not a folder", file=sys.stderr)
             return 2
+        found = 0
         for module in sorted(os.listdir(args.releases)):
             mdir = os.path.join(args.releases, module)
             for version in sorted(os.listdir(mdir)) if os.path.isdir(mdir) else []:
                 package = os.path.join(mdir, version)
-                if not os.path.isfile(os.path.join(package, "manifest.json")) or f"{module}/{version}" in args.exempt:
+                if not VERSION.match(version) or not os.path.isfile(os.path.join(package, "manifest.json")):
+                    continue
+                found += 1
+                if f"{module}/{version}" in args.exempt:
                     continue
                 changelog = os.path.join(package, "CHANGELOG.md")
                 if not os.path.isfile(changelog):
                     fails.append(("changelog", f"{module} {version} has no CHANGELOG.md"))
                     continue
                 targets.append((changelog, f"{module} {version}"))
+    if args.releases and not found:
+        fails.append(("packages", f"{args.releases} holds no released package (releases/<module>/<X.Y.Z>/manifest.json)"))
     for path, where in targets:
         try:
             with open(path, encoding="utf-8") as f:
