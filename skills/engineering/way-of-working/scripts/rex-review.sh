@@ -205,7 +205,7 @@ show_pane() { rx capture -b "$review_pane" --trim 2>/dev/null | tail -n "$1" || 
 
 # One word for what the reviewer is doing, checked in this order, so nothing is typed while a
 # question shows or the program says it is busy:
-#   gone        the pane's program exited, or something else now runs there
+#   gone        the pane's program exited
 #   starting    the login shell that starts the reviewer is still in front (startup only)
 #   unreadable  rex could not give the process or the screen
 #   blocked     the program reports blocked (OSC 7501), or a question is on the bottom lines
@@ -220,9 +220,12 @@ show_pane() { rx capture -b "$review_pane" --trim 2>/dev/null | tail -n "$1" || 
 last_screen=$(mktemp "${TMPDIR:-/tmp}/rex-review.screen.XXXXXX")
 pane_status() {
   local proc reported screen
+  # Liveness asks only whether the pane's program still runs: a reviewer can show up under
+  # another name (the Cursor agent's pane title named node on 2026-10-24). The stricter check
+  # of name and directory is for reusing a pane, above.
   proc=$(proc_state "$review_pane")
   case "$proc" in
-    exited|other) echo gone; return ;;
+    exited) echo gone; return ;;
     shell) echo starting; return ;;
     unreadable) echo unreadable; return ;;
   esac

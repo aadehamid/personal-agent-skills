@@ -76,6 +76,7 @@ FAKE = textwrap.dedent(r'''
         if "procmalformed" in s and phase == "working": print("garbage"); sys.exit(0)
         child = {"name": BIN, "argv0": BIN, "path": "/opt/bin/" + BIN, "cwd": top}
         if "reuseelsewhere" in s and b == "block:rev": child["cwd"] = "/elsewhere/repo"
+        if "nodechild" in s: child.update(name="node", argv0="node", path="/usr/local/bin/node")
         if ("slowstart" in s and b == "block:new" and count("process_looks") <= 3) or \
                 ("diesatstart" in s and b == "block:new"):
             child = {"name": "zsh", "argv0": "-zsh", "path": "/bin/zsh", "cwd": top}
@@ -278,6 +279,11 @@ class RexReview(unittest.TestCase):
         i = calls.index("send")
         self.assertEqual(calls[i + 1], "send-key")
         self.assertEqual(self.keys()[0][-1], "enter")
+
+    def test_a_reviewer_running_under_another_program_name_still_finishes(self):
+        # The Cursor agent's pane title named node on 2026-10-24; a new pane is not judged by name.
+        r, _ = self.run_case("nodechild", kind="cursor")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
 
     def test_every_kind_finishes_a_review(self):
         for kind in KINDS:
