@@ -16,12 +16,13 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 | `references/documents.md` | agent, when writing project docs | One place per meaning, method vs record, moving approved text, handover notes. |
 | `references/tools.md` | agent, when locating helper skills | Focused search of installed roots, then plugin caches if needed. |
 | `references/improving.md` | agent, after a costly session | The retro loop and where each lesson goes. |
-| `scripts/herdr-review.sh` | agent, before a push | Runs the independent review in a Herdr pane, waits, and prints the report and its file path. |
+| `scripts/herdr-review.sh` | agent, before a push | Runs the independent review in a Herdr pane, waits, and prints the report and its file path. Inside Rex and outside Herdr, or with `--host rex`, it hands the same arguments to `rex-review.sh`. |
+| `scripts/rex-review.sh` | agent, before a push, through `herdr-review.sh` | Runs the same review in a Rex pane: a split beside the agent's pane, or a new tab when that window already holds two. It reads the reviewer's state from the pane's process and screen, because the reviewer CLIs report no status to Rex. |
 | `scripts/pi-review.sh` | agent, before a push or as the PR reviewer | Runs Pi through Ollama in a fresh clone, as the independent reviewer (a report file) or the PR reviewer (a MERGE or HOLD comment). Inside Herdr it runs in its own tab. |
 | `scripts/watch-pr.sh` | agent, while a PR is open | Polls a pull request every 30 seconds and exits on its first new event: a merge or close, a review or comment of any kind, or a finished check. |
 | `scripts/merge-on-verdict.sh` | agent, when it may merge on the PR reviewer's verdict | Waits for the review bot's MERGE or HOLD on a given head and for the required check, then merges with `--match-head-commit` only on MERGE plus a passed check. |
 | `scripts/after-merge.sh` | agent, after a merge | Syncs `main`, moves open pull requests based on the merged branch to `main`, and deletes the branch on both sides, only if all its commits are in `main`. |
-| `scripts/test_herdr_review.py`, `scripts/test_pi_review.py`, `scripts/test_pr_scripts.py` | the repo's `scripts/check.sh` | Run the five scripts against fake `herdr`, `gh` and `ollama` commands and real throwaway git repositories. |
+| `scripts/test_herdr_review.py`, `scripts/test_rex_review.py`, `scripts/test_pi_review.py`, `scripts/test_pr_scripts.py` | the repo's `scripts/check.sh` | Run the six scripts against fake `herdr`, `rex`, `gh` and `ollama` commands and real throwaway git repositories. |
 | `SOURCES.md` | you | Where each rule came from. |
 | `README.md` | you | This file. |
 
