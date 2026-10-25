@@ -17,7 +17,7 @@ Every authored definition meets all eight points. Points 1 and 3 take the form f
 
 2. **Distinguishing.** The definition tells the term apart from its siblings and nearest neighbours; no two siblings share the part that sets them apart.
 3. **Parent test.** The test for its kind (table above) holds. Top concepts and classes with no parent skip it.
-4. **Bounded.** An approved concept has a scope note; an exclusion names an owner only if that owner exists in the ontology. A comparison (actual against plan) names the approved plan and its assumptions at the time, not a later forecast.
+4. **Bounded.** An approved concept has a scope note; an exclusion names an owner only if that owner exists in the ontology. A scope note that names another concept gets a reciprocal sentence in that concept's scope note. A comparison (actual against plan) names the approved plan and its assumptions at the time, not a later forecast.
 5. **Stable terms.** One meaning per material term across the ontology, and every material term the definition uses is defined in the ontology, in a module or source it cites, or on the parked list.
 6. **Park, don't smuggle,** as `foundations.md` sets it out.
 7. **Evidence-based.** Every claim is in the cited source, at the item that holds it. Nothing is copied verbatim, because copied text carries another organization's scope and licence.
@@ -79,3 +79,21 @@ Before you hand a change to the owner, run these checks on what changed, then th
 - Turn ordering dependencies into assertions that fail fast on known stale state. A rerun on unchanged input reproduces identical output.
 
 **Sampling:** `promotion.md`, rule 6.
+
+## The vocabulary standards behind these rules
+
+The definition, label and scope-note rules follow ANSI/NISO Z39.19-2005 (R2010), *Guidelines for the Construction, Format, and Management of Monolingual Controlled Vocabularies*, and its international counterpart ISO 25964-1:2011, *Thesauri for information retrieval*, with ISO 25964-2:2013 for mappings to other vocabularies (`external-ontologies.md`). Where a rule here differs from Z39.19, the difference is deliberate, and the table says why. Section numbers are Z39.19's.
+
+| Z39.19 says | This skill | Why it differs, if it does |
+|---|---|---|
+| A scope note states the chosen meaning and may name meanings deliberately excluded (§6.2.2) | Point 4: every approved concept has a scope note with its inclusions and exclusions | Same rule. |
+| When a scope note names another term, that term's scope note names it back (§6.2.2.1) | Point 4, last sentence | Same rule. *Why:* a change to either concept then shows its effect on the other. |
+| A history note tracks how a term changed (§6.2.3) | Former names that are not live aliases go in a history annotation (`identity-taxonomy.md`, Step 3, rule 8); release changes go in the changelog (`release.md`, rule 18) | Same rule. |
+| Prefer a natural compound term to a parenthetical qualifier; qualify every homograph (§6.2.1) | Labels must not collide (`identity-taxonomy.md`, Step 3, rule 13); disambiguate with a compound label first, and use a parenthetical qualifier only where no compound occurs in the domain's own usage | Same rule. |
+| Count nouns normally plural; singular where the domain has warrant for it (§6.5.1, §6.5.1.1) | Entity and class names are singular nouns (`foundations.md`, conceptual modelling, rule 3); activities and states are named as the domain names them | §6.5.1.1's exception applies: a class names what one instance is, and OWL and conceptual-modelling usage is the warrant. |
+| The full form unless the abbreviation is well established; cross-reference from the other form (§6.6.3) | Same; the other form is a `skos:altLabel`; an unexplained acronym goes to the owner (`organization.md`, rule 5) | Same rule. |
+| A broader term passes the "is a" or "all-and-some" test (§8.3.1) | The parent test for each kind (point 3) | Same rule; the activity form ("a way of carrying out") is the generic test for activities. |
+| Polyhierarchy is allowed (§8.3.4) | Exactly one parent (`identity-taxonomy.md`, Step 3, rule 2) | Deliberate: the parent test and every roll-up query assume a tree. Model a second view as its own scheme. |
+| Every term should have an unambiguous, non-redundant definition, as a design goal that "may not be true in practice" (§4.1, under "controlled vocabulary"); a scope note can be supplied for any term (§6.2.2) | A definition on every concept, class and property, to the eight points, is a gate (Step 3); a scope note on every approved concept (point 4) | Stricter on purpose: an ontology's consumers read the definition, so the design goal becomes a check. |
+
+*Why:* a reviewer can then trace each rule to a published standard, and a rule that breaks the standard is visible as a choice rather than an accident.
