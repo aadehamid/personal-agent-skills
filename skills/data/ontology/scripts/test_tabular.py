@@ -73,13 +73,21 @@ class BuildTabular(unittest.TestCase):
         self.assertEqual(subjects, ["<https://id.example.org/library/on-loan>", "<https://id.example.org/library/overdue>",
                                     "<https://id.example.org/library/returned>"])
 
-    def test_the_example_gives_seven_triples_per_row(self):
+    def test_the_example_gives_its_rows_and_the_scheme(self):
         self.assertEqual(run(self.args())[0], 0)
         with open(self.out, encoding="utf-8") as f:
             lines = f.read().splitlines()
-        self.assertEqual(len(lines), 21)   # 3 rows x 7 triples, counted from the mapping by hand
+        self.assertEqual(len(lines), 27)   # 3 rows x 7 triples, plus the scheme's type, label, definition and 3 top concepts
         self.assertIn('<https://id.example.org/library/overdue> <http://www.w3.org/2004/02/skos/core#prefLabel> '
                       '"Overdue"@en .', lines)
+
+    def test_the_output_passes_check_taxonomy(self):
+        import subprocess
+        import sys
+        self.assertEqual(run(self.args())[0], 0)
+        result = subprocess.run([sys.executable, os.path.join(HERE, "check_taxonomy.py"), self.out],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_a_rebuild_writes_the_same_bytes(self):
         run(self.args())

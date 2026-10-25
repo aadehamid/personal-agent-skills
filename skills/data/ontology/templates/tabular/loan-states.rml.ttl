@@ -16,3 +16,13 @@
     [ rr:predicate skos:prefLabel ; rr:objectMap [ rml:reference "label" ; rr:language "en" ] ] ,
     [ rr:predicate skos:definition ; rr:objectMap [ rml:reference "definition" ; rr:language "en" ] ] ,
     [ rr:predicate dcterms:source ; rr:objectMap [ rml:reference "source" ; rr:language "en" ] ] .
+
+# The code list's own scheme: a constant subject, with one skos:hasTopConcept per row.
+<#LoanStateScheme> a rr:TriplesMap ;
+  rml:logicalSource [ rml:source "loan-states.csv" ; rml:referenceFormulation ql:CSV ] ;
+  rr:subjectMap [ rr:constant lib:loan-state ; rr:class skos:ConceptScheme ] ;
+  # Morph-KGC 2.10.0 drops the language tag of a constant written as rr:object "..."@en, so each constant
+  # literal is an object map with rr:language.
+  rr:predicateObjectMap [ rr:predicate skos:prefLabel ; rr:objectMap [ rr:constant "Loan state" ; rr:language "en" ] ] ,
+    [ rr:predicate skos:definition ; rr:objectMap [ rr:constant "The states a loan passes through; a loan is in exactly one at a time." ; rr:language "en" ] ] ,
+    [ rr:predicate skos:hasTopConcept ; rr:objectMap [ rr:template "https://id.example.org/library/{slug}" ] ] .

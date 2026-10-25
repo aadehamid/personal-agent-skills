@@ -31,7 +31,10 @@ def build(folder):
         PREFIX lib: <https://id.example.org/library/>
         PREFIX raw: <https://id.example.org/library/raw#>
         CONSTRUCT { ?c a skos:Concept ; skos:inScheme lib:loan-state ; skos:topConceptOf lib:loan-state ;
-                      skos:notation ?n ; skos:prefLabel ?l ; skos:definition ?d ; dcterms:source ?s }
+                      skos:notation ?n ; skos:prefLabel ?l ; skos:definition ?d ; dcterms:source ?s .
+                    lib:loan-state a skos:ConceptScheme ; skos:hasTopConcept ?c ;
+                      skos:prefLabel "Loan state"@en ;
+                      skos:definition "The states a loan passes through; a loan is in exactly one at a time."@en }
         WHERE { ?c raw:notation ?n ; raw:label ?l0 ; raw:definition ?d0 ; raw:source ?s0 .
                 BIND(STRLANG(?l0, "en") AS ?l) BIND(STRLANG(?d0, "en") AS ?d) BIND(STRLANG(?s0, "en") AS ?s) }
     """, source_graph=STAGING)

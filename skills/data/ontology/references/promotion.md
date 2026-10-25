@@ -70,7 +70,7 @@ Working a backlog of a few hundred rows goes fastest as one answer register, bui
 
 ## From a spreadsheet to triples
 
-When the source is a spreadsheet or CSV export, write the conversion as a reviewed mapping and run it as a deterministic build step: `scripts/build_tabular.py` builds, and `--verify` fails unless the committed output equals a fresh build (`release.md`, rules 9 and 19). The worked example is `templates/tabular/`: three loan states in `loan-states.csv`, mapped two ways to the same 21 triples in `loan-states.nt`.
+When the source is a spreadsheet or CSV export, write the conversion as a reviewed mapping and run it as a deterministic build step: `scripts/build_tabular.py` builds, and `--verify` fails unless the committed output equals a fresh build (`release.md`, rules 9 and 19). The worked example is `templates/tabular/`: three loan states in `loan-states.csv`, mapped two ways to the same 27 triples, the code list's scheme included, in `loan-states.nt`.
 
 1. **Review the mapping, not the output.** The mapping file goes through the pull request like a builder; the output is regenerated, never edited. *Why:* a reviewer reads one rule per column instead of every row, and `--verify` catches an edited cell, an edited mapping or a hand edit to the output.
 2. **Keep identity in the mapping:** build each IRI from the row's stable key (a slug or local ID column, `identity-taxonomy.md`, Step 2, rule 2), never from the row's position or its label. *Why:* a re-sorted sheet must not remint identities.
