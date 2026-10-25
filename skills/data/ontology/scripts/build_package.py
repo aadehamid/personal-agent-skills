@@ -173,7 +173,8 @@ def module_graph(answers, releases):
     iri = URIRef(a["ontology_iri"])
     if any(True for _ in g.subject_objects(OWL.imports)):
         raise Refusal("a source holds owl:imports; name dependencies under requires instead (release.md, rule 11)")
-    others = sorted(str(s) for s in g.subjects(RDF.type, OWL.Ontology) if s != iri)
+    others = sorted({str(s) for s in g.subjects(RDF.type, OWL.Ontology) if s != iri}
+                    | {str(s) for s in g.subjects(OWL.versionIRI, None) if s != iri})
     if others:
         raise Refusal(f"the sources declare the ontology {others[0]}, not ontology_iri {a['ontology_iri']}; "
                       "give the IRI the sources use, or change the sources (packaging-walkthrough.md, Q3)")
@@ -388,10 +389,8 @@ def tag(answers, releases):
     if git("status", "--porcelain", "--", rel, cwd=top).stdout.strip():
         return 1, [f"commit the package first: {rel} has uncommitted changes"]
     name = tag_name(a)
-    # The tag goes on the commit that last changed the package, not on HEAD: a later, unrelated commit
-    # must not become the release's commit. With a remote it waits for the merge (release.md, rule 16) and
-    # marks the commit on the merged branch's first-parent line that brought the package in: the merge
-    # commit, or the package's own commit after a fast-forward or squash.
+    # Without a remote the tag goes on the commit that last changed the package, not on HEAD: a later, unrelated
+    # commit must not become the release's commit. With a remote it waits for the merge (release.md, rule 16).
     commit = git("log", "-1", "--format=%H", "--", rel, cwd=top).stdout.strip()
     if setup == "remote":
         # The evidence is the remote's default branch as the remote reports it now (git ls-remote), never a cached
@@ -407,9 +406,19 @@ def tag(answers, releases):
         listed = git("ls-remote", r, first[1], cwd=top)
         rows = [line.split("\t") for line in listed.stdout.splitlines() if line.strip()] if listed.returncode == 0 else []
         head_sha = rows[0][0] if len(rows) == 1 and rows[0][1:] == [first[1]] and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", rows[0][0]) else ""
-        if not head_sha or git("merge-base", "--is-ancestor", commit, head_sha, cwd=top).returncode != 0:
+        # The release's commit there is the earliest commit on the default branch's first-parent line whose
+        # package folder is exactly this release's folder: the merge commit after a merge, the squash commit after
+        # a squash, the package's own commit after a fast-forward. A later commit that edits the folder never wins.
+        released = git("rev-parse", f"{commit}:{rel}", cwd=top).stdout.strip()
+        brought = ""
+        if head_sha:
+            for c in git("log", "--first-parent", "--reverse", "--format=%H", head_sha, "--", rel, cwd=top).stdout.split():
+                if git("rev-parse", f"{c}:{rel}", cwd=top).stdout.strip() == released:
+                    brought = c
+                    break
+        if not brought:
             return 1, [f"{rel} is not on {r}'s default branch yet: tag it after the release merges (release.md, rule 16)"]
-        commit = git("log", "-1", "--first-parent", "--format=%H", head_sha, "--", rel, cwd=top).stdout.strip() or commit
+        commit = brought
     lines = []
     if git("rev-parse", "-q", "--verify", f"refs/tags/{name}", cwd=top).returncode == 0:
         lines.append(f"{name} already exists; nothing tagged")

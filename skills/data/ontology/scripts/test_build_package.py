@@ -200,6 +200,13 @@ class Build(Workspace):
         self.assertIn("the sources declare the ontology https://id.example.org/library/lending", out)
         self.assertFalse(os.path.exists(os.path.join(self.releases, "lending")))
 
+    def test_another_subject_with_a_version_iri_is_refused(self):
+        with open(os.path.join(self.root, "ontology-skeleton.ttl"), "a", encoding="utf-8") as f:
+            f.write("\nlib:stray owl:versionIRI <https://id.example.org/library/stray/1.0.0> .\n")
+        code, out = self.build()
+        self.assertEqual(code, 2)
+        self.assertIn("https://id.example.org/library/stray", out)
+
     def test_an_import_is_refused(self):
         with open(os.path.join(self.root, "ontology-skeleton.ttl"), "a", encoding="utf-8") as f:
             f.write("\nlib:lending owl:imports <https://id.example.org/library/core/1.0.0> .\n")
@@ -321,6 +328,47 @@ class Git(Workspace):
         code, out = run(["tag", path, "--releases", self.releases])
         self.assertEqual(code, 0, out)
         self.assertEqual(git("rev-list", "-n", "1", "lending-v1.0.0", cwd=self.root).stdout.strip(), merge_commit)
+
+    def remote_with_release_branch(self):
+        bare = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, bare)
+        git("init", "-q", "--bare", "-b", "main", cwd=bare)
+        git("init", "-q", "-b", "main", cwd=self.root)
+        git("remote", "add", "origin", bare, cwd=self.root)
+        with open(os.path.join(self.root, "README"), "w", encoding="utf-8") as f:
+            f.write("project\n")
+        self.commit_all()
+        git("checkout", "-q", "-b", "release", cwd=self.root)
+        path = self.write_answers()
+        self.assertEqual(run(["build", path, "--releases", self.releases])[0], 0)
+        self.commit_all()
+        git("checkout", "-q", "main", cwd=self.root)
+        return path
+
+    def test_with_a_remote_a_squash_merge_is_tagged_from_the_feature_branch(self):
+        path = self.remote_with_release_branch()
+        git("merge", "-q", "--squash", "release", cwd=self.root)
+        git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "squash release", cwd=self.root)
+        squash = git("rev-parse", "HEAD", cwd=self.root).stdout.strip()
+        git("push", "-q", "origin", "main", cwd=self.root)
+        git("checkout", "-q", "release", cwd=self.root)
+        code, out = run(["tag", path, "--releases", self.releases])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(git("rev-list", "-n", "1", "lending-v1.0.0", cwd=self.root).stdout.strip(), squash)
+
+    def test_with_a_remote_a_later_edit_of_the_package_is_not_the_tag(self):
+        path = self.remote_with_release_branch()
+        git("-c", "user.name=t", "-c", "user.email=t@t", "merge", "-q", "--no-ff", "-m", "merge release", "release", cwd=self.root)
+        merge_commit = git("rev-parse", "HEAD", cwd=self.root).stdout.strip()
+        with open(os.path.join(self.releases, "lending", "1.0.0", "CHANGELOG.md"), "a", encoding="utf-8") as f:
+            f.write("edited after the merge\n")
+        self.commit_all()
+        git("push", "-q", "origin", "main", cwd=self.root)
+        git("checkout", "-q", "release", cwd=self.root)
+        code, out = run(["tag", path, "--releases", self.releases])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(git("rev-list", "-n", "1", "lending-v1.0.0", cwd=self.root).stdout.strip(), merge_commit)
+        self.assertEqual(run(["verify", path, "--releases", self.releases])[0], 0)
 
     def test_with_a_remote_a_package_only_on_a_side_branch_is_not_tagged(self):
         bare = tempfile.mkdtemp()
