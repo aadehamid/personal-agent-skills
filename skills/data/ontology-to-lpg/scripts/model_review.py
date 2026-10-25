@@ -41,7 +41,7 @@ import os
 import statistics
 import sys
 
-from shell import q
+from shell import q, redact
 
 SKIPPED_LABELS = {"Resource", "_GraphConfig", "_NsPrefDef", "_n10sValidatorConfig"}
 GENERIC_LABELS = {"entity", "node", "thing"}
@@ -166,7 +166,8 @@ def main(argv):
                            key_label=opts.get("--key-label", "Resource"), key_property=opts.get("--key-property", "uri"),
                            max_degree=numbers["--max-degree"], factor=numbers["--factor"], min_degree=numbers["--min-degree"])
     except Exception as exc:  # the driver raises several types; any of them stops the review
-        print(f"ERROR the review query failed on {q(uri)}: {q(exc)}", file=sys.stderr)
+        # The driver's own text can carry the URI with its password, so only the type is printed.
+        print(f"ERROR the review query failed on {q(redact(uri))} ({q(type(exc).__name__)})", file=sys.stderr)
         return 2
     for f in found:
         print(f"{q(f['severity'])} {q(f['rule'])}: {q(f['message'])}")

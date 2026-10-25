@@ -50,7 +50,7 @@ from rdflib.namespace import OWL, RDF
 
 import build
 import load_verify as lv
-from shell import q
+from shell import q, redact
 
 DEFAULT_BASE = "urn:lpg-projection:graph:"
 
@@ -174,7 +174,7 @@ def main(argv):
         print(f"ERROR {q(exc)}", file=sys.stderr)
         return 2
     store = Store(gsp, query, env.get("SPARQL_USER"), env.get("SPARQL_PASSWORD"))
-    report = {"graphs": {}, "store": {"gsp": gsp, "query": query}}
+    report = {"graphs": {}, "store": {"gsp": redact(gsp), "query": redact(query)}}
     fails = []
     try:
         for path, iri, g in files:
@@ -193,7 +193,11 @@ def main(argv):
             fails += compare("store against the n10s export", export, store_counts)
         report["competency_questions"] = {p: len(store.select(text, iris)) for p, text in questions}
     except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError, KeyError) as exc:
-        print(f"FAIL a store request failed: {q(exc)}. No report was written.")
+        # The error's own text can carry the URL with its credentials: print the type and, for an HTTP
+        # error, its status code only.
+        status = f" HTTP {exc.code}" if isinstance(getattr(exc, "code", None), int) else ""
+        print(f"FAIL a store request to {q(redact(gsp))} or {q(redact(query))} failed "
+              f"({q(type(exc).__name__ + status)}). No report was written.")
         return 1
     report["failures"] = fails
     report["passed"] = not fails

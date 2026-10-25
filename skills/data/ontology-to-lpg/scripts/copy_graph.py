@@ -36,7 +36,7 @@ import os
 import sys
 
 import build
-from shell import q
+from shell import q, redact
 import load_verify as lv
 
 CONFIG_LABELS = ("_GraphConfig", "_NsPrefDef", "_n10sValidatorConfig")
@@ -69,9 +69,10 @@ def read_env_file(path):
 
 def describe_target(values):
     """The target as it may be printed: never the password, every value shell-quoted."""
+    uri = redact(values["NEO4J_URI"])
     if values.get("NEO4J_DATABASE"):
-        return f"{q(values['NEO4J_URI'])} as {q(values['NEO4J_USERNAME'])} (database {q(values['NEO4J_DATABASE'])})"
-    return f"{q(values['NEO4J_URI'])} as {q(values['NEO4J_USERNAME'])}"
+        return f"{q(uri)} as {q(values['NEO4J_USERNAME'])} (database {q(values['NEO4J_DATABASE'])})"
+    return f"{q(uri)} as {q(values['NEO4J_USERNAME'])}"
 
 
 def verified_hash(report_path):
@@ -171,7 +172,9 @@ def main(argv):
                 copied = copy(source, target, size)
                 target_hash = graph_hash(target)
     except Exception as exc:  # a driver, network or Cypher error
-        print(f"FAIL {q(exc)}; the target may hold a partial copy")
+        # The driver's own text can carry a URI with its password, so only the type is printed.
+        print(f"FAIL the copy stopped on a driver, network or Cypher error ({q(type(exc).__name__)}); "
+              "the target may hold a partial copy")
         return 1
     print(f"copied {q(copied['nodes'])} nodes and {q(copied['relationships'])} relationships to "
           f"{describe_target(target_values)}")

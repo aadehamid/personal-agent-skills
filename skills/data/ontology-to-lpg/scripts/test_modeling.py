@@ -1,14 +1,24 @@
 #!/usr/bin/env python3
 """Tests of model_review.py (the anti-pattern review) and build.py data-model (the Data Modeling MCP
 format). No database: the review runs on a fake query layer, one break per rule."""
+import contextlib
+import io
 import json
 import os
+import sys
+import tempfile
 import unittest
+from unittest import mock
 
 from rdflib import Graph
 
 import build
+import copy_graph as cg
+import load_verify as lv
 import model_review as mr
+import triplestore as ts
+from shell import redact
+from test_engine_gate import passing_report
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TEMPLATES = os.path.join(HERE, "..", "templates")
@@ -165,6 +175,122 @@ class DataModel(unittest.TestCase):
         self.assertEqual(code, 0)
         with open(out, encoding="utf-8") as f:
             self.assertEqual(len(json.load(f)["nodes"]), 4)
+
+
+CANARY, CANARY2 = "canaryPW1", "canaryPW2"
+
+
+def run_main(main, argv):
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+        code = main(argv)
+    return code, out.getvalue()
+
+
+def leaky_neo4j():
+    """A neo4j module whose driver fails with the URI and the credentials in its message, as a real
+    driver's configuration error can."""
+    fake = mock.MagicMock()
+
+    def driver(uri, auth=None, **_):
+        raise Exception(f"cannot reach {uri} as {auth}")
+    fake.GraphDatabase.driver.side_effect = driver
+    return fake
+
+
+class Secrets(unittest.TestCase):
+    """Finding #1 of the 2026-10-25 review: no password or token reaches the output or a report."""
+
+    def test_redact_hides_userinfo_tokens_and_fragments(self):
+        self.assertEqual(redact(f"neo4j+s://neo4j:{CANARY}@x.io:7687"), "neo4j+s://neo4j:***@x.io:7687")
+        self.assertEqual(redact(f"https://h/ds?graph=g&token={CANARY}#{CANARY2}"), "https://h/ds?graph=g&token=***")
+        self.assertEqual(redact(f"https://h/q?X-Amz-Signature={CANARY}"), "https://h/q?X-Amz-Signature=***")
+        self.assertEqual(redact("bolt://127.0.0.1:7687"), "bolt://127.0.0.1:7687")
+        self.assertEqual(redact("not a url"), "not a url")
+
+    def test_model_review_prints_no_credential(self):
+        with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": CANARY2}), mock.patch.dict(sys.modules, {"neo4j": leaky_neo4j()}):
+            code, out = run_main(mr.main, ["--uri", f"bolt://neo4j:{CANARY}@h:7687"])
+        self.assertEqual(code, 2)
+        self.assertNotIn(CANARY, out)
+        self.assertNotIn(CANARY2, out)
+        self.assertIn("bolt://neo4j:***@h:7687", out)
+
+    def test_copy_graph_prints_no_credential(self):
+        env = tempfile.NamedTemporaryFile("w", suffix=".env", delete=False)
+        env.write(f"NEO4J_URI=neo4j+s://neo4j:{CANARY}@x.io\nNEO4J_USERNAME=neo4j\nNEO4J_PASSWORD={CANARY}\n")
+        env.close()
+        self.addCleanup(os.remove, env.name)
+        with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": CANARY2}), mock.patch.dict(sys.modules, {"neo4j": leaky_neo4j()}):
+            code, out = run_main(cg.main, ["--source", f"bolt://neo4j:{CANARY2}@h", "--target-env", env.name,
+                                           "--report", passing_report(self)])
+        self.assertEqual(code, 1, out)
+        self.assertNotIn(CANARY, out)
+        self.assertNotIn(CANARY2, out)
+        self.assertNotIn(CANARY, cg.describe_target({"NEO4J_URI": f"bolt://u:{CANARY}@h", "NEO4J_USERNAME": "u"}))
+
+    def test_load_verify_prints_no_credential(self):
+        tmp = tempfile.mkdtemp()
+        with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": CANARY2}), mock.patch.dict(sys.modules, {"neo4j": leaky_neo4j()}):
+            code, out = run_main(lv.main, ["--config", os.path.join(TEMPLATES, "projection-config.json"),
+                                           "--bolt", f"bolt://neo4j:{CANARY}@h", "--import-dir", tmp,
+                                           "--merged", "m.ttl", "--loadable", "l.nt", "--inferred", "i.nt",
+                                           "--report", os.path.join(tmp, "r.json"),
+                                           "--shapes", os.path.join(TEMPLATES, "library-shapes.ttl"),
+                                           os.path.join(TEMPLATES, "library-module.ttl")])
+        self.assertEqual(code, 1, out)
+        self.assertNotIn(CANARY, out)
+        self.assertNotIn(CANARY2, out)
+
+    def test_load_verify_scrubs_its_own_messages(self):
+        tmp = tempfile.mkdtemp()
+        with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": CANARY2}), mock.patch.dict(sys.modules, {"neo4j": mock.MagicMock()}), \
+                mock.patch.object(lv, "run", side_effect=lv.Failed(f"check failed near {CANARY2}")):
+            code, out = run_main(lv.main, ["--config", os.path.join(TEMPLATES, "projection-config.json"),
+                                           "--bolt", "bolt://h", "--import-dir", tmp, "--merged", "m.ttl",
+                                           "--loadable", "l.nt", "--inferred", "i.nt", "--report", os.path.join(tmp, "r.json"),
+                                           "--shapes", os.path.join(TEMPLATES, "library-shapes.ttl"),
+                                           os.path.join(TEMPLATES, "library-module.ttl")])
+        self.assertEqual(code, 1, out)
+        self.assertIn("check failed near ***", out)
+        self.assertNotIn(CANARY2, out)
+
+    def store_run(self, put=None, counts=None):
+        import urllib.error  # noqa: F401
+        tmp = tempfile.mkdtemp()
+        nt = os.path.join(tmp, "inferred.nt")
+        open(nt, "w").close()
+        report = os.path.join(tmp, "ts.json")
+        module = os.path.join(TEMPLATES, "library-module.ttl")
+        graph = ts.graph_iri(Graph().parse(module), module, ts.DEFAULT_BASE)
+        n = len(Graph().parse(module))
+
+        def select(store, sparql, default_graphs=()):
+            if "GROUP BY ?p" in sparql:
+                return [{"p": {"value": p}, "n": {"value": str(c)}}
+                        for p, c in (counts or ts.predicate_counts([Graph().parse(module)])).items()]
+            return [{"n": {"value": str(n if graph in sparql else 0)}}]
+        with mock.patch.object(ts.Store, "put_graph", side_effect=put or (lambda *a: 201)), \
+                mock.patch.object(ts.Store, "select", select):
+            code, out = run_main(ts.main, ["--gsp", f"http://u:{CANARY}@h/ds?token={CANARY2}",
+                                           "--query", f"http://u:{CANARY}@h/q", "--inferred", nt, "--report", report, module])
+        return code, out, report
+
+    def test_triplestore_failure_prints_no_credential(self):
+        import urllib.error
+        code, out, _ = self.store_run(put=urllib.error.URLError(f"refused http://u:{CANARY}@h token={CANARY2}"))
+        self.assertEqual(code, 1, out)
+        self.assertNotIn(CANARY, out)
+        self.assertNotIn(CANARY2, out)
+
+    def test_triplestore_reports_store_no_credential(self):
+        for counts, name in ((None, ""), ({"urn:x": 1}, ".failed")):
+            with self.subTest(report=name or "passed"):
+                code, out, report = self.store_run(counts=counts)
+                with open(report + name, encoding="utf-8") as f:
+                    text = f.read()
+                self.assertNotIn(CANARY, text + out)
+                self.assertNotIn(CANARY2, text + out)
 
 
 if __name__ == "__main__":

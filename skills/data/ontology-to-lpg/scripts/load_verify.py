@@ -67,7 +67,7 @@ from rdflib.collection import Collection
 from rdflib.namespace import OWL, RDF, RDFS, SH, XSD
 
 import build
-from shell import q
+from shell import q, redact, scrub
 import check_projection_rules as cpr
 import in_graph_shapes as igs
 
@@ -782,7 +782,13 @@ def main(argv):
             driver.close()
     except Exception as exc:  # Failed, a driver error or a file error: no report
         remove_report(report_path)
-        print(f"FAIL {q(exc)}")
+        # A check's own message is printed, with the password scrubbed; a driver or file error's text
+        # can carry the URI with its password, so only its type is.
+        if isinstance(exc, Failed):
+            print(f"FAIL {q(scrub(exc, [password]))}")
+        else:
+            print(f"FAIL the run stopped on a driver or file error at {q(redact(opts['--bolt']))} "
+                  f"({q(type(exc).__name__)})")
         print(f"Stop: no report was written at {q(report_path)}. "
               "Fix the cause and rerun this command while the container is up: it empties the database itself. "
               f"If you stop instead, remove the container ({remove_command(opts)}).")
