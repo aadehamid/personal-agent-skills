@@ -14,16 +14,17 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
    ```sh
    uv run --no-project --with pyoxigraph python3 scripts/rdfstore.py roundtrip --store fuseki \
      --gsp http://127.0.0.1:13031/ds/data --query http://127.0.0.1:13031/ds/query \
-     --report report.json <release>.ttl ...
+     --update http://127.0.0.1:13031/ds/update --report report.json <release>.ttl ...
    ```
 
-   It prints `PASS` and exits 0 when the store's copy has the same hash, or prints a diff and exits 1.
+   It prints `PASS` and exits 0 when the store's copy has the same hash, or prints a diff and exits 1. `--update` publishes everything in one request, so a failure leaves the store as it was.
 
-3. For Databricks, put the workspace address, token, warehouse path, catalog and schema in an env file outside any repository, and run the same command with `--store databricks --env <file>` (and `--with databricks-sql-connector`).
+3. For Databricks, put the workspace address, token, warehouse path, catalog and schema in an env file outside any repository, and run the same command with `--store databricks --env <file>` (and `--with databricks-sql-connector`). The rows go to a staging table first; the live table is replaced only when the staging copy matches.
+4. To get a store's copy back as files, run `rdfstore.py export --store ... --out copy.nq --ttl-dir ttl/`.
 
 ## Tested on
 
-On 2026-10-24 the 33 graphs of an 11-module enterprise ontology's newest releases (36,575 quads, 1,995 of them with blank nodes) round-tripped with equal hashes through Fuseki 6.2.0 in Docker and through a Delta table on a Databricks serverless SQL warehouse. The Databricks load took 72 seconds. The skolemized copy round-tripped through Fuseki too.
+On 2026-10-24 and 25 the 33 graphs of an 11-module enterprise ontology's newest releases (36,575 quads, 1,995 of them with blank nodes) round-tripped with equal hashes through Fuseki 6.2.0 in Docker, published in one update request, and through a Delta table on a Databricks serverless SQL warehouse, by way of a staging table; the Databricks load took about 70 seconds. The Databricks copy exported back to N-Quads compared equal to the release. The skolemized copy round-tripped through Fuseki too.
 
 ## Files
 

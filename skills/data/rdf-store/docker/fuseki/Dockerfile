@@ -1,9 +1,10 @@
-# Apache Jena Fuseki 6.2.0 for add-on J (references/add-ons.md). Jena publishes a Dockerfile in
+# Apache Jena Fuseki 6.2.0 for the rdf-store skill (references/stores.md). Jena publishes a Dockerfile in
 # its jena-fuseki-docker package, not an image. This file fetches that package and the server jar,
 # checks each against a pinned SHA-256, and builds as Jena's Dockerfile does, on base images pinned
-# by digest. Build it (from the docker/ folder) with:
-#   docker compose --profile fuseki build
-# and start it with `up --build`, so a stale local lpg-fuseki:6.2.0 tag is never used.
+# by digest. ontology-to-lpg keeps the same build steps under its own header; a test keeps them equal.
+# Build and start it (from the docker/ folder) with:
+#   docker compose -p <project> up -d --build
+# so a stale local rdf-store-fuseki:6.2.0 tag is never used.
 
 ARG JENA_VERSION=6.2.0
 ARG TEMURIN_IMAGE=eclipse-temurin:21-alpine@sha256:fd52084c35bbac78890d95d57707d31ffc9d7a3324199e89c06be2a9dc71bfa0

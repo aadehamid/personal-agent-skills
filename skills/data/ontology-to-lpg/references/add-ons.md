@@ -51,7 +51,7 @@ rdflib-neo4j (https://neo4j.com/labs/rdflib-neo4j/) is the Neo4j Labs alternativ
 
 Loading a store and proving that nothing was lost (an export of everything the store holds, compared with the source by its RDFC-1.0 hash) is the `rdf-store` skill, split out of this one on 2026-10-24; use it for every triple store and for Databricks. What stays here is `triplestore.py`, the count check that ties a store to the projection: its three-way counts compare the files, the store and the n10s export.
 
-`triplestore.py` loads the validated inputs into any SPARQL 1.1 store and checks that nothing was lost. It speaks only W3C protocols: the SPARQL 1.1 Graph Store HTTP Protocol (https://www.w3.org/TR/sparql11-http-rdf-update/) to replace each named graph with `PUT` (`?graph=<IRI>`), and the SPARQL 1.1 Protocol to count. There is no store-specific code.
+`triplestore.py` loads the validated inputs into any SPARQL 1.1 store and checks per-graph and per-predicate counts, and with a projection report the three-way counts. It speaks only W3C protocols: the SPARQL 1.1 Graph Store HTTP Protocol (https://www.w3.org/TR/sparql11-http-rdf-update/) to replace each named graph with `PUT` (`?graph=<IRI>`), and the SPARQL 1.1 Protocol to count. There is no store-specific code.
 
 ```bash
 uv run --no-project --with rdflib python3 triplestore.py --gsp <graph store URL> --query <SPARQL URL> \
