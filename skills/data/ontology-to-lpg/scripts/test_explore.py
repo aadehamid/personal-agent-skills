@@ -285,6 +285,24 @@ class Walk(Fixture):
             edges, _ = explore.walk(side, "https://example.org/app/sys", 1)
             self.assertIn([str(extra[0]), str(extra[1]), str(extra[2]), tag], edges, name)
 
+    def test_an_inferred_triple_whose_subject_no_package_mentions_shows_with_no_tag(self):
+        # The triple above is in no package (an inferred-only triple) and takes its subject's tag. A subject
+        # only the inferred graph mentions has no package tag, so its triple is kept with none and shows.
+        rdf_type = URIRef(PREFIXES["rdf"] + "type")
+        orphan = (URIRef("https://example.org/base/p0"), rdf_type, URIRef("https://example.org/base/Thing"))
+        lone = (URIRef("https://example.org/nowhere/x"), rdf_type, URIRef("https://example.org/base/p0"))
+        ds = Dataset(default_union=False)
+        for p in self.packages:
+            g = ds.graph(URIRef(p.version))
+            for t in p.graph:
+                g.add(t)
+        for t in (orphan, lone):
+            ds.graph(URIRef(explore.INFERRED)).add(t)
+        side = explore.StoreSide(lambda q: [{str(k): str(v) for k, v in r.asdict().items()} for r in ds.query(q)])
+        edges, _ = explore.walk(side, "https://example.org/base/p0", 1)
+        self.assertIn([str(t) for t in orphan] + ["https://example.org/base/1.1.0"], edges)
+        self.assertIn([str(t) for t in lone] + [None], edges)
+
     def test_the_module_maps_agree(self):
         self.assertEqual(explore.Neo4jSide(FakeNeo4j(self.packages), PREFIXES).modules(), store(self.packages).modules())
 
