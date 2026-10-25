@@ -36,14 +36,14 @@ qSKOS (Mader, Haslhofer and Isaac; its wiki page "Quality Issues" and the v2.0.4
 | Omitted or Invalid Language Tags | `untagged`; `lang-tag` checks that a tag is well-formed (RFC 5646, section 2.1, grandfathered tags included). qSKOS also requires a primary language in Java's ISO 639 list, which rejects valid three-letter codes such as `haw` and private-use tags; the skill does not copy that. |
 | Incomplete Language Coverage; No Common Language | `language`, over every language-tagged literal a concept has, as qSKOS reads it |
 | Undocumented Concepts | `definition`, which is stricter: every concept needs a `skos:definition` |
-| Overlapping Labels | `collision`: two concepts sharing a preferred, alternative or hidden label, ignoring case, in any scheme |
+| Overlapping Labels | `collision`: two concepts sharing a preferred, alternative or hidden label, ignoring the case of the label and of its language tag, in any scheme |
 | Missing Labels; Empty Labels | `label`. A scheme or collection needs a `skos:prefLabel`, `rdfs:label` or `dcterms:title`. qSKOS also accepts DC Elements `dc:title` and does not accept `skos:prefLabel`; the skill writes DCMI Terms only (`SOURCES.md`, section 4), so a `dc:` predicate fails `property-kind`. |
 | Unprintable Characters in Labels | `label-chars` |
 | Ambiguous Notation References | `notation` |
 | Orphan Concepts; Disconnected Concept Clusters | Left out. A code list is a flat scheme of top concepts by design (`identity-taxonomy.md`, Step 3, rule 11), and `parent` already ties every other concept to a top concept. |
 | Cyclic Hierarchical Relations; Top Concepts Having Broader Concepts; Hierarchical Redundancy | `parent`: one `skos:broader`, none on a top concept, no cycles. One parent leaves no room for a redundant path. |
-| Reflexive Relations | `related`: a concept linked to itself by any SKOS semantic relation. A `skos:broader` to itself is reported as a `parent` cycle. |
-| Valueless Associative Relations; Relation Clashes (SKOS S27) | `related`, for `skos:related` and `skos:relatedMatch` |
+| Reflexive Relations | `related`: a concept linked to itself by any SKOS semantic relation, or by a property the files declare beneath one. A `skos:broader` to itself is reported as a `parent` cycle. |
+| Valueless Associative Relations; Relation Clashes (SKOS S27) | `related`, for `skos:related` and `skos:relatedMatch`; siblings share a parent directly or through the transitive properties |
 | Solely Transitively Related Concepts | `transitive`: a stated transitive relation needs a `skos:broader` path (or `skos:narrower` the other way) behind it |
 | Unidirectionally Related Concepts | `reciprocal`, for every inverse pair qSKOS checks, between concepts declared in the files, since an outside target cannot state its side. The skill states `skos:broader` only, so a `skos:broader` without its `skos:narrower` passes; a stated `skos:narrower` needs its `skos:broader`. |
 | Omitted Top Concepts | `scheme` |

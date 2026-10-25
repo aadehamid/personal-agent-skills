@@ -548,6 +548,103 @@ class QskosChecks(OneBreak, unittest.TestCase):
         self.assertEqual(check_taxonomy.check(g), [])
 
 
+class QskosRoundTwo(OneBreak, unittest.TestCase):
+    """Branches the round-2 review found untested; each test breaks one of them alone, or, where that
+    is impossible, asserts the exact failure is present."""
+
+    def broken(self, mutate, name, fragment):
+        g = skeleton()
+        mutate(g)
+        self.assertOnly(check_taxonomy.check(g), name, fragment)
+
+    @staticmethod
+    def concept(g, name, parent, notation, label):
+        c = lib(name)
+        for p, o in ((RDF.type, SKOS.Concept), (SKOS.inScheme, lib("lending")), (SKOS.broader, lib(parent)),
+                     (SKOS.notation, Literal(notation)), (SKOS.prefLabel, Literal(label, lang="en")),
+                     (SKOS.definition, Literal("A test concept.", lang="en"))):
+            g.add((c, p, o))
+
+    def test_siblings_under_a_transitive_parent_only(self):
+        # renewal sits under lending-activity, hold-request under hold-activity; both reach circulation only
+        # through skos:broaderTransitive, so they are siblings there, and neither is the other's ancestor.
+        def mutate(g):
+            self.concept(g, "hold-activity", "circulation", "C-3", "Holds")
+            self.concept(g, "hold-request", "hold-activity", "C-3-1", "Hold request")
+            g.set((lib("renewal"), SKOS.broader, lib("lending-activity")))
+            for c in ("renewal", "hold-request"):
+                g.add((lib(c), SKOS.broaderTransitive, lib("circulation")))
+                g.add((lib("circulation"), SKOS.narrowerTransitive, lib(c)))
+            g.add((lib("renewal"), SKOS.related, lib("hold-request")))
+            g.add((lib("hold-request"), SKOS.related, lib("renewal")))
+        self.broken(mutate, "related", "lib:hold-request and lib:renewal are siblings and also skos:related")
+
+    def test_self_link_through_a_declared_subproperty(self):
+        p = lib("localRelated")
+        def mutate(g):
+            for pred, obj in ((RDF.type, OWL.ObjectProperty), (RDFS.label, Literal("local related", lang="en")),
+                              (SKOS.definition, Literal("A local kind of related.", lang="en")),
+                              (RDFS.domain, SKOS.Concept), (RDFS.range, SKOS.Concept), (RDFS.subPropertyOf, SKOS.related)):
+                g.add((p, pred, obj))
+            g.add((lib("renewal"), p, lib("renewal")))
+        self.broken(mutate, "related", "lib:renewal is linked to itself by lib:localRelated")
+
+    def test_every_semantic_self_link(self):
+        for pred in sorted(check_taxonomy.SEMANTIC_RELATIONS - {SKOS.broader}):
+            with self.subTest(pred=pred):
+                self.broken(lambda g: g.add((lib("renewal"), pred, lib("renewal"))), "related", "is linked to itself by")
+
+    def test_broader_to_itself_is_a_parent_failure_only(self):
+        g = skeleton()
+        g.add((lib("renewal"), SKOS.broader, lib("renewal")))
+        self.assertEqual({n for n, _ in check_taxonomy.check(g)}, {"parent"})
+
+    def test_overlap_ignores_language_tag_case_across_schemes(self):
+        self.broken(lambda g: g.add((lib("renewal"), SKOS.altLabel, Literal("Returned", lang="EN"))),
+                    "collision", 'lib:renewal, lib:returned share the label "returned" (en)')
+
+    def test_preferred_collision_ignores_language_tag_case_in_one_scheme(self):
+        self.broken(lambda g: g.set((lib("overdue"), SKOS.prefLabel, Literal("On loan", lang="EN"))),
+                    "collision", 'share the label "on loan" (en) in lib:loan-state')
+
+    def test_reciprocal_branches(self):
+        # Declared concepts in different schemes, each stated one way.
+        for pred, back in ((SKOS.narrowMatch, "skos:broadMatch"), (SKOS.broadMatch, "skos:narrowMatch"),
+                           (SKOS.relatedMatch, "skos:relatedMatch"), (SKOS.closeMatch, "skos:closeMatch")):
+            with self.subTest(pred=pred):
+                self.broken(lambda g: g.add((lib("circulation"), pred, lib("overdue"))),
+                            "reciprocal", f"lib:overdue has no {back} the other way")
+        self.broken(lambda g: g.add((lib("circulation"), SKOS.narrowerTransitive, lib("renewal"))),
+                    "reciprocal", "lib:circulation skos:narrowerTransitive lib:renewal has no skos:broaderTransitive")
+
+    def test_language_used_only_in_a_definition_counts(self):
+        self.broken(lambda g: g.add((lib("renewal"), SKOS.definition, Literal("Prolonger un pr\u00eat.", lang="fr"))),
+                    "language", "lib:overdue has no language-tagged literal in fr")
+
+    def test_preferred_labels_shared_across_schemes(self):
+        self.broken(lambda g: g.set((lib("renewal"), SKOS.prefLabel, Literal("Returned", lang="en"))),
+                    "collision", 'lib:renewal, lib:returned share the label "returned" (en)')
+
+    def test_parent_known_only_through_narrower(self):
+        # renewal's parent is stated only as circulation skos:narrower renewal, which also fails "parent";
+        # the sibling clash must still be found.
+        g = skeleton()
+        g.remove((lib("renewal"), SKOS.broader, None))
+        g.add((lib("circulation"), SKOS.narrower, lib("renewal")))
+        g.add((lib("renewal"), SKOS.related, lib("lending-activity")))
+        g.add((lib("lending-activity"), SKOS.related, lib("renewal")))
+        self.assertIn(("related", "lib:lending-activity and lib:renewal are siblings and also skos:related"),
+                      check_taxonomy.check(g))
+
+    def test_narrower_transitive_without_a_path(self):
+        g = skeleton()
+        g.add((lib("on-loan"), SKOS.broaderTransitive, lib("circulation")))
+        g.add((lib("circulation"), SKOS.narrowerTransitive, lib("on-loan")))
+        self.assertIn(("transitive", "lib:circulation skos:narrowerTransitive lib:on-loan has no skos:narrower path "
+                                     "behind it; the transitive properties are not for assertions"),
+                      check_taxonomy.check(g))
+
+
 class RequirementsChecks(OneBreak, unittest.TestCase):
     def broken(self, mutate, name, fragment):
         req = requirements()

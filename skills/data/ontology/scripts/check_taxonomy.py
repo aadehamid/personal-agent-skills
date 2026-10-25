@@ -50,13 +50,14 @@ issues", has the table and the deliberate differences):
                  rdfs:label or dcterms:title (Missing Labels)
   label-chars    no SKOS label holds a character of Unicode category Zl, Zp or C, such as a newline
                  (Unprintable Characters in Labels)
-  collision      (also) no two concepts share a preferred, alternative or hidden label, ignoring case,
-                 in any scheme (Overlapping Labels)
+  collision      (also) no two concepts share a preferred, alternative or hidden label, ignoring the
+                 case of the label and of its language tag, in any scheme (Overlapping Labels)
   disjoint-labels  no resource has the same literal in two of skos:prefLabel, skos:altLabel and
                  skos:hiddenLabel (Disjoint Labels Violation, SKOS S13)
-  related        no concept is linked to itself by a SKOS semantic relation (Reflexive Relations), and
-                 no skos:related or skos:relatedMatch joins siblings (Valueless Associative Relations)
-                 or an ancestor and a descendant (Relation Clashes, SKOS S27)
+  related        no concept is linked to itself by a SKOS semantic relation or a property declared
+                 beneath one (Reflexive Relations), and no skos:related or skos:relatedMatch joins
+                 siblings, direct or transitive (Valueless Associative Relations), or an ancestor and a
+                 descendant (Relation Clashes, SKOS S27)
   reciprocal     between concepts declared in the files, every inverse pair qSKOS checks is stated both
                  ways, except skos:broader, which the skill states alone; a skos:topConceptOf a
                  declared scheme is listed by its skos:hasTopConcept (Unidirectionally Related Concepts)
@@ -125,6 +126,12 @@ RECIPROCAL_PAIRS = [(SKOS.narrower, SKOS.broader),
                     (SKOS.exactMatch, SKOS.exactMatch), (SKOS.closeMatch, SKOS.closeMatch)]
 
 
+def lang_key(literal):
+    """A literal's language tag in lower case, for comparing labels: RDF language tags ignore case."""
+    lang = getattr(literal, "language", None)
+    return lang.lower() if lang else lang
+
+
 def well_formed_tag(tag):
     return bool(BCP47.match(tag)) or tag.lower() in GRANDFATHERED
 
@@ -182,7 +189,7 @@ def check(g, allowed_namespaces=(), code_properties=()):
             fails.append(("notation", f"{name} has no skos:notation"))
         for scheme in schemes:
             for lab in g.objects(c, SKOS.prefLabel):
-                labels[(scheme, getattr(lab, "language", None), str(lab).casefold())].append(name)
+                labels[(scheme, lang_key(lab), str(lab).casefold())].append(name)
             for code in codes:
                 notations[(scheme, str(code))].append(name)
 
@@ -341,7 +348,7 @@ def qskos(g, concepts, short):
         for pred in LABELS:
             for lab in g.objects(c, pred):
                 if isinstance(lab, Literal):
-                    holders[(lab.language, str(lab).casefold())].setdefault(c, set()).add(pred)
+                    holders[(lang_key(lab), str(lab).casefold())].setdefault(c, set()).add(pred)
     for (lang, label), by_concept in sorted(holders.items(), key=str):
         if len(by_concept) < 2:
             continue
@@ -365,9 +372,22 @@ def qskos(g, concepts, short):
                     todo.append(up)
         return found
 
-    # Reflexive relations: a concept linked to itself by any SKOS semantic relation. A skos:broader to
-    # itself is reported as a cycle by "parent".
-    for pred in SEMANTIC_RELATIONS - {SKOS.broader}:
+    # Siblings, as qSKOS's Valueless Associative Relations reads them, share a parent through skos:broader
+    # or skos:broaderTransitive, or skos:narrower or skos:narrowerTransitive the other way. The
+    # "transitive" check below keeps to direct parents.
+    def sibling_parents(c):
+        return parents(c) | set(g.objects(c, SKOS.broaderTransitive)) | set(g.subjects(SKOS.narrowerTransitive, c))
+
+    # Reflexive relations: a concept linked to itself by a SKOS semantic relation, or by a property the
+    # files declare beneath one (rdfs:subPropertyOf, at any depth). A skos:broader to itself is reported
+    # as a cycle by "parent".
+    semantic = set(SEMANTIC_RELATIONS)
+    while True:
+        more = {p for p, q in g.subject_objects(RDFS.subPropertyOf) if q in semantic and isinstance(p, URIRef)} - semantic
+        if not more:
+            break
+        semantic |= more
+    for pred in sorted(semantic - {SKOS.broader}):
         for c in sorted(concepts):
             if (c, pred, c) in g:
                 fails.append(("related", f"{short(c)} is linked to itself by {short(pred)}"))
@@ -375,7 +395,7 @@ def qskos(g, concepts, short):
     # The relation checks look only at concepts the files declare; an undeclared subject fails "untyped".
     for pred in (SKOS.related, SKOS.relatedMatch):
         for a, b in sorted(((a, b) for a, b in g.subject_objects(pred) if a in concepts and b != a), key=str):
-            if parents(a) & parents(b):
+            if sibling_parents(a) & sibling_parents(b):
                 fails.append(("related", f"{short(a)} and {short(b)} are siblings and also {short(pred)}"))
             elif b in ancestors(a) or a in ancestors(b):
                 fails.append(("related", f"{short(a)} and {short(b)} are hierarchically related and also {short(pred)}"))
