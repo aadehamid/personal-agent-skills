@@ -1,0 +1,17 @@
+ ● Running 4 agents (4 running) · 4m 52s
+   ├─ coder · Verify current head fixes · K3.1 Pro · high · 33 tools · 4m 52s ·
+ 132k tok · Running
+   └─ coder · Attack current head safeguards · K3.1 Pro · high · 43 tools · 4m 52s
+ · 127k tok · Running
+   Press Ctrl+B to run in background
+
+ ──────────────────────────────────────────────────────────────────────────────────
+   Todo
+   ✓ Resolve Round 2 scope and fix requirements
+   ● Review the new head commit and consolidate findings
+   ○ Write the required Markdown report
+ ╭────────────────────────────────────────────────────────────────────────────────╮
+ │ >                                                                              │
+ ╰────────────────────────────────────────────────────────────────────────────────╯
+ Ask When Needed  K3.1 Pro thinking: high  …/tmp/claude-501/wt-epm-runbook  docs/s…
+                                                             context: 43% (439k/1M)

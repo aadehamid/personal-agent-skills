@@ -1,0 +1,11 @@
+ ✗ coder agent failed in background (K3.1 Pro · high · Verify ontology guide correctness · 429 You've reached your 5-hour usage limit. Your quota will reset when the
+   current 5-hour window ends. To continue now, purchase extra usage or upgrade your plan: https://www.kimi.com/membership/subscription?tab=quota)
+   Error: [provider.api_error] 429 You've reached your 5-hour usage limit. Your quota will reset when the current 5-hour window ends. To continue now, purchase extra
+ usage or upgrade your plan: https://www.kimi.com/membership/subscription?tab=quota
+   If this persists, run `/export-debug-zip` and share the file with us for diagnosis. Please don't share it publicly.
+ ─────────────────────────────────────────────────────────────────────────────────
+ ╭───────────────────────────────────────────────────────────────────────────────╮
+ │ >                                                                             │
+ ╰───────────────────────────────────────────────────────────────────────────────╯
+ Ask When Needed  K3.1 Pro thinking: high  …/tmp/claude-501/wt-epm-guide  docs/ontology-guide [↑2]
+                                                                    context: 22% (217k/1M)
