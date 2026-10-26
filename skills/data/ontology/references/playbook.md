@@ -44,7 +44,7 @@ each standard the method uses.
 new rule goes in the reference that holds its step, and this guide gains a
 sentence only when the narrative needs it. A decision about one project (an
 IRI, a scope call, a ruling on one row) does not belong here; it goes in the
-project's decision log and worklog (`governance.md`, rule 8).
+project's records (`governance.md`, rule 8).
 `scripts/test_playbook_guide.py` fails when this guide names a project's
 records, companies or paths.
 
@@ -249,7 +249,7 @@ never computes one from the graph.
 
 The integration package depends on every module it describes, so it is
 released after them and pins their current versions. Its tests fail when a
-rule names a term that no released module defines (`integration.md`,
+consumer rule names a graph term that does not exist (`integration.md`,
 rule 28).
 
 ### Step 8. Scope review (do it early)
