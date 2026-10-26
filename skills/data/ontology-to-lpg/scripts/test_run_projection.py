@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -135,11 +136,38 @@ class Config(Base):
                 self.run_config(**extra)
 
     def test_an_output_folder_inside_the_repository_is_refused(self):
-        os.system(f"git init -q {self.tmp}")   # noqa: S605 (a test folder of our own)
+        # Without the hook's variables: inherited from a pre-push hook run in a linked worktree, `git init`
+        # re-initialised the shared repository as bare (core.bare=true; retro of 2026-10-26).
+        subprocess.run(["git", "init", "-q", self.tmp], env=rp.git_env(), check=True, capture_output=True)
         path = self.write("run.json", json.dumps({"mode": "files", "projection_config": "config.json", "out": "out",
                                                    "files": ["releases"]}))
         with self.assertRaises(rp.Refusal):
             rp.read_config(path)
+
+    def test_hook_variables_reach_neither_the_repository_check_nor_this_test(self):
+        """Under a pre-push hook in a linked worktree, Git sets GIT_DIR to the worktree's git folder. With it
+        inherited, `git init` in a test folder made the shared repository bare, and the repository check
+        answered for the hook's repository. Both now run without the hook's variables."""
+        outer = os.path.join(self.tmp, "outer")
+        run = lambda *a, cwd=None: subprocess.run(["git", *a], cwd=cwd, env=rp.git_env(), check=True,
+                                                  capture_output=True, text=True)
+        run("init", "-q", "-b", "main", outer)
+        run("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x", cwd=outer)
+        tree = os.path.join(self.tmp, "tree")
+        run("worktree", "add", "-q", tree, "-b", "side", cwd=outer)
+        hook = {"GIT_DIR": os.path.join(outer, ".git", "worktrees", "tree")}
+        folder = os.path.join(self.tmp, "folder")
+        os.makedirs(folder)
+        bare = lambda: run("config", "core.bare", cwd=outer).stdout.strip()
+        with mock.patch.dict(os.environ, hook):
+            # The hazard itself, on throwaway repositories: inherited, GIT_DIR turns the outer one bare.
+            subprocess.run(["git", "init", "-q", folder], check=True, capture_output=True)
+            self.assertEqual(bare(), "true")
+            run("config", "core.bare", "false", cwd=outer)
+            # Without the hook's variables, as this test file and run_projection.py now run git, it does not.
+            subprocess.run(["git", "init", "-q", folder], env=rp.git_env(), check=True, capture_output=True)
+            self.assertEqual(bare(), "false")
+            self.assertTrue(rp.inside_repository(os.path.join(folder, "out"), folder))
 
     def test_the_plan_skips_a_step_whose_configuration_is_absent(self):
         cfg = self.run_config()

@@ -19,9 +19,13 @@
 # Rex does not know what an agent is doing: it shows the status a program reports (OSC 7501),
 # and none of the reviewer CLIs reported one on 2026-10-24. So the status comes from the pane's
 # process and the bottom of its screen (pane_status below). Nothing is typed into the pane
-# unless the screen positively shows the reviewer's own input line, or Kimi's folder-trust
-# dialog for this work tree; any other screen that stays put is a question, and the script
-# stops there.
+# unless the screen positively shows the reviewer's own input line, Kimi's folder-trust
+# dialog for this work tree, or Kimi's idle-session question (answered "Start a new session",
+# with the prompt sent again if the new session dropped it); any other screen that stays put
+# is a question, and the script stops there. A reviewer that reports its usage limit is not
+# available: the script stops, and Next names pi-review.sh, the next reviewer in AGENTS.md's
+# order. A reused pane still working on an earlier run's review is waited for, up to 45
+# minutes, and that review's report is taken when it matches this branch and HEAD.
 # Tests: test_rex_review.py, run by the repository's scripts/check.sh.
 set -euo pipefail
 
@@ -218,11 +222,14 @@ show_pane() { rx capture -b "$review_pane" --trim 2>/dev/null | tail -n "$1" || 
 #   gone        the pane's program exited
 #   starting    the login shell that starts the reviewer is still in front (startup only)
 #   unreadable  rex could not give the process or the screen
+#   limit       the reviewer reports its usage limit (Kimi: "429 You've reached your 5-hour usage
+#               limit"): it is not available, and the next reviewer in the order takes the review
 #   blocked     the program reports blocked (OSC 7501)
 #   working     the program reports working
+#   idlesession Kimi asks how to resume a session left idle (compact, new, continue): answered once
+#               with "Start a new session", since a review wants a fresh context
 #   trust       Kimi's trust dialog, "Trust and continue" selected, naming this work tree on
 #               its own path line, the one between its question and its choices
-#   idlesession Kimi asks how to resume a session left idle (compact, new, continue): a question
 #   blocked     a known question is on the bottom lines
 #   working     a busy marker shows
 #   unsent      the reviewer's own input line still holds the prompt (Kimi's input box is read
@@ -317,7 +324,11 @@ if strict and choices:
 # Kimi'"'"'s question when a prompt goes into a session left idle: how to resume it.
 idle_session = (kind == "kimi" and any("has been idle for" in l for l in dialog)
                 and any(re.match(r"^\s*\u276f?\s*Compact and continue\s*$", l) for l in dialog))
-if reported == "blocked":
+# A usage limit on the bottom lines (2026-10-26: Kimi said "429 ... reached your 5-hour usage limit").
+limit = re.search(r"reached your [\w-]+ usage limit", "\n".join(outside[-20:]))
+if limit:
+    print("limit")
+elif reported == "blocked":
     print("blocked")
 elif reported == "working":
     print("working")
@@ -327,7 +338,8 @@ elif trust:
     print("trust")
 elif question:
     print("blocked")
-elif re.search(r"ctrl\+c to stop|esc to interrupt|Press Ctrl\+B to run in background|Working\u2026", "\n".join(l for l in outside[-12:])):
+elif re.search(r"ctrl\+c to stop|esc to interrupt|Press Ctrl\+B to run in background|Working\u2026|"
+               r"Running \d+ agents?|Agent Running", "\n".join(l for l in outside[-12:])):
     print("working")
 elif held:
     print("unsent")
@@ -358,10 +370,21 @@ settled_status() {
 # once (the owner, 2026-10-24: "it is okay to always trust the folder and continue"); Codex's
 # hook review approves code, not a folder, and stays a question, like any screen that holds
 # without the input line.
+# The next reviewer in AGENTS.md's order when this one reports its usage limit.
+pi_next="$(dirname "$self")/pi-review.sh --role independent --head ${head_sha:-<sha>} --verify $(printf '%q' "$verify")"
 step="waiting for the reviewer to be ready"
-settled=0 starting=0 unread=0 unknown=0 trusted=0
-for _ in $(seq 1 90); do
+settled=0 starting=0 unread=0 unknown=0 trusted=0 resumed=0 busy_at_start="" looks=0
+# A reused pane can still be working on a review this script started earlier and gave up on
+# (2026-10-26: "its screen never settled" while Kimi ran its agents). Working looks do not use up
+# the 90 looks; they wait, up to 45 minutes, and the finished review's report is then taken below.
+while [ "$looks" -lt 90 ]; do
   st=$(pane_status strict)
+  if [ "$st" = working ]; then
+    busy_at_start=1
+    if [ "$SECONDS" -ge 2700 ]; then show_pane 30; stop "Reviewer did not start: it was still working after 45 minutes." "$rerun"; fi
+    sleep 2; continue
+  fi
+  looks=$((looks + 1))
   [ "$st" = starting ] || starting=0
   [ "$st" = unreadable ] || unread=0
   [ "$st" = unknown ] || unknown=0
@@ -381,9 +404,17 @@ for _ in $(seq 1 90); do
         trusted=1
         echo "Kimi asked to trust $top; chose Trust and continue." >&2
       fi ;;
-    idlesession)
+    limit)
       show_pane 30
-      stop "Reviewer did not start: Kimi asks how to resume an idle session." "$answer, then run: $rerun" ;;
+      stop "Reviewer not available: it reports its usage limit." "$pi_next" ;;
+    idlesession)
+      if [ "$resumed" -ge 1 ]; then
+        show_pane 30
+        stop "Reviewer did not start: Kimi asks how to resume an idle session." "$answer, then run: $rerun"
+      fi
+      rx send-key -b "$review_pane" down >/dev/null; rx send-key -b "$review_pane" enter >/dev/null
+      resumed=1
+      echo "Kimi asked how to resume an idle session; chose Start a new session." >&2 ;;
     blocked|unsent)
       show_pane 30
       stop "Reviewer did not start: it is waiting on a question or an unknown screen." "$answer, then run: $rerun" ;;
@@ -454,6 +485,16 @@ for root in dict.fromkeys(r for r in roots.split(":") if r):
 PY
 }
 
+# The pane was busy when this run began: an earlier run's review, now finished. Its report is this
+# run's when it matches the branch and HEAD, so the review is not sent a second time.
+if [ -n "$busy_at_start" ]; then
+  earlier=$(find_skill_reports)
+  if [ "$(printf '%s' "$earlier" | grep -c .)" = 1 ]; then
+    echo "The reviewer was finishing an earlier run's review of this branch and HEAD; took its report: $earlier" >&2
+    cat "$earlier"; exit 0
+  fi
+fi
+
 step="waiting for the review"
 send_prompt "$prompt"
 next_on_failure="rex capture -s $REX_SESSION -b $review_pane --trim | tail -n 60; cat '$report'"
@@ -465,7 +506,7 @@ next_on_failure="rex capture -s $REX_SESSION -b $review_pane --trim | tail -n 60
 # can work quietly. ended says why the loop stopped: only a finished or timed-out wait may
 # fall back to the file or the review skill's report; blocked, gone, unsent and unreadable end
 # with their reason even when a file exists.
-asked="" worked="" last_size="" idle_streak=0 idle_unworked=0 blocked=0 enters=0 unread=0
+asked="" worked="" last_size="" idle_streak=0 idle_unworked=0 blocked=0 enters=0 unread=0 resend=""
 ended="timeout"
 reason="no report within 60 minutes; the review may still be running"
 next="$next_on_failure"
@@ -488,8 +529,17 @@ for _ in $(seq 1 720); do
       ;;
     gone|starting)
       ended="gone" reason="the reviewer exited" next="$rerun"; break ;;
+    limit)
+      ended="unavailable" reason="reviewer not available: it reports its usage limit" next="$pi_next"; break ;;
     idlesession)
-      ended="blocked" reason="Kimi asks how to resume an idle session" next="$answer, then run: $next_on_failure"; break ;;
+      if [ "$resumed" -ge 2 ]; then
+        ended="blocked" reason="Kimi asks how to resume an idle session" next="$answer, then run: $next_on_failure"; break
+      fi
+      # The prompt went into a session left idle. A new session may drop it, so it is sent again
+      # once the input line is empty and the reviewer has not started on it.
+      rx send-key -b "$review_pane" down >/dev/null || true; rx send-key -b "$review_pane" enter >/dev/null || true
+      resumed=$((resumed + 1)) resend=1 worked="" idle_unworked=0
+      echo "Kimi asked how to resume an idle session; chose Start a new session." >&2 ;;
     unreadable)
       unread=$((unread + 1))
       if [ "$unread" -ge 12 ]; then ended="unreadable" reason="rex cannot read the reviewer's pane"; break; fi
@@ -503,8 +553,13 @@ for _ in $(seq 1 720); do
       fi
       ;;
     working)
-      worked=1 idle_unworked=0 last_size="" ;;
+      worked=1 idle_unworked=0 last_size="" resend="" ;;
     idle|changing)
+      if [ -n "$resend" ] && [ "$status" = idle ] && [ "$(pane_status strict)" = idle ]; then
+        send_prompt "$prompt"
+        resend="" idle_unworked=0
+        sleep 5; continue
+      fi
       [ "$status" = idle ] || worked=1
       if [ -s "$report" ]; then
         size=$(wc -c < "$report")

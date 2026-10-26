@@ -8,6 +8,11 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
+# Git sets these when it runs a hook. Inherited by a test that runs `git init`, they re-initialised this
+# repository instead of the test's folder: from a linked worktree that set core.bare=true on the shared
+# checkout (retro of 2026-10-26). No check needs them once the working directory is the top level.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_PREFIX
+
 # A check that writes to the repo is a bug: a local run and a CI run would then
 # disagree about what the repo contains, and a gate could pass by editing the
 # thing it is supposed to be checking.
@@ -92,6 +97,13 @@ while IFS= read -r script; do
   bash -n "$script"
   echo "  ok  $script"
 done < <(git ls-files 'scripts/*.sh' 'scripts/hooks/*' 'skills/*/*/scripts/*.sh' 'skills/*/*/templates/*.sh')
+
+if [ "$(git config --get core.bare || true)" = "true" ]; then
+  echo >&2
+  echo "FAIL: core.bare is true after the checks: a test re-initialised this repository. Reset it with" >&2
+  echo "      git config core.bare false, then find the git call that inherited the hook's variables." >&2
+  exit 1
+fi
 
 after="$(tree_state)"
 if [ "$before" != "$after" ]; then

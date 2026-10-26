@@ -44,7 +44,8 @@ FAKE = textwrap.dedent(r'''
     def fail(): print("rex: connection refused", file=sys.stderr); sys.exit(1)
     label = os.environ["FAKE_LABEL"]
     reused = any(x.startswith("reuse") for x in s)
-    phase = read("phase", ("startq" if "reuseq" in s else "idleq" if "reuseidle" in s else "ready") if reused else "start")
+    phase = read("phase", ("startq" if "reuseq" in s else "idleq" if "reuseidle" in s else "limit" if "reuselimit" in s
+                           else "busy" if "reusebusy" in s else "ready") if reused else "start")
     report = read("report_path")
     BIN = {"kimi": "kimi", "cursor": "cursor-agent", "codex": "codex"}[kind]
     def editor(text=""):
@@ -105,6 +106,15 @@ FAKE = textwrap.dedent(r'''
             write("phase", "asked")
         out({})
     if cmd == "send-key":
+        # Kimi's idle-session question: Down then Enter picks "Start a new session".
+        idle_shown = phase == "idleq" or (phase == "working" and "idleafter" in s and not os.path.exists(path("resumed")))
+        if idle_shown and args[-1] == "down":
+            write("down", ""); out({})
+        if idle_shown and args[-1] == "enter" and os.path.exists(path("down")):
+            os.remove(path("down"))
+            if "stillidle" not in s:
+                write("resumed", ""); write("phase", "ready")
+            out({})
         if phase == "trustq":
             write("phase", "ready"); out({})
         if phase in ("sent", "asked"):
@@ -118,8 +128,20 @@ FAKE = textwrap.dedent(r'''
     if cmd == "capture":
         n = count("captures")
         if "capfail" in s and phase == "working": fail()
-        if phase == "idleq" or (phase == "working" and "idleafter" in s):
+        if phase == "idleq" or (phase == "working" and "idleafter" in s and not os.path.exists(path("resumed"))):
             print(fixture("kimi-idle-session.txt")); sys.exit(0)
+        if phase == "limit" or (phase == "working" and "limitafter" in s):
+            print(fixture("kimi-usage-limit.txt")); sys.exit(0)
+        if phase == "busy":
+            # An earlier run's review finishes after a few looks and leaves its review-skill report.
+            if count("busy_looks") >= (120 if "longbusy" in s else 4):
+                write("phase", "ready")
+                if "busyreport" in s:
+                    run = os.path.join(os.environ["TMPDIR"], "compound-engineering-%d" % os.getuid(), "ce-code-review", "r1")
+                    os.makedirs(run, exist_ok=True)
+                    json.dump({"branch": "b", "head_sha": os.environ["FAKE_HEAD"]}, open(os.path.join(run, "metadata.json"), "w"))
+                    open(os.path.join(run, "report.md"), "w").write("EARLIER REVIEW\n")
+            print(fixture("kimi-running-agents.txt")); sys.exit(0)
         if phase == "sent" and "kimiwrapped" in s:
             print(fixture("kimi-wrapped-prompt.txt")); sys.exit(0)
         if phase == "sent" and "kimiscrolled" in s:
@@ -194,18 +216,26 @@ def stub(bindir, name, text, mode=0o755):
 
 class RexReview(unittest.TestCase):
     def run_case(self, scenario, extra=(), script=SCRIPT, env_extra=None, kind="codex", model=None,
-                 branch="b", verify="v", home=None):
+                 branch="b", verify="v", home=None, git_repo=False):
         state = tempfile.mkdtemp()
         bindir = tempfile.mkdtemp()
         stub(bindir, "rex", FAKE)
         stub(bindir, "sleep", "#!/bin/sh\nexit 0\n")
         repo = os.path.join(tempfile.mkdtemp(), "repo")
         os.mkdir(repo)
+        head = ""
+        if git_repo:
+            genv = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+            subprocess.run(["git", "init", "-q", repo], env=genv, check=True)
+            subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x"],
+                           cwd=repo, env=genv, check=True)
+            head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, env=genv, check=True, capture_output=True,
+                                  text=True).stdout.strip()
         self.top = os.path.realpath(repo)
         self.tmpdir = tempfile.mkdtemp()
         env = {k: v for k, v in os.environ.items() if not k.startswith(("REX_", "HERDR_", "GIT_"))}
         env.update(PATH=bindir + os.pathsep + os.environ["PATH"], FAKE_REX=scenario, FAKE_STATE=state,
-                   FAKE_KIND=kind, FAKE_TOP=self.top, FAKE_FIXTURES=os.path.join(HERE, "fixtures"), FAKE_LABEL=label_for(kind, model or KINDS[kind], repo),
+                   FAKE_KIND=kind, FAKE_TOP=self.top, FAKE_HEAD=head, FAKE_FIXTURES=os.path.join(HERE, "fixtures"), FAKE_LABEL=label_for(kind, model or KINDS[kind], repo),
                    REX_SESSION="session:s", REX_BLOCK="block:me",
                    TMPDIR=self.tmpdir, HERDR_REVIEW_ARTIFACT_ROOTS=self.tmpdir, HERDR_REVIEW_DIR=self.tmpdir,
                    HOME=home or tempfile.mkdtemp())
@@ -450,18 +480,56 @@ class RexReview(unittest.TestCase):
                 self.assertEqual(r.returncode, 1)
                 self.assertEqual(len(self.keys()), 0)
 
-    def test_kimis_idle_session_question_before_the_prompt_is_named_and_gets_no_key(self):
+    def test_kimis_idle_session_question_before_the_prompt_starts_a_new_session(self):
+        # 2026-10-26: a reused Kimi pane sat on this question and the prompt was never sent.
         r, calls = self.run_case("reuse,reuseidle", kind="kimi")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.stdout, "REVIEW FINDINGS\n")
+        keys = [a[-1] for a in self.keys()]
+        self.assertEqual(keys[:2], ["down", "enter"])
+        self.assertLess(calls.index("send-key"), calls.index("send"))
+        self.assertIn("chose Start a new session", r.stderr)
+
+    def test_kimis_idle_session_question_after_the_prompt_starts_a_new_session_and_resends(self):
+        r, calls = self.run_case("idleafter", kind="kimi")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.stdout, "REVIEW FINDINGS\n")
+        self.assertEqual(sum(1 for a in self.argv if a[0] == "send" and a[-1].startswith("Read AGENTS.md")), 2)
+        self.assertIn(["down"], [a[-1:] for a in self.keys()])
+
+    def test_kimis_idle_session_question_that_stays_after_the_answer_stops(self):
+        r, calls = self.run_case("reuse,reuseidle,stillidle", kind="kimi")
         self.assertEqual(r.returncode, 1)
         self.assertNotIn("send", calls)
-        self.assertNotIn("send-key", calls)
         self.assertEqual(r.stdout.splitlines()[-2], "Reviewer did not start: Kimi asks how to resume an idle session.")
 
-    def test_kimis_idle_session_question_after_the_prompt_is_named_and_gets_no_key(self):
-        r, _ = self.run_case("idleafter", kind="kimi")
+    def test_a_usage_limit_before_the_prompt_names_the_next_reviewer(self):
+        r, calls = self.run_case("reuse,reuselimit", kind="kimi")
         self.assertEqual(r.returncode, 1)
-        self.assertEqual(len(self.keys()), 1)   # the prompt's own Enter only
-        self.assertRegex(r.stdout.splitlines()[-2], r"^No report at \S+: Kimi asks how to resume an idle session\.$")
+        self.assertNotIn("send", calls)
+        lines = r.stdout.splitlines()
+        self.assertEqual(lines[-2], "Reviewer not available: it reports its usage limit.")
+        self.assertRegex(lines[-1], r"^Next: \S*pi-review\.sh --role independent --head \S+ --verify v$")
+
+    def test_a_usage_limit_after_the_prompt_ends_unavailable_not_finished(self):
+        r, _ = self.run_case("limitafter", kind="kimi")
+        self.assertEqual(r.returncode, 1)
+        lines = r.stdout.splitlines()
+        self.assertRegex(lines[-2], r"^No report at \S+: reviewer not available: it reports its usage limit\.$")
+        self.assertRegex(lines[-1], r"^Next: \S*pi-review\.sh --role independent")
+
+    def test_a_reused_pane_still_working_is_waited_for_not_given_up_on(self):
+        # 2026-10-26: "its screen never settled on its input line" while Kimi ran its agents.
+        r, calls = self.run_case("reuse,reusebusy,longbusy", kind="kimi")   # longer than the 90 looks
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.stdout, "REVIEW FINDINGS\n")
+        self.assertNotIn("never settled", r.stdout + r.stderr)
+
+    def test_a_reused_pane_finishing_an_earlier_run_of_this_review_hands_over_its_report(self):
+        r, calls = self.run_case("reuse,reusebusy,busyreport", kind="kimi", git_repo=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.stdout, "EARLIER REVIEW\n")
+        self.assertNotIn("send", calls)
 
     def test_a_prompt_that_stays_unsent_stops_after_three_enters(self):
         # Finding 6.
