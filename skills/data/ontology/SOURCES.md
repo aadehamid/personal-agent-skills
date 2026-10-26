@@ -70,10 +70,11 @@ Last full review: 2026-10-22. Check the sources below every three months, and wh
 
 ## 5. n10s: its source code, and behaviour observed in October 2026
 
-The two `sh:pattern` and `sh:in` facts in `references/shacl.md` (rules 17 and 18) rest on the n10s source at tag 2025.06.1 (commit `6a5846b`), `src/main/java/n10s/validation/SHACLValidator.java`, https://github.com/neo4j-labs/neosemantics/blob/2025.06.1/src/main/java/n10s/validation/SHACLValidator.java:
+The `sh:pattern`, `sh:in` and `sh:message` facts in `references/shacl.md` (rules 17 to 19) rest on the n10s source at tag 2025.06.1 (commit `6a5846b`), `src/main/java/n10s/validation/SHACLValidator.java`, https://github.com/neo4j-labs/neosemantics/blob/2025.06.1/src/main/java/n10s/validation/SHACLValidator.java:
 
 - Lines 1408 to 1417: `sh:pattern` compiles to Cypher `toString(x) =~ params.theRegex`; Cypher's `=~` matches the whole string.
 - Lines 1044 to 1048: a literal `sh:in` list is read as a list of strings; line 471 stores it as `params.put("theInLiterals", valueLiteralList)`; line 1359 tests `val in params.theInLiterals`.
+- Line 1232: `String customMsgFragment = " '%s' as customMsg";`, filled with the shape's `sh:message` unescaped (rule 19). A load on 2026-10-26 failed on a message with an apostrophe; the `ontology-to-lpg` skill's `SOURCES.md` records the run.
 
 The other n10s facts (the constraints it cannot run, SHORTEN against MAP mode) moved with the projection method to the `ontology-to-lpg` skill; its `SOURCES.md`, section 3, cites them.
 
@@ -113,7 +114,7 @@ Read on 2026-10-22: the slides and code of nine Going Meta sessions in https://g
 | Two domains mean "both" (session39's converter output) | `domain-model.md`, rule 6 |
 | State the skill's boundary; keep validation blocking; pin the validated version (Neo4j skill) | `SKILL.md` scope line; `governance.md`, rules 16, 17 and 27 |
 | Structure from deterministic code; model-written text only from supplied sources, re-checked (sessions 41, 48, 49) | `governance.md`, rules 18 and 19 |
-| Test how the target engine runs each constraint; anchor every pattern (session44, with our own n10s observation) | `shacl.md`, rules 16 to 18 |
+| Test how the target engine runs each constraint; anchor every pattern (session44, with our own n10s observation) | `shacl.md`, rules 16 to 19 |
 
 **Proposals not adopted, and why:**
 

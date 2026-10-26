@@ -19,6 +19,9 @@ This script gates nothing. What n10s compiled is read back from the engine by lo
        sh:nodeKind and the others)     sh:class on [ sh:inversePath p ] caught an outgoing p to an
                                        unclassed node and missed an incoming one
      a shape with sh:deactivated true  SHACL skips it, and n10s does not read the flag
+     an sh:message with a single quote n10s writes the message into each check's Cypher as
+                                       " '%s' as customMsg", unescaped (line 1232), so validate()
+                                       fails with a Cypher SyntaxException; seen in a load on 2026-10-26
    Everything else stays: what n10s does not read, it ignores, and load_verify.py reports it.
 
 2. It prints a PREDICTION of the (target, path, term) rows n10s will list, made by running the
@@ -95,6 +98,8 @@ def sanitize_reason(shapes, p, o, s=None):
         return "n10s compares a literal sh:in list as strings"
     if p == SH.hasValue and isinstance(o, Literal):
         return "n10s compares a literal sh:hasValue as a string"
+    if p == SH.message and "'" in str(o):
+        return "n10s writes sh:message into its Cypher between single quotes, unescaped, so a quote in it breaks validate()"
     return None
 
 
