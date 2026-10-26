@@ -488,6 +488,9 @@ class QuickCheckRegressions(unittest.TestCase):
         self.assertEqual(b.unsupported(["- > quoted"]), [(1, "a blockquote")])
         self.assertEqual(b.unsupported(["- [ref]: https://example.org"]), [(1, "a reference-style link definition")])
         self.assertEqual(b.unsupported(["- a plain item", "- [a link](https://example.org) item"]), [])
+        self.assertEqual(b.unsupported(["- - > quoted"]), [(1, "a blockquote")])
+        self.assertEqual(b.unsupported(["* - 3. [ref]: https://example.org"]), [(1, "a reference-style link definition")])
+        self.assertEqual(b.unsupported(["- ~~~"]), [(1, "a tilde code fence")])
 
     def test_a_readme_link_whose_label_is_not_the_path_is_read_by_its_target(self):
         row = "| [New doc](references/new.md) | agent | y |\n"

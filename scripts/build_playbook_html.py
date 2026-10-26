@@ -90,13 +90,16 @@ def unsupported(lines):
         if fence:
             continue
         bare = re.sub(r"`[^`]*`", "", line)
-        # A list item's own text is checked too, so "- > quote" and "- [ref]: url" are caught like a line start.
-        item = LIST_ITEM.match(line)
-        body = item.group(3) if item else None
+        # A list item's own text is checked too, through any chain of markers ("- - > quote"), so a construct
+        # there is caught like one at a line start.
+        bodies, rest = [], line
+        while (item := LIST_ITEM.match(rest)):
+            rest = item.group(3)
+            bodies.append(rest)
         for kind, pattern in UNSUPPORTED:
             if (pattern.search(bare if kind in ("an image", "inline HTML or an autolink") else line)
-                    or (body is not None and kind in ("a blockquote", "a reference-style link definition")
-                        and pattern.search(body))):
+                    or (kind in ("a blockquote", "a reference-style link definition", "a tilde code fence")
+                        and any(pattern.search(b) for b in bodies))):
                 found.append((n, kind))
         if (re.fullmatch(r" {0,3}-+\s*", line) and prev.strip() and not HEADING.match(prev)
                 and not LIST_ITEM.match(prev) and not prev.lstrip().startswith("|")):
