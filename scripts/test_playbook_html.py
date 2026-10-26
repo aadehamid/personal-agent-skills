@@ -90,38 +90,90 @@ class Inventory(unittest.TestCase):
                 self.assertIn("[`references/playbook.html`](references/playbook.html)", read(readme))
 
 
+REMOTE_CSS = re.compile(r"url\s*\(|@import", re.I)
+REMOTE_JS = re.compile(r"\bfetch\s*\(|XMLHttpRequest|WebSocket|EventSource|sendBeacon|\bimport\s*\(|importScripts"
+                       r"|new\s+(?:Image|Worker|SharedWorker)\b|\.src\s*=|\.href\s*=|location\s*=|window\.open", re.I)
+LOADING_RELS = {"stylesheet", "preload", "prefetch", "preconnect", "dns-prefetch", "icon", "modulepreload",
+                "manifest", "apple-touch-icon", "prerender"}
+
+
 class Resources(HTMLParser):
-    """Every resource a page would fetch: script, frame and media sources, stylesheet links, and images."""
+    """What a page would fetch: any src, srcset, data, poster or background attribute other than an embedded
+    PNG; a link whose rel holds a loading token (case-insensitive, 'alternate stylesheet' included); a frame or
+    media element; a style attribute or <style> block with url() or @import (any case); and inline script that
+    opens a request. images lists every img src, for the diagram test."""
 
     def __init__(self):
-        super().__init__()
-        self.fetched, self.images = [], []
+        super().__init__(convert_charrefs=True)
+        self.fetched, self.images, self._in = [], [], None
+        self._script, self._style = [], []
 
     def handle_starttag(self, tag, attrs):
-        a = dict(attrs)
+        a = {k.lower(): (v or "") for k, v in attrs}
         if tag == "img":
             self.images.append(a.get("src", ""))
-            return
-        for key in ("src", "srcset", "data"):
-            if key in a:
-                self.fetched.append(f"{tag} {key}={a[key]}")
-        if tag == "link" and a.get("rel") in ("stylesheet", "preload", "preconnect", "icon", "modulepreload"):
-            self.fetched.append(f"link {a.get('href')}")
-        if tag in ("iframe", "embed", "object", "video", "audio", "source"):
+        for key in ("src", "srcset", "data", "poster", "background", "lowsrc", "dynsrc"):
+            if key in a and not (tag == "img" and key == "src" and a[key].startswith("data:image/png;base64,")):
+                self.fetched.append(f"{tag} {key}={a[key][:60]}")
+        if tag == "link" and set(a.get("rel", "").lower().split()) & LOADING_RELS:
+            self.fetched.append(f"link rel={a.get('rel')} href={a.get('href')}")
+        if tag in ("iframe", "frame", "embed", "object", "video", "audio", "source", "track", "base"):
             self.fetched.append(tag)
+        if REMOTE_CSS.search(a.get("style", "")):
+            self.fetched.append(f"{tag} style={a['style'][:60]}")
+        if tag in ("script", "style"):
+            self._in = tag
+
+    def handle_endtag(self, tag):
+        if tag == self._in:
+            self._in = None
+
+    def handle_data(self, data):
+        if self._in == "script":
+            self._script.append(data)
+        elif self._in == "style":
+            self._style.append(data)
+
+    def close(self):
+        super().close()
+        if REMOTE_CSS.search("".join(self._style)):
+            self.fetched.append("style block with url() or @import")
+        for m in REMOTE_JS.finditer("".join(self._script)):
+            self.fetched.append(f"script {m.group(0)}")
+
+
+def network_loads(text):
+    p = Resources()
+    p.feed(text)
+    p.close()
+    return p.fetched
 
 
 class Standalone(unittest.TestCase):
     def test_no_page_loads_anything_from_the_network(self):
         for spec in b.PAGES:
             with self.subTest(page=spec["out"]):
-                text = read(spec["out"])
-                p = Resources()
-                p.feed(text)
-                self.assertEqual(p.fetched, [])
-                self.assertEqual([s for s in p.images if not s.startswith("data:image/png;base64,")], [])
-                styles = "".join(re.findall(r"<style>(.*?)</style>", text, re.S))
-                self.assertNotRegex(styles, r"url\(|@import")
+                self.assertEqual(network_loads(read(spec["out"])), [])
+
+    def test_each_kind_of_network_load_is_caught(self):
+        # Kimi round 2, findings 3 and 11: each canary must be reported.
+        for canary in ('<img src="data:image/png;base64,AA" srcset="https://example.invalid/a.png 2x">',
+                       '<link rel="alternate stylesheet" href="https://example.invalid/a.css">',
+                       '<link rel="StyleSheet" href="a.css">',
+                       '<style>body { background: URL(https://example.invalid/a.png) }</style>',
+                       '<style>@IMPORT "https://example.invalid/a.css";</style>',
+                       '<p style="background-image:url(https://example.invalid/a.png)">x</p>',
+                       '<script>fetch("https://example.invalid/data")</script>',
+                       '<script>new XMLHttpRequest()</script>',
+                       '<script>navigator.sendBeacon("https://example.invalid")</script>',
+                       '<script>var i = new Image(); i.src = "https://example.invalid/p.png"</script>',
+                       '<script src="https://example.invalid/a.js"></script>',
+                       '<video poster="https://example.invalid/p.png"></video>'):
+            with self.subTest(canary=canary):
+                self.assertNotEqual(network_loads(f"<html><body>{canary}</body></html>"), [])
+
+    def test_an_embedded_png_and_a_plain_link_are_not_loads(self):
+        self.assertEqual(network_loads('<img src="data:image/png;base64,AA"><a href="https://example.org">x</a>'), [])
 
     def test_the_projection_page_embeds_both_diagrams_byte_for_byte(self):
         named = sorted(set(re.findall(r"`(diagrams/[\w.-]+\.png)`",
@@ -129,6 +181,7 @@ class Standalone(unittest.TestCase):
         self.assertEqual(named, ["diagrams/data-flow.png", "diagrams/validation-path.png"])
         p = Resources()
         p.feed(read(PROJECTION["out"]))
+        p.close()
         embedded = [base64.b64decode(s.split(",", 1)[1]) for s in p.images]
         expected = []
         for rel in named:
