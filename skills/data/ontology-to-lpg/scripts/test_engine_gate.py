@@ -77,14 +77,16 @@ class Sanitizer(unittest.TestCase):
         g.add((lib("S-p"), SH.hasValue, Literal("x")))
         self.assertEqual(self.left_out_terms(g), {str(SH.datatype), str(SH.pattern), str(SH["in"]), str(SH.hasValue)})
 
-    def test_drops_a_literal_with_a_single_quote(self):
-        # validate() failed with a Cypher SyntaxException on such an sh:message in a load on 2026-10-26.
+    def test_drops_an_sh_message_with_a_single_quote(self):
+        # n10s writes sh:message into its Cypher between single quotes, unescaped (SHACLValidator.java
+        # line 1232); validate() failed with a SyntaxException on such a message in a load on 2026-10-26.
         g = shape_graph((lib("S-p"), SH.minCount, Literal(1)), (lib("S-p"), SH.message, Literal("A copy's barcode")),
-                        (lib("S-p"), SH.name, Literal("barcode")))
+                        (lib("S-p"), SH.name, Literal("A copy's barcode")), (lib("S"), SH.message, Literal("A copy")))
         safe, left = igs.subset(g)
-        self.assertEqual([str(t[1]) for t in left], [str(SH.message)])
+        self.assertEqual([(t[0], str(t[1])) for t in left], [(lib("S-p"), str(SH.message))])
         self.assertIn((lib("S-p"), SH.minCount, Literal(1)), safe)
-        self.assertIn((lib("S-p"), SH.name, Literal("barcode")), safe)
+        self.assertIn((lib("S-p"), SH.name, Literal("A copy's barcode")), safe)
+        self.assertIn((lib("S"), SH.message, Literal("A copy")), safe)
 
     def test_drops_a_deactivated_shape(self):
         g = shape_graph((lib("S-p"), SH.minCount, Literal(1)), (lib("S-p"), SH.deactivated, Literal(True)))
