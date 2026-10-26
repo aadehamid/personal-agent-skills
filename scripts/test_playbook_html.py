@@ -57,8 +57,13 @@ class Fresh(unittest.TestCase):
 
 
 def readme_problems(readme, sources):
-    """Each references/*.md the README's file table names that the page lacks, and the reverse."""
-    listed = set(re.findall(r"^\| \[?`(references/[\w.-]+\.md)`", readme, re.M))
+    """Each references/*.md the README's file table names that the page lacks, and the reverse. The first cell
+    is read whatever its form: plain, in backticks, or a Markdown link with or without backticks."""
+    listed = set()
+    for row in re.findall(r"^\|([^|\n]*)\|", readme, re.M):
+        cell = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", row).replace("`", "").strip()
+        if re.fullmatch(r"references/[\w.-]+\.md", cell):
+            listed.add(cell)
     on_page = {s.split("ontology-to-lpg/", 1)[1] for s in sources if "/references/" in s}
     return ([f"{p} is in the README but not on the page" for p in sorted(listed - on_page)]
             + [f"{p} is on the page but not in the README" for p in sorted(on_page - listed)])
@@ -76,10 +81,14 @@ class Inventory(unittest.TestCase):
     def test_the_readme_lists_exactly_the_page_sources(self):
         self.assertEqual(readme_problems(read("skills/data/ontology-to-lpg/README.md"), PROJECTION["sources"]), [])
 
-    def test_a_readme_row_missing_from_the_page_is_reported(self):
-        text = "| `references/pipeline.md` | x | y |\n| `references/new.md` | x | y |\n"
-        problems = readme_problems(text, ["skills/data/ontology-to-lpg/references/pipeline.md"])
-        self.assertEqual(problems, ["references/new.md is in the README but not on the page"])
+    def test_a_readme_row_missing_from_the_page_is_reported_in_any_form(self):
+        # Kimi round 2, finding 8: plain, linked and backticked first cells all count.
+        for cell in ("`references/new.md`", "references/new.md", "[references/new.md](references/new.md)",
+                     "[`references/new.md`](references/new.md)"):
+            with self.subTest(cell=cell):
+                text = f"| `references/pipeline.md` | x | y |\n| {cell} | x | y |\n"
+                problems = readme_problems(text, ["skills/data/ontology-to-lpg/references/pipeline.md"])
+                self.assertEqual(problems, ["references/new.md is in the README but not on the page"])
 
     def test_the_ontology_page_holds_the_playbook(self):
         self.assertEqual(ONTOLOGY["sources"], ["skills/data/ontology/references/playbook.md"])
@@ -199,35 +208,174 @@ class Standalone(unittest.TestCase):
             self.assertIn(f'src="data:image/png;base64,{base64.b64encode(png).decode()}"', out)
             self.assertIn('alt="The a b diagram"', out)
 
-    def test_no_page_holds_a_credential(self):
-        pattern = (r"dapi[0-9a-f]{20,}|\bsk-[A-Za-z0-9]{20,}|\bgh[pousr]_[A-Za-z0-9]{20,}|\bAKIA[0-9A-Z]{16}\b"
-                   r"|(?i:password|passwd|secret|api[_-]?key|token)\s*[=:]\s*['\"]?[A-Za-z0-9/+_-]{12,}")
+
+
+DIAGRAMS = os.path.join(b.ROOT, "skills/data/ontology-to-lpg/references/diagrams")
+INLINE = {"a", "abbr", "b", "code", "em", "i", "kbd", "mark", "q", "s", "small", "span", "strong", "sub", "sup", "u"}
+
+
+class Visible(HTMLParser):
+    """The text a reader sees: no script or style, inline tags joined without a gap (so Mar<b>athon</b> reads
+    Marathon), block tags separated by a line break."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts, self._skip = [], 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style"):
+            self._skip += 1
+        elif tag not in INLINE:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style"):
+            self._skip -= 1
+        elif tag not in INLINE:
+            self.parts.append("\n")
+
+    def handle_data(self, data):
+        if not self._skip:
+            self.parts.append(data)
+
+
+def visible_text(text):
+    p = Visible()
+    p.feed(text)
+    p.close()
+    return "".join(p.parts)
+
+
+CREDENTIALS = [
+    ("a Databricks token", r"\bdapi[0-9a-f]{20,}"),
+    ("an OpenAI-style key", r"\bsk-(?:proj-|ant-)?[A-Za-z0-9_-]{20,}"),
+    ("a GitHub token", r"\bgh[pousr]_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{22,}"),
+    ("a Slack token", r"\bxox[abprs]-[A-Za-z0-9-]{10,}"),
+    ("an AWS access key ID", r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+    ("an AWS secret access key", r"(?i)aws_secret_access_key\s*[=:]\s*['\"]?[A-Za-z0-9/+=]{40}"),
+    ("a private key", r"-----BEGIN (?:[A-Z]+ )*PRIVATE KEY-----"),
+    ("a Google API key", r"\bAIza[0-9A-Za-z_-]{35}\b"),
+    ("a credential assignment", r"(?i)\b(?:password|passwd|pwd|secret|api[_-]?key|access[_-]?key|auth[_-]?token|token)"
+                                r"\b\s*[=:]\s*['\"]?(?=[^\s'\"<>]*[0-9])[^\s'\"<>{}$%]{12,}"),
+]
+
+
+def credentials(text):
+    """(kind, matched text) for each credential-shaped string in text."""
+    return [(kind, m.group(0)) for kind, pattern in CREDENTIALS for m in re.finditer(pattern, text)]
+
+
+def diagram_inputs():
+    """Every text file that makes the two diagrams: the .eraser sources, the .excalidraw scenes the PNGs are
+    rendered from, and the generators that write the scenes."""
+    found = {ext: sorted(glob.glob(os.path.join(DIAGRAMS, pattern)))
+             for ext, pattern in (("eraser", "*.eraser"), ("excalidraw", "*.excalidraw"), ("generator", "make_*.py"))}
+    return found
+
+
+def png_chunks(data):
+    """The chunk types of a PNG, in order."""
+    out, i = [], 8
+    while i < len(data):
+        length = int.from_bytes(data[i:i + 4], "big")
+        out.append(data[i + 4:i + 8].decode("latin-1"))
+        i += 12 + length
+    return out
+
+
+# The one use of 'this repository' the projection page may make: its README's file table names the skills
+# repository's own check script. Any other use, and every other neutrality term, is reported.
+ALLOWED_PHRASES = [re.compile(r"this repository's check script", re.I)]
+
+
+def neutrality(text, allowed=()):
+    for phrase in allowed:
+        text = phrase.sub("", text)
+    return guide.problems(text)
+
+
+class Secrets(unittest.TestCase):
+    """Kimi round 2, findings 4, 5 and 12: credential shapes in every page (markup and visible text), every
+    Markdown source and every diagram input, with canaries for each shape."""
+
+    def test_no_page_source_or_diagram_input_holds_a_credential(self):
+        texts = {}
         for spec in b.PAGES:
-            with self.subTest(page=spec["out"]):
-                text = re.sub(r"data:image/png;base64,[A-Za-z0-9+/=]+", "", read(spec["out"]))
-                self.assertEqual(re.findall(pattern, text), [])
+            page = re.sub(r"data:image/png;base64,[A-Za-z0-9+/=]+", "", read(spec["out"]))
+            texts[spec["out"]] = page
+            texts[spec["out"] + " (visible)"] = visible_text(page)
+            for src in spec["sources"]:
+                texts[src] = read(src)
+        for paths in diagram_inputs().values():
+            for path in paths:
+                with open(path, encoding="utf-8") as f:
+                    texts[path] = f.read()
+        for name, text in texts.items():
+            with self.subTest(text=name):
+                self.assertEqual(credentials(text), [])
+
+    def test_each_credential_shape_is_caught(self):
+        for canary in ("dapi" + "0123456789abcdef0123456789abcdef", "sk-" + "A1b2C3d4E5f6G7h8I9j0K1l2",
+                       "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2", "github_pat_" + "11ABCDEFG0123456789_abcdefghijklmnop",
+                       "xoxb-" + "1234567890-abcdefghij", "AKIA" + "ABCDEFGHIJKLMNOP",
+                       "aws_secret_access_key = " + "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+                       "-----BEGIN RSA " + "PRIVATE KEY-----", "AIza" + "SyA1234567890abcdefghijklmnopqrstuv",
+                       "password=" + "Hunter2!Hunter2!9", "api_key: " + "'x9.y8-z7_w6@v5u4'"):
+            with self.subTest(canary=canary):
+                self.assertNotEqual(credentials(canary), [])
+
+    def test_prose_and_placeholders_are_not_credentials(self):
+        for text in ("the password is in ~/epm-lpg/run.env", "--password <password>", "NEO4J_PASSWORD=%s",
+                     "token: see the env file", "a skill-version"):
+            with self.subTest(text=text):
+                self.assertEqual(credentials(text), [])
+
+    def test_a_credential_split_by_markup_is_found_in_the_visible_text(self):
+        page = "<p>dapi0123456789<strong>abcdef0123456789abcdef</strong></p>"
+        self.assertEqual(credentials(page), [])
+        self.assertNotEqual(credentials(visible_text(page)), [])
+
+    def test_the_diagrams_carry_no_text_chunks(self):
+        # The PNGs are rendered from the .excalidraw scenes the tests read; a text chunk (tEXt, iTXt, zTXt)
+        # would carry words those scans never see. Raster text itself is not read: its source is the scene.
+        for path in sorted(glob.glob(os.path.join(DIAGRAMS, "*.png"))):
+            with self.subTest(png=path):
+                with open(path, "rb") as f:
+                    data = f.read()
+                self.assertEqual(sorted(set(png_chunks(data)) - {"IHDR", "IDAT", "IEND", "sRGB", "pHYs", "gAMA"}), [])
+                self.assertEqual(credentials(data.decode("latin-1")), [])
 
 
 class Neutral(unittest.TestCase):
-    """Both pages and the projection's diagram sources name no project's records, companies, paths or industry.
-    'This repository' is allowed on the projection page: there it means the skills repository itself (its
-    check script), not a project's build."""
+    """The pages and every diagram input name no project's records, companies, paths or industry; markup cannot
+    hide a name (the visible text is scanned too). The only phrase allowed on the projection page is
+    ALLOWED_PHRASES; the diagram inputs get no exemption. Kimi round 2, findings 5, 6 and 7."""
 
-    def check(self, text, allow=()):
-        return [p for p in guide.problems(text) if p[1] not in allow]
+    def test_each_page_is_neutral_in_markup_and_visible_text(self):
+        for spec, allowed in ((ONTOLOGY, ()), (PROJECTION, ALLOWED_PHRASES)):
+            text = read(spec["out"])
+            for name, body in (("markup", text), ("visible", visible_text(text))):
+                with self.subTest(page=spec["out"], view=name):
+                    self.assertEqual(neutrality(body, allowed), [])
 
-    def test_the_projection_page_and_its_diagram_sources_are_neutral(self):
-        allow = ("a reference to one project's build",)
-        self.assertEqual(self.check(read(PROJECTION["out"]), allow), [])
-        sources = glob.glob(os.path.join(b.ROOT, "skills/data/ontology-to-lpg/references/diagrams/*.eraser"))
-        self.assertEqual(len(sources), 2)
-        for src in sources:
-            with self.subTest(source=src):
-                with open(src, encoding="utf-8") as f:
-                    self.assertEqual(self.check(f.read(), allow), [])
+    def test_every_diagram_input_is_neutral(self):
+        inputs = diagram_inputs()
+        self.assertEqual({k: len(v) for k, v in inputs.items()}, {"eraser": 2, "excalidraw": 2, "generator": 2})
+        for paths in inputs.values():
+            for path in paths:
+                with self.subTest(source=path):
+                    with open(path, encoding="utf-8") as f:
+                        self.assertEqual(neutrality(f.read()), [])
 
-    def test_the_ontology_page_is_neutral(self):
-        self.assertEqual(self.check(read(ONTOLOGY["out"])), [])
+    def test_the_exemption_is_one_phrase(self):
+        self.assertEqual(neutrality("Tests: this repository's check script runs them.", ALLOWED_PHRASES), [])
+        self.assertNotEqual(neutrality("This repository holds one project's private build.", ALLOWED_PHRASES), [])
+        self.assertNotEqual(neutrality("the worked example's build", ALLOWED_PHRASES), [])
+
+    def test_a_name_split_by_markup_is_found(self):
+        page = "<p>Mar<strong>athon</strong> plans</p>"
+        self.assertEqual(neutrality(page), [])
+        self.assertNotEqual(neutrality(visible_text(page)), [])
 
 
 class Renderer(unittest.TestCase):
