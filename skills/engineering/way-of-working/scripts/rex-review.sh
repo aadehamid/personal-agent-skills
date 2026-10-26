@@ -226,7 +226,8 @@ show_pane() { rx capture -b "$review_pane" --trim 2>/dev/null | tail -n "$1" || 
 #   blocked     a known question is on the bottom lines
 #   working     a busy marker shows
 #   unsent      the reviewer's own input line still holds the prompt (Kimi's input box is read
-#               whole, so a prompt wrapped over many lines inside it still counts)
+#               whole, so a prompt wrapped over many lines inside it still counts, and so does
+#               one scrolled inside it, whose visible text ends with the prompt's last sentence)
 #   changing    the screen moved since the last look
 #   idle        the reviewer's own input line shows, empty, and nothing moved; called with
 #               "strict" (before anything is typed), also no other question or choice list
@@ -297,7 +298,11 @@ if kind == "kimi" and asked_at is not None and choice_at is not None and asked_a
     paths = [l.strip() for l in dialog[asked_at + 1:choice_at] if l.strip().startswith("/")]
     trust = len(paths) == 1 and os.path.realpath(paths[0]) == top
 inputs = [box_text] if box_text is not None else [m.group("text") for m in (re.match(editor, l) for l in lines[-12:]) if m]
-held = any(t.startswith(("Read AGENTS.md", "Write your final review report", "[Pasted text")) for t in inputs)
+# A prompt longer than Kimi'"'"'s box scrolls inside it: the top border reads "↑ 13 more" and the first
+# visible line is the middle of the prompt (2026-10-25, three times), so the prompt'"'"'s own last
+# sentence marks it too.
+held = any(t.startswith(("Read AGENTS.md", "Write your final review report", "[Pasted text"))
+           or t.endswith("Then reply with that path.") for t in inputs)
 # Codex: its idle placeholder text was not checked live (its hook-review prompt stood in the
 # way on 2026-10-24), so any input line not holding the prompt counts as ready.
 ready = any(t in ready_text for t in inputs) if ready_text is not None else bool(inputs) and not held

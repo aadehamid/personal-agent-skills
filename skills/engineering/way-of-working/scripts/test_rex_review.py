@@ -122,6 +122,8 @@ FAKE = textwrap.dedent(r'''
             print(fixture("kimi-idle-session.txt")); sys.exit(0)
         if phase == "sent" and "kimiwrapped" in s:
             print(fixture("kimi-wrapped-prompt.txt")); sys.exit(0)
+        if phase == "sent" and "kimiscrolled" in s:
+            print(fixture("kimi-scrolled-prompt.txt")); sys.exit(0)
         if phase == "startq":
             print("  Hooks need review\n  Press enter to confirm or esc to go back"); sys.exit(0)
         if phase == "migrateeditor":
@@ -424,6 +426,15 @@ class RexReview(unittest.TestCase):
         # screen redrawing; the script looks again rather than holding the Enter, and reads the
         # box whole as the unsent prompt, not as a question.
         r, _ = self.run_case("kimiwrapped", kind="kimi")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("Held the Enter", r.stderr)
+        self.assertEqual(len(self.keys()), 1)
+
+    def test_a_prompt_scrolled_inside_kimis_input_box_is_unsent_and_gets_its_enter(self):
+        # The live screen of 2026-10-25 (fixtures/kimi-scrolled-prompt.txt): the prompt is longer than
+        # the box, whose top border reads "↑ 13 more", so its first visible line is the middle of the
+        # prompt. Before the fix the script read it as an unknown screen and held the Enter.
+        r, _ = self.run_case("kimiscrolled", kind="kimi")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotIn("Held the Enter", r.stderr)
         self.assertEqual(len(self.keys()), 1)

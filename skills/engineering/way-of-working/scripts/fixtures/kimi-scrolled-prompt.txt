@@ -1,0 +1,33 @@
+Kimi Code updated to v2.3.2
+Changelog: https://moonshotai.github.io/kimi-code/en/release-notes/changelog.htm
+l
+
+ ╭────────────────────────────────────────────────────────────────────────────╮
+ │                                                                            │
+ │  ▐█▛█▛█▌  Welcome to Kimi Code!                                            │
+ │  ▐█████▌  Send /help for help information.                                 │
+ │                                                                            │
+ │  Directory: /private/tmp/claude-501/wt-skills-qskos                        │
+ │  Session:                                                                  │
+ │  Model:     K3.1 Pro                                                       │
+ │  Version:   2.3.2                                                          │
+ │                                                                            │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+
+ ✦ Kimi K3.1 Pro is ready - use the model in a fresh session for the best
+                          results
+   Standard: Plus/Moderato and above; Highspeed: Pro/Allegretto and above
+
+   No session yet — one will be created on your first message.
+
+ ╭──────────────────────────────── ↑ 13 more ─────────────────────────────────╮
+ │ > repository that has it, including places outside the diff. Say how       │
+ │   this could pass review while still being wrong. Report findings only;    │
+ │   do not apply them. When the review is finished, write the final          │
+ │   report as Markdown to exactly this path:                                 │
+ │   /var/folders/my/ch_k93ys3550_9kv4jlqlklc0000gn/T//review-IdKcYE. This    │
+ │   is required even if the review skill also saves its own report           │
+ │   elsewhere. Then reply with that path.                                    │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+ Ask When Needed  K3.1 Pro thinking: high  …/tmp/claude-501/wt-skills-qskos  o…
+                                                             context: 0% (0/1M)
