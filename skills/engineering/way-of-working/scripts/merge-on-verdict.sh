@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Merge a pull request once its review bot says MERGE on a given head and its required check passes.
 #
-# Usage: merge-on-verdict.sh <number> <head-sha> [--check <name>] [--bot <login>]
+# Usage: merge-on-verdict.sh <number> <head-sha> [--repo <owner/name>] [--check <name>] [--bot <login>]
 #                            [--timeout <seconds>] [--interval <seconds>] [--admin-if-only-review]
 #                            [--require-section <heading>]
 #   Defaults: --check checks, --bot cursor[bot], --timeout 3600, --interval 30.
-#   Run from the repository, as a background job the harness reports back on
-#   (Claude Code: run_in_background).
+#   Run from the repository, or name it with --repo, as a background job the harness reports
+#   back on (Claude Code: run_in_background). The pull request must be the one at <head-sha>:
+#   a merged or open one at another head ends with exit 4, so a number looked up in the wrong
+#   repository is never reported as merged (2026-10-26: run from another repository, it found
+#   that repository's old #73 and printed "merged by").
 # The verdict is the bot's newest review on <head-sha> (a prefix is enough): its body,
 # after any leading HTML comments, starts with MERGE or HOLD. Reviews on older commits
 # never count, and a bot review that starts with neither word (an approval note) is
@@ -26,11 +29,11 @@
 # heading whose text is exactly that, ignoring the case of ASCII letters only, for example "Sweep";
 # otherwise it exits 6.
 # Exit codes:
-#   0  merged, by this script or by someone else (it prints who)
+#   0  merged at <head-sha>, by this script or by someone else (it prints who)
 #   1  the pull request was closed without a merge, or a gh call kept failing
 #   2  HOLD: the review is printed
 #   3  the check finished without success
-#   4  the head is no longer <head-sha>: a new push needs a new verdict
+#   4  the head is not <head-sha>: a new push needs a new verdict, or this is another pull request
 #   5  timed out
 #   6  the body lacks the --require-section heading
 #   64 a usage error
@@ -38,12 +41,13 @@
 set -euo pipefail
 
 number="" head="" check="checks" bot="cursor[bot]" timeout=3600 interval=30 admin="" section=""
-usage() { echo "$1" >&2; echo "usage: $0 <number> <head-sha> [--check <name>] [--bot <login>] [--timeout <seconds>] [--interval <seconds>] [--admin-if-only-review] [--require-section <heading>]" >&2; exit 64; }
+usage() { echo "$1" >&2; echo "usage: $0 <number> <head-sha> [--repo <owner/name>] [--check <name>] [--bot <login>] [--timeout <seconds>] [--interval <seconds>] [--admin-if-only-review] [--require-section <heading>]" >&2; exit 64; }
 while [ $# -gt 0 ]; do
   case "$1" in
-    --check|--bot|--timeout|--interval|--require-section)
+    --check|--bot|--timeout|--interval|--require-section|--repo)
       [ $# -ge 2 ] || usage "missing value for $1"
       case "$1" in
+        --repo) [ -n "$2" ] || usage "--repo needs owner/name"; export GH_REPO="$2" ;;   # every gh call, {owner}/{repo} too
         --check) check="$2" ;; --bot) bot="$2" ;; --timeout) timeout="$2" ;; --interval) interval="$2" ;;
         --require-section) [ -n "$2" ] || usage "--require-section needs a heading"; section="$2" ;;
       esac
@@ -156,6 +160,13 @@ deadline=$(( $(date +%s) + timeout ))
 while :; do
   if pr_state; then
     read -r state current merged_by check_state review_decision merge_state all_green base <<<"$REPLY"
+    case "$current" in
+      "$head"*) ;;
+      *) if [ "$state" = MERGED ]; then
+           echo "pull request $number${GH_REPO:+ in $GH_REPO} was merged at $current, not $head: it is not the pull request you meant; run from its repository or pass --repo" >&2
+           exit 4
+         fi ;;
+    esac
     case "$state" in
       MERGED) echo "merged by $merged_by"; exit 0 ;;
       CLOSED) echo "closed without a merge" >&2; exit 1 ;;

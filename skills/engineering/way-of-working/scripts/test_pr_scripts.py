@@ -72,6 +72,8 @@ FAKE_GH_MERGE = textwrap.dedent(r'''
         polls += 1
         open(path, "w").write(str(polls))
     entry = seq[min(polls, len(seq)) - 1]
+    with open(os.path.join(state, "gh_repo"), "a") as f:
+        f.write(os.environ.get("GH_REPO", "-") + "\n")
     if sys.argv[1:3] == ["pr", "merge"]:
         with open(os.path.join(state, "merges"), "a") as f:
             f.write(" ".join(sys.argv[3:]) + "\n")
@@ -274,6 +276,7 @@ class MergeOnVerdict(unittest.TestCase):
         self.comments = open(comments_path).read().splitlines() if os.path.exists(comments_path) else []
         polls_path = os.path.join(state, "polls")
         self.polls = int(open(polls_path).read()) if os.path.exists(polls_path) else 0
+        self.state = state
         return r, merges
 
     def test_merge_waits_for_the_check_then_merges_on_the_full_head(self):
@@ -429,6 +432,20 @@ class MergeOnVerdict(unittest.TestCase):
                                    "--timeout", "0")
         self.assertEqual(r.returncode, 5)
         self.assertEqual(merges, [])
+
+    def test_a_pull_request_merged_at_another_head_is_not_reported_as_merged(self):
+        # 2026-10-26: run from the wrong repository, it found that repository's old #73 and printed "merged by".
+        r, merges = self.run_merge([step(pr("MERGED", head="0123456789ab", merged_by="someone"))])
+        self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+        self.assertNotIn("merged by", r.stdout)
+        self.assertIn("was merged at 0123456789ab, not abc1234: it is not the pull request you meant", r.stderr)
+        self.assertEqual(merges, [])
+
+    def test_repo_names_the_repository_for_every_gh_call(self):
+        r, _ = self.run_merge([step(pr("MERGED", merged_by="app/cursor"))], "--repo", "owner/other")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        seen = set(open(os.path.join(self.state, "gh_repo")).read().split())
+        self.assertEqual(seen, {"owner/other"})
 
     def test_already_merged_reports_who_merged(self):
         r, merges = self.run_merge([step(pr("MERGED", merged_by="app/cursor"))])
