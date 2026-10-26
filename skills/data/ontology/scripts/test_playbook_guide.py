@@ -10,6 +10,8 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GUIDE = os.path.join(HERE, "..", "references", "playbook.md")
+# The guide's HTML page, built from playbook.md (scripts/build_playbook_html.py at the repository root).
+GUIDE_HTML = os.path.join(HERE, "..", "references", "playbook.html")
 
 # Each pattern names one kind of build-specific text. \s+ inside a pattern also matches a line break,
 # so a term wrapped across two lines is still found.
@@ -41,6 +43,10 @@ def problems(text):
 class Guide(unittest.TestCase):
     def test_the_guide_is_neutral(self):
         with open(GUIDE, encoding="utf-8") as f:
+            self.assertEqual(problems(f.read()), [])
+
+    def test_the_html_page_is_neutral_too(self):
+        with open(GUIDE_HTML, encoding="utf-8") as f:
             self.assertEqual(problems(f.read()), [])
 
     def test_each_kind_of_term_is_caught(self):
