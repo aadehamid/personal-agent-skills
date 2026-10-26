@@ -55,7 +55,8 @@ Serves Step 7. Read it before you bring back a parked overlay (measures, data pr
 27. **Write down the rules for the graph's consumers:**
     - **The catalog binding:** a row binds a measure to the data product that publishes its values only when both ends are defined first, checked by a shape.
     - **What an agent may answer from the graph alone:** what a thing is; what it is not; where it sits and what the placement claims; what a series is built from; who is responsible; which source says so and which wins; what a measure includes and excludes, where its source says.
-    - **What an agent must refuse:** computing or quoting a value; building a series from its legs; treating a candidate or a report column as a KPI; naming a party without its role; presenting a context placement as ownership.
+    - **What an agent may quote:** a measure's value taken through the source the catalog binds to that measure, naming the source, with the graph's context beside it.
+    - **What an agent must refuse:** computing a value from the graph; quoting a value from a source the catalog does not bind to that measure; building a series from its legs; treating a candidate or a report column as a KPI; naming a party without its role; presenting a context placement as ownership.
     *Why:* a consumer that improvises these rules gives answers the ontology does not support.
 28. **Make each consumer rule name the graph terms it relies on**, and test that they exist. *Why:* a renamed term otherwise silently breaks a rule nobody runs.
 

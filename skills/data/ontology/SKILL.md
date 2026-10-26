@@ -19,7 +19,7 @@ Scope: from intake to a released, checked ontology; Step 12 hands its property-g
 
 ## The steps
 
-Keep the order, except Step 8, which runs right after Step 0. Before you work on a step, read the reference it names.
+Keep the order, except Step 8, which runs right after Step 0. Before you work on a step, read the reference it names. When the user asks why the method works this way, or wants it explained step by step with an example, read `references/playbook.md`, the narrative guide; the references below hold the rules.
 
 0. **Reference framework and existing ontologies.** Read `references/foundations.md` and `references/external-ontologies.md`; record in `templates/survey-register.md`.
    Done when: every cited framework ID is verified against the publisher's copy (or the framework's absence is a recorded finding), every divergence has a boundary note, and the survey meets the "Done when" in `references/external-ontologies.md`.
