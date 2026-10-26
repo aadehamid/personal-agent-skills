@@ -73,7 +73,7 @@ Last review: 2026-10-22.
 
 ## 1n. The enterprise-performance-model documents retro (2026-10-26)
 
-- **Link:** https://github.com/aadehamid/enterprise-performance-model PRs #382 to #386, and this repo's #72 and #73.
+- **Link:** https://github.com/aadehamid/enterprise-performance-model PRs #382, #383, #385 and #386, issue #384, and this repo's #72 and #73.
 - **What we took:** five lessons, three in scripts and two here. The stores runbook took four review rounds because its commands had not been run (`before-push.md`, item 5). The ontology guide and the generated pages linked each other across two PRs and cost a round (`changing.md`, "Files that link to each other ship in one PR"). `rex-review.sh` lost three reviews to Kimi's idle-session question, its usage limit and a busy reused pane; `merge-on-verdict.sh` reported a merge for another repository's PR; and a test that ran `git init` with a pre-push hook's `GIT_DIR` inherited made the shared checkout bare (`scripts/check.sh` now clears those variables and fails on `core.bare`).
 
 ## 2. mattpocock-skills (marketplace `mattpocock`, v1.3.1)

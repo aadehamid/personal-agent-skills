@@ -178,8 +178,10 @@ def read_config(path):
     return cfg
 
 
-# The variables Git sets for a hook. Inherited, they make git answer for the hook's repository instead of
-# the folder it is pointed at, so a repository check run from a pre-push hook would look at the wrong one.
+# The variables Git sets for a hook. Inherited, they change which repository git answers for (with
+# GIT_WORK_TREE set too, the hook's worktree instead of the folder it is pointed at), so a repository check
+# run from a pre-push hook could look at the wrong one; `git init` under them re-initialises the hook's
+# repository, which is how the shared checkout became bare.
 HOOK_GIT_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_PREFIX")
 
 
