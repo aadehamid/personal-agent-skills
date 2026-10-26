@@ -64,6 +64,8 @@ def readme_problems(readme, sources):
         cell = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", row).replace("`", "").strip()
         if re.fullmatch(r"references/[\w.-]+\.md", cell):
             listed.add(cell)
+        else:  # a link whose label is not the path: read its target
+            listed.update(t for t in re.findall(r"\]\(([^)]*)\)", row) if re.fullmatch(r"references/[\w.-]+\.md", t))
     on_page = {s.split("ontology-to-lpg/", 1)[1] for s in sources if "/references/" in s}
     return ([f"{p} is in the README but not on the page" for p in sorted(listed - on_page)]
             + [f"{p} is on the page but not in the README" for p in sorted(on_page - listed)])
@@ -473,6 +475,23 @@ class Unsupported(unittest.TestCase):
             spec = {"out": os.path.join(tmp, "bad.html"), "title": "t", "scope": "s", "lead": "l", "sources": [src]}
             with self.assertRaisesRegex(ValueError, r"bad\.md:3: a blockquote is not supported"):
                 b.build(spec)
+
+
+
+class QuickCheckRegressions(unittest.TestCase):
+    """Pi's quick check after round 2: an email autolink, a construct on a list marker line, a labelled README link."""
+
+    def test_an_email_autolink_stops_the_build(self):
+        self.assertEqual(b.unsupported(["contact <user@example.com> please"]), [(1, "inline HTML or an autolink")])
+
+    def test_a_blockquote_or_definition_on_a_list_marker_line_stops_the_build(self):
+        self.assertEqual(b.unsupported(["- > quoted"]), [(1, "a blockquote")])
+        self.assertEqual(b.unsupported(["- [ref]: https://example.org"]), [(1, "a reference-style link definition")])
+        self.assertEqual(b.unsupported(["- a plain item", "- [a link](https://example.org) item"]), [])
+
+    def test_a_readme_link_whose_label_is_not_the_path_is_read_by_its_target(self):
+        row = "| [New doc](references/new.md) | agent | y |\n"
+        self.assertEqual(readme_problems(row, []), ["references/new.md is in the README but not on the page"])
 
 
 if __name__ == "__main__":
