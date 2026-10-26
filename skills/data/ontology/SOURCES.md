@@ -114,7 +114,7 @@ Read on 2026-10-22: the slides and code of nine Going Meta sessions in https://g
 | Two domains mean "both" (session39's converter output) | `domain-model.md`, rule 6 |
 | State the skill's boundary; keep validation blocking; pin the validated version (Neo4j skill) | `SKILL.md` scope line; `governance.md`, rules 16, 17 and 27 |
 | Structure from deterministic code; model-written text only from supplied sources, re-checked (sessions 41, 48, 49) | `governance.md`, rules 18 and 19 |
-| Test how the target engine runs each constraint; anchor every pattern (session44, with our own n10s observation) | `shacl.md`, rules 16 to 18 |
+| Test how the target engine runs each constraint; anchor every pattern (session44, with our own n10s observation) | `shacl.md`, rules 16 to 19 |
 
 **Proposals not adopted, and why:**
 

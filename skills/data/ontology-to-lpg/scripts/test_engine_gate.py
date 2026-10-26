@@ -84,6 +84,7 @@ class Sanitizer(unittest.TestCase):
                         (lib("S-p"), SH.name, Literal("A copy's barcode")), (lib("S"), SH.message, Literal("A copy")))
         safe, left = igs.subset(g)
         self.assertEqual([(t[0], str(t[1])) for t in left], [(lib("S-p"), str(SH.message))])
+        self.assertNotIn((lib("S-p"), SH.message, Literal("A copy's barcode")), safe)
         self.assertIn((lib("S-p"), SH.minCount, Literal(1)), safe)
         self.assertIn((lib("S-p"), SH.name, Literal("A copy's barcode")), safe)
         self.assertIn((lib("S"), SH.message, Literal("A copy")), safe)
