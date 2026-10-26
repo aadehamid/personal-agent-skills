@@ -5,12 +5,17 @@ Run from the repository root:
   python3 scripts/build_playbook_html.py            write every page
   python3 scripts/build_playbook_html.py --check    exit 1 when a committed page differs from a fresh build
 
-The Markdown is the master copy; each HTML page is generated from it through playbook_template.html and
-is never edited by hand. scripts/test_playbook_html.py runs --check, so a Markdown change that is not
-rebuilt fails scripts/check.sh. Standard library only. The renderer covers the Markdown these files use:
-ATX headings, paragraphs, thematic breaks (dropped), fenced code (also inside list items), tables, nested ordered and unordered
-lists, `code`, **bold**, *italic*, [links](...) and bare https URLs. A backticked `diagrams/<name>.png`
-in a paragraph puts that picture, embedded, right after the paragraph.
+The Markdown is the master copy; each HTML page is generated from it through playbook_template.html (the
+one file to edit for the page's look) and is never edited by hand. scripts/test_playbook_html.py drives
+main(["--check"]), so a Markdown change that is not rebuilt fails scripts/check.sh. Standard library only.
+
+The renderer covers the Markdown these files use: ATX headings, paragraphs, thematic breaks (dropped),
+fenced code (also inside list items), tables, nested ordered and unordered lists, `code`, **bold**,
+*italic*, [links](...) and bare https URLs. A backticked `diagrams/<name>.png` in a paragraph puts that
+picture, embedded as a data URI, right after the paragraph. Anything else it can recognise (a blockquote,
+a Setext heading, an image, inline HTML or an autolink, a reference-style link definition) stops the
+build with the file and line, rather than turning into a plain paragraph. An indented code block outside
+a list is not detected: these files indent only list content.
 """
 import base64
 import html
@@ -56,6 +61,37 @@ PAGES = [
 LIST_ITEM = re.compile(r"^( *)([-*]|\d+\.) (.*)$")
 FENCE = re.compile(r"^( *)```(\S*)\s*$")
 HEADING = re.compile(r"^(#{1,6}) (.+?)\s*#*\s*$")
+
+
+UNSUPPORTED = [
+    ("a blockquote", re.compile(r"^ {0,3}>")),
+    ("a Setext heading underline", re.compile(r"^ {0,3}=+\s*$")),
+    ("a reference-style link definition", re.compile(r"^ {0,3}\[[^\]]+\]:\s")),
+    ("an image", re.compile(r"!\[")),
+    ("inline HTML or an autolink", re.compile(r"<[A-Za-z/!][^>]*>")),
+]
+
+
+def unsupported(lines):
+    """(line number, kind) for each construct the renderer does not handle, outside fenced code. Inline
+    patterns are matched with code spans removed. A '---' right under a text line is a Setext heading."""
+    found, fence, prev = [], False, ""
+    for n, line in enumerate(lines, 1):
+        if FENCE.match(line):
+            fence = not fence
+            prev = ""
+            continue
+        if fence:
+            continue
+        bare = re.sub(r"`[^`]*`", "", line)
+        for kind, pattern in UNSUPPORTED:
+            if pattern.search(bare if kind in ("an image", "inline HTML or an autolink") else line):
+                found.append((n, kind))
+        if (re.fullmatch(r" {0,3}-+\s*", line) and prev.strip() and not HEADING.match(prev)
+                and not LIST_ITEM.match(prev) and not prev.lstrip().startswith("|")):
+            found.append((n, "a Setext heading underline"))
+        prev = line
+    return found
 
 
 def slug(text):
@@ -282,6 +318,9 @@ class Page:
             src = os.path.normpath(os.path.join(ROOT, src_rel))
             with open(src, encoding="utf-8") as f:
                 lines = f.read().split("\n")
+            bad = unsupported(lines)
+            if bad:
+                raise ValueError("; ".join(f"{src_rel}:{n}: {kind} is not supported" for n, kind in bad))
             pre = self.prefix[src]
             if pre:
                 # One section per source file; its own h1 becomes the section heading (h2).
@@ -327,12 +366,13 @@ def build(spec):
     return Page(spec).render()
 
 
-def main(argv):
+def main(argv, out_root=ROOT):
+    """Write every page under out_root, or with --check return 1 when a page there is missing or differs."""
     check = "--check" in argv
     stale = []
     for spec in PAGES:
         page = build(spec)
-        out = os.path.join(ROOT, spec["out"])
+        out = os.path.join(out_root, spec["out"])
         if check:
             try:
                 with open(out, encoding="utf-8") as f:
@@ -342,6 +382,7 @@ def main(argv):
             if current != page:
                 stale.append(spec["out"])
         else:
+            os.makedirs(os.path.dirname(out), exist_ok=True)
             with open(out, "w", encoding="utf-8") as f:
                 f.write(page)
             print(f"wrote {spec['out']}")
