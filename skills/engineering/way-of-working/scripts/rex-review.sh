@@ -222,14 +222,14 @@ show_pane() { rx capture -b "$review_pane" --trim 2>/dev/null | tail -n "$1" || 
 #   gone        the pane's program exited
 #   starting    the login shell that starts the reviewer is still in front (startup only)
 #   unreadable  rex could not give the process or the screen
-#   blocked     the program reports blocked (OSC 7501)
-#   working     the program reports working
-#   trust       Kimi's trust dialog, "Trust and continue" selected, naming this work tree on
-#               its own path line, the one between its question and its choices
 #   limit       the reviewer reports its usage limit (Kimi: "429 You've reached your 5-hour usage
 #               limit"): it is not available, and the next reviewer in the order takes the review
+#   blocked     the program reports blocked (OSC 7501)
+#   working     the program reports working
 #   idlesession Kimi asks how to resume a session left idle (compact, new, continue): answered once
 #               with "Start a new session", since a review wants a fresh context
+#   trust       Kimi's trust dialog, "Trust and continue" selected, naming this work tree on
+#               its own path line, the one between its question and its choices
 #   blocked     a known question is on the bottom lines
 #   working     a busy marker shows
 #   unsent      the reviewer's own input line still holds the prompt (Kimi's input box is read
