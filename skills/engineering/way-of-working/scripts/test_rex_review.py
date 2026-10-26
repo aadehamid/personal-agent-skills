@@ -124,6 +124,8 @@ FAKE = textwrap.dedent(r'''
             print(fixture("kimi-wrapped-prompt.txt")); sys.exit(0)
         if phase == "sent" and "kimiscrolled" in s:
             print(fixture("kimi-scrolled-prompt.txt")); sys.exit(0)
+        if phase == "sent" and "suffixother" in s:
+            print(editor("Do something unrelated. Then reply with that path.")); sys.exit(0)
         if phase == "startq":
             print("  Hooks need review\n  Press enter to confirm or esc to go back"); sys.exit(0)
         if phase == "migrateeditor":
@@ -438,6 +440,15 @@ class RexReview(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotIn("Held the Enter", r.stderr)
         self.assertEqual(len(self.keys()), 1)
+
+    def test_the_prompts_last_sentence_alone_sends_no_enter(self):
+        # Kimi round 1: the last sentence marks the prompt only inside Kimi's scrolled box. Unrelated text ending
+        # in it, in an ordinary Kimi box or on Cursor's or Codex's input line, gets no key.
+        for kind in ("kimi", "cursor", "codex"):
+            with self.subTest(kind=kind):
+                r, _ = self.run_case("suffixother,neverenter", kind=kind)
+                self.assertEqual(r.returncode, 1)
+                self.assertEqual(len(self.keys()), 0)
 
     def test_kimis_idle_session_question_before_the_prompt_is_named_and_gets_no_key(self):
         r, calls = self.run_case("reuse,reuseidle", kind="kimi")

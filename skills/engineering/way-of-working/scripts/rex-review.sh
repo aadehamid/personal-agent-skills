@@ -266,13 +266,15 @@ bottom = "\n".join(lines[-12:])
 # above the status lines. A long prompt wraps over many lines inside it, so its "│ >" line can
 # be far above the bottom twelve (2026-10-25: 23 lines up). The box is the reviewer'"'"'s own text:
 # nothing inside it counts as a question.
-box, box_text = set(), None
+box, box_text, scrolled = set(), None, False
 if kind == "kimi":
     ends = [i for i, l in enumerate(lines) if l.strip().startswith("\u2570")]
     if ends and len(lines) - 1 - ends[-1] <= 4:
         starts = [i for i in range(ends[-1]) if lines[i].strip().startswith("\u256d")]
         if starts:
             box = set(range(starts[-1], ends[-1] + 1))
+            # A prompt longer than the box scrolls inside it, and the top border then reads "↑ 13 more".
+            scrolled = bool(re.search(r"\u2191\s*\d+\s+more", lines[starts[-1]]))
             inner = [re.sub(r"^\s*\u2502\s?|\s*\u2502\s*$", "", lines[i]) for i in range(starts[-1] + 1, ends[-1])]
             if inner and re.match(r"^\s*>", inner[0]):
                 box_text = " ".join([re.sub(r"^\s*>\s?", "", inner[0]).strip()] + [c.strip() for c in inner[1:]]).strip()
@@ -301,8 +303,8 @@ inputs = [box_text] if box_text is not None else [m.group("text") for m in (re.m
 # A prompt longer than Kimi'"'"'s box scrolls inside it: the top border reads "↑ 13 more" and the first
 # visible line is the middle of the prompt (2026-10-25, three times), so the prompt'"'"'s own last
 # sentence marks it too.
-held = any(t.startswith(("Read AGENTS.md", "Write your final review report", "[Pasted text"))
-           or t.endswith("Then reply with that path.") for t in inputs)
+held = any(t.startswith(("Read AGENTS.md", "Write your final review report", "[Pasted text")) for t in inputs) or (
+    kind == "kimi" and scrolled and box_text is not None and box_text.endswith("Then reply with that path."))
 # Codex: its idle placeholder text was not checked live (its hook-review prompt stood in the
 # way on 2026-10-24), so any input line not holding the prompt counts as ready.
 ready = any(t in ready_text for t in inputs) if ready_text is not None else bool(inputs) and not held
