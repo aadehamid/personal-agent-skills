@@ -368,9 +368,10 @@ why the split pays:
   be reused in another organization.
 - **Each module carries its own shapes and tests,** and a whole-graph gate
   catches what breaks between them (`shacl.md`).
-- **Consumers load only what they need.** The release closure loads the
-  highest released version of each module a consumer asks for
-  (`release.md`).
+- **Consumers load only what they need.** A package's dependency closure
+  is read from the released manifests: each dependency brings what its own
+  release requires, and only where two paths reach different releases of one
+  module is the highest loaded (`release.md`, rule 12).
 - **A projection can tag every node with its module,** so a walk across the
   graph shows where each fact came from (Step 12).
 
