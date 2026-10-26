@@ -238,6 +238,25 @@ class Unsupported(unittest.TestCase):
             with self.subTest(kind=kind):
                 self.assertIn((2, kind), b.unsupported(["intro", line]))
 
+    def test_round_two_bypasses_are_reported(self):
+        # Kimi round 2: a tilde fence, a compact definition, a blockquote in list content, a tag split over lines.
+        for lines, expected in ((["~~~", "x", "~~~"], (1, "a tilde code fence")),
+                                (["[ref]:https://example.org"], (1, "a reference-style link definition")),
+                                (["- item", "    > quoted"], (2, "a blockquote")),
+                                (["Before <span", 'class="x">after.'], (1, "inline HTML or an autolink")),
+                                (["- item", "  text <div", "  >x"], (2, "inline HTML or an autolink"))):
+            with self.subTest(lines=lines):
+                self.assertIn(expected, b.unsupported(lines))
+
+    def test_the_build_reports_each_bypass_with_its_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = os.path.join(tmp, "bad.md")
+            with open(src, "w", encoding="utf-8") as f:
+                f.write("# Title\n\n- item\n    > quoted\n\n[r]:https://example.org\n")
+            spec = {"out": os.path.join(tmp, "bad.html"), "title": "t", "scope": "s", "lead": "l", "sources": [src]}
+            with self.assertRaisesRegex(ValueError, r"bad\.md:4: a blockquote.*bad\.md:6: a reference-style"):
+                b.build(spec)
+
     def test_a_setext_heading_is_reported(self):
         self.assertIn((2, "a Setext heading underline"), b.unsupported(["Heading", "==="]))
         self.assertIn((2, "a Setext heading underline"), b.unsupported(["Heading", "---"]))

@@ -12,10 +12,12 @@ main(["--check"]), so a Markdown change that is not rebuilt fails scripts/check.
 The renderer covers the Markdown these files use: ATX headings, paragraphs, thematic breaks (dropped),
 fenced code (also inside list items), tables, nested ordered and unordered lists, `code`, **bold**,
 *italic*, [links](...) and bare https URLs. A backticked `diagrams/<name>.png` in a paragraph puts that
-picture, embedded as a data URI, right after the paragraph. Anything else it can recognise (a blockquote,
-a Setext heading, an image, inline HTML or an autolink, a reference-style link definition) stops the
-build with the file and line, rather than turning into a plain paragraph. An indented code block outside
-a list is not detected: these files indent only list content.
+picture, embedded as a data URI, right after the paragraph. Anything else it can recognise stops the
+build with the file and line, rather than turning into a plain paragraph: a blockquote or a tilde fence
+(at any indent, so inside list content too), a Setext heading, an image, inline HTML or an autolink (from
+its first line, so a tag split across lines too), and a reference-style link definition (with or without
+a space after the colon). An indented code block outside a list is not detected: these files indent only
+list content.
 """
 import base64
 import html
@@ -39,7 +41,7 @@ PAGES = [
     {
         "out": "skills/data/ontology-to-lpg/references/playbook.html",
         "title": "Ontology-to-LPG projection playbook",
-        "scope": "The ontology-to-lpg skill, version 2.3",
+        "scope": "The ontology-to-lpg skill",
         "lead": "How to project an ontology built on the W3C stack into a Neo4j labelled property graph, check "
                 "it, and run it with every store: the design rules, the inputs, the pipeline, running it in a "
                 "repository, the add-ons and the stores.",
@@ -63,12 +65,16 @@ FENCE = re.compile(r"^( *)```(\S*)\s*$")
 HEADING = re.compile(r"^(#{1,6}) (.+?)\s*#*\s*$")
 
 
+# Line patterns hold at any indent, so a construct inside list content is caught too. The inline HTML
+# pattern needs only a tag's start (<name followed by a space, '/', '>' or the line's end; </name; <!;
+# <scheme:), so a tag split across two lines is caught on its first line.
 UNSUPPORTED = [
-    ("a blockquote", re.compile(r"^ {0,3}>")),
-    ("a Setext heading underline", re.compile(r"^ {0,3}=+\s*$")),
-    ("a reference-style link definition", re.compile(r"^ {0,3}\[[^\]]+\]:\s")),
+    ("a blockquote", re.compile(r"^\s*>")),
+    ("a tilde code fence", re.compile(r"^\s*~~~")),
+    ("a Setext heading underline", re.compile(r"^\s*=+\s*$")),
+    ("a reference-style link definition", re.compile(r"^\s*\[[^\]]+\]:")),
     ("an image", re.compile(r"!\[")),
-    ("inline HTML or an autolink", re.compile(r"<[A-Za-z/!][^>]*>")),
+    ("inline HTML or an autolink", re.compile(r"<(?:[A-Za-z][A-Za-z0-9-]*(?=[\s/>]|$)|/[A-Za-z]|!|[A-Za-z][A-Za-z0-9+.-]*:)")),
 ]
 
 
