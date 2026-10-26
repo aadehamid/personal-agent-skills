@@ -29,6 +29,27 @@ def run(stdin, check_status=0):
         return p.returncode, p.stdout
 
 
+CHECK = os.path.join(os.path.dirname(os.path.abspath(__file__)), "check.sh")
+HOOK_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_PREFIX")
+
+
+class CheckScriptGuards(unittest.TestCase):
+    """check.sh clears the variables Git sets for a hook before any test runs, and fails if core.bare ends
+    up true: a test that inherited GIT_DIR from a hook in a linked worktree made the shared checkout bare."""
+
+    def setUp(self):
+        self.text = open(CHECK).read()
+
+    def test_the_hook_variables_are_cleared_before_the_first_test(self):
+        unset = next(line for line in self.text.splitlines() if line.startswith("unset GIT_"))
+        self.assertEqual(set(unset.split()[1:]), set(HOOK_VARS))
+        self.assertLess(self.text.index(unset), self.text.index("uv run pytest"))
+
+    def test_a_bare_repository_after_the_checks_fails_them(self):
+        self.assertIn('if [ "$(git config --get core.bare || true)" = "true" ]; then', self.text)
+        self.assertLess(self.text.index("core.bare || true"), self.text.index("All checks passed."))
+
+
 class PrePushHook(unittest.TestCase):
     def test_a_delete_only_push_skips_the_checks(self):
         status, out = run(f"(delete) {ZERO} refs/heads/a {SHA}\n(delete) {ZERO} refs/heads/b {SHA}\n")

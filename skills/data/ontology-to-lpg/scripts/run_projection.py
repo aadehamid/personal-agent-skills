@@ -178,10 +178,20 @@ def read_config(path):
     return cfg
 
 
+# The variables Git sets for a hook. Inherited, they make git answer for the hook's repository instead of
+# the folder it is pointed at, so a repository check run from a pre-push hook would look at the wrong one.
+HOOK_GIT_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_PREFIX")
+
+
+def git_env():
+    """The environment without the variables Git sets for a hook."""
+    return {k: v for k, v in os.environ.items() if k not in HOOK_GIT_VARS}
+
+
 def inside_repository(out, base):
     try:
         top = subprocess.run(["git", "-C", base, "rev-parse", "--show-toplevel"], capture_output=True,
-                             text=True, check=True, stdin=subprocess.DEVNULL).stdout.strip()
+                             text=True, check=True, stdin=subprocess.DEVNULL, env=git_env()).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         return False
     top = os.path.realpath(top)
