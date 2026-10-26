@@ -219,9 +219,10 @@ Some rules apply across modules rather than inside one: which links make a
 claim of ownership, which source wins, and what a consumer may do with the
 graph. Put them in one integration package that sits above the modules it
 governs and holds no new business facts, only statements about the other
-modules' terms. It has three vocabularies, each in its own namespace and
-source folder, released together as one package (`integration.md`, rules 25
-to 28):
+modules' terms. It holds three kinds of rule, each of which `integration.md`
+states (rules 25 to 28). Keeping each kind as its own vocabulary, with its own
+namespace and source folder, released together as one package, is one way to
+lay it out, not a rule:
 
 - **Placement** says what each placing link claims. A link that names the
   process owning a thing *certifies*; every other placement is *context*.
@@ -335,7 +336,8 @@ sources. Make it decide the same way every time:
 1. **Rank the source types once,** in tiers, before any modeling: the
    organization's own governing documents first, then peers' published
    equivalents, then sector standards and sector-specific sources, then
-   generic frameworks, which support a reading but never settle one alone.
+   generic frameworks, which support a decision but never settle one alone
+   (`foundations.md`, policy 3).
 2. **Give every cited source exactly one tier, and every tier one rank.**
    Record the tiers as data in the integration package, not as prose, so a
    query can say which source wins.
