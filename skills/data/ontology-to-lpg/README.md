@@ -41,6 +41,7 @@ The `ontology` skill builds the ontology and hands over to this one at its Step 
 | `references/diagrams/` | you | The two diagrams: `.eraser` sources, `.excalidraw` scenes written by `make_data_flow.py` and `make_validation_path.py`, and PNGs from `excalidraw render`. |
 | `references/learning-path.md` | agent, when you ask what to learn | Thirteen W3C, Neo4j and research topics in priority order, with an exercise each. |
 | `references/versions.md` | agent, when a project pins an older version | What versions 2, 2.1, 2.2 and 2.3 changed. |
+| [`references/playbook.html`](references/playbook.html) | you | This README and every reference above as one page to read in a browser, with the two diagrams. `scripts/build_playbook_html.py`, at the repository root, generates it from the Markdown: edit the Markdown, then rebuild. |
 | `templates/projection-config.json` | agent, step 2 | The configuration `check_projection_rules.py`, `validate_data.py` and `build.py` read: the Rule 4 option and its reason, own namespaces, prefixes, qualified relations, package pins, release exceptions, tool versions. |
 | `templates/run-config.json` | agent, every run after the first | The run configuration `run_projection.py` reads, for the library example in files mode. |
 | `templates/projection-report.json` | agent, step 6 | The fields the verify step's report holds. Empty, so `build.py check-report` fails on it until a run fills it. |

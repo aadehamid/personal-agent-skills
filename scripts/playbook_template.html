@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="scripts/build_playbook_html.py">
+<title>{{TITLE}}</title>
+<style>
+/* Style: framed-sheet (tasteskill app sheet), screen "report", the same tokens as the stores runbook so the
+   documents read as one set. Face: the frame tinted blue-grey, the accent teal on links and the current
+   contents entry. Pages are generated from Markdown by scripts/build_playbook_html.py through scripts/playbook_template.html: change the Markdown or the template, never a generated page. */
+:root {
+  --ground: #f1f4f6;  --surface: #ffffff;  --raised: #f4f6f8;  --active: #ebedee;
+  --border: #e3e6e9;  --rule: #eef0f2;     --control: #cdced1;
+  --text: #131416;    --muted: #5d5f60;    --faint: #66686a;
+  --accent: #1b6c80;  --accent-soft: #e5f0f3;
+  --notice-bg: #fffbeb; --notice-line: #fde68a; --notice-ink: #92400e;
+  --code-bg: #f4f6f8;
+  --radius-card: 8px; --radius-control: 6px; --radius-sheet: 16px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --fs-title: 24px; --fs-section: 19px; --fs-sub: 16px; --fs-body: 15.5px; --fs-small: 12.5px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0b0c0d; --surface: #141516; --raised: #1b1c1e; --active: #242628;
+    --border: #2a2c2f; --rule: #222426; --control: #44474b;
+    --text: #f2f3f3; --muted: #b4b6b8; --faint: #9a9c9e;
+    --accent: #5fb3c7; --accent-soft: #15292e;
+    --notice-bg: #261d0c; --notice-line: #3b2e14; --notice-ink: #f2cf94;
+    --code-bg: #1b1c1e;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--ground); color: var(--text); font: var(--fs-body)/1.65 var(--font); }
+.bar { height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 20px; border-bottom: 1px solid var(--border); background: var(--ground); position: sticky; top: 0; z-index: 3; }
+.bar .name { font-weight: 600; font-size: 14px; }
+.bar .scope { color: var(--muted); font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar .top { margin-left: auto; color: var(--muted); font-size: 13.5px; text-decoration: none; }
+.bar .top:hover { color: var(--text); }
+
+.sheet { max-width: 1136px; margin: 24px auto 40px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sheet); padding: 32px 24px 56px; }
+.head { max-width: 1088px; margin: 0 auto; }
+h1 { font-size: var(--fs-title); font-weight: 600; margin: 0; line-height: 1.25; letter-spacing: -.01em; }
+.lead { color: var(--text); font-size: 16px; margin: 8px 0 0; max-width: 76ch; }
+.from-line { color: var(--muted); font-size: var(--fs-small); margin: 8px 0 0; max-width: 100ch; }
+.notice { margin: 18px 0 0; background: var(--notice-bg); border: 1px solid var(--notice-line); color: var(--notice-ink); border-radius: var(--radius-control); padding: 8px 12px; font-size: 13px; max-width: 1088px; }
+.notice code { background: transparent; color: inherit; }
+
+/* contents rail and the text: 248 + 32 + 808 = 1088 */
+.layout { max-width: 1088px; margin: 28px auto 0; display: grid; grid-template-columns: 248px minmax(0, 1fr); gap: 32px; align-items: start; }
+.toc { position: sticky; top: 72px; max-height: calc(100vh - 96px); overflow-y: auto; font-size: 13.5px; padding-right: 4px; }
+.toc p { margin: 0 0 8px; font-weight: 600; font-size: 13.5px; }
+.toc ul { list-style: none; margin: 0; padding: 0; }
+.toc li a { display: block; color: var(--muted); text-decoration: none; padding: 4px 8px; border-radius: var(--radius-control); line-height: 1.4; }
+.toc li.l3 a { padding-left: 20px; font-size: 13px; }
+.toc li a:hover { color: var(--text); background: var(--raised); }
+.toc li a.on { color: var(--text); background: var(--accent-soft); }
+article { min-width: 0; }
+
+h2, h3, h4, h5, h6 { scroll-margin-top: 64px; line-height: 1.35; position: relative; }
+h2 { font-size: var(--fs-section); font-weight: 600; margin: 44px 0 8px; }
+article > h2:first-child, section.src:first-child > h2 { margin-top: 0; }
+h3 { font-size: var(--fs-sub); font-weight: 600; margin: 32px 0 6px; }
+h4, h5, h6 { font-size: 15px; font-weight: 600; margin: 24px 0 4px; }
+.hl { margin-left: 8px; color: var(--faint); text-decoration: none; font-weight: 400; opacity: 0; }
+h2:hover .hl, h3:hover .hl, h4:hover .hl, .hl:focus { opacity: 1; }
+section.src { padding-top: 8px; }
+section.src + section.src { margin-top: 56px; padding-top: 28px; border-top: 1px solid var(--border); }
+.from { color: var(--muted); font-size: var(--fs-small); margin: 0 0 14px; }
+p, li { max-width: 76ch; }
+p { margin: 10px 0; }
+ul, ol { padding-left: 24px; margin: 10px 0; }
+li { margin: 5px 0; }
+li > ul, li > ol { margin: 4px 0; }
+a { color: var(--accent); overflow-wrap: anywhere; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+strong { font-weight: 600; }
+code { font: 13.5px var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+pre { position: relative; background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 14px 16px; overflow-x: auto; margin: 12px 0 16px; max-width: 100%; }
+pre code { background: none; padding: 0; font-size: 13px; line-height: 1.6; white-space: pre; overflow-wrap: normal; }
+.copy { position: absolute; top: 8px; right: 8px; font: 12px var(--font); background: var(--surface); color: var(--muted); border: 1px solid var(--border); border-radius: var(--radius-control); padding: 3px 8px; cursor: pointer; }
+.copy:hover { color: var(--text); }
+.tblwrap { overflow-x: auto; margin: 14px 0 12px; border: 1px solid var(--border); border-radius: var(--radius-card); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+th.num, td.num { text-align: right; }
+th { text-align: left; font-weight: 600; font-size: 13px; color: var(--muted); padding: 9px 12px; border-bottom: 1px solid var(--border); background: var(--raised); vertical-align: bottom; }
+td { padding: 10px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+td p { margin: 0; }
+tr:last-child td { border-bottom: 0; }
+td code, th code { font-size: 12.5px; }
+td:first-child code { white-space: nowrap; overflow-wrap: normal; }
+figure.pic { margin: 16px 0 20px; }
+figure.pic img { display: block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: var(--radius-card); background: #ffffff; }
+figure.pic figcaption { color: var(--muted); font-size: 13px; margin-top: 8px; }
+.end { color: var(--muted); font-size: var(--fs-small); margin-top: 48px; border-top: 1px solid var(--rule); padding-top: 14px; }
+
+@media (max-width: 960px) {
+  .sheet { margin: 0; border-radius: 0; border-width: 0; padding: 20px 16px 40px; }
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 20px; }
+  .toc { position: static; max-height: none; border: 1px solid var(--border); border-radius: var(--radius-card); padding: 4px 8px; }
+  .toc details summary { cursor: pointer; font-weight: 600; padding: 8px 4px; list-style-position: inside; }
+  .toc ul { padding-bottom: 8px; }
+  .toc details > p { display: none; }
+}
+@media (min-width: 961px) {
+  .toc details > summary { display: none; }
+}
+@media (max-width: 640px) {
+  pre { padding-top: 40px; }
+  .bar .scope { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+</style>
+</head>
+<body id="top">
+<header class="bar">
+  <span class="name">{{TITLE}}</span>
+  <span class="scope">{{SCOPE}}</span>
+  <a class="top" href="#top">Back to top</a>
+</header>
+<div class="sheet">
+  <div class="head">
+    <h1>{{TITLE}}</h1>
+    <p class="lead">{{LEAD}}</p>
+    <p class="from-line">Built from {{SOURCES}}.</p>
+  </div>
+  <p class="notice">This page is generated from the Markdown, which is the master copy. A change goes into the Markdown first, then into this page by rebuilding it.</p>
+  <div class="layout">
+    <nav class="toc" aria-label="Contents">
+      <details open>
+        <summary>Contents</summary>
+        <p>Contents</p>
+        <ul>
+{{TOC}}
+        </ul>
+      </details>
+    </nav>
+    <article>
+{{BODY}}
+      <p class="end">End of the {{TITLE}}. Built from {{SOURCES}}.</p>
+    </article>
+  </div>
+</div>
+<script>
+(function () {
+  if (navigator.clipboard) {
+    document.querySelectorAll("pre").forEach(function (pre) {
+      var b = document.createElement("button");
+      b.className = "copy"; b.type = "button"; b.textContent = "Copy";
+      b.addEventListener("click", function () {
+        navigator.clipboard.writeText(pre.querySelector("code").innerText).then(function () {
+          b.textContent = "Copied"; setTimeout(function () { b.textContent = "Copy"; }, 1500);
+        });
+      });
+      pre.appendChild(b);
+    });
+  }
+  var links = Array.prototype.slice.call(document.querySelectorAll(".toc a"));
+  var byId = {};
+  links.forEach(function (a) { byId[a.getAttribute("href").slice(1)] = a; });
+  var heads = links.map(function (a) { return document.getElementById(a.getAttribute("href").slice(1)); })
+    .filter(Boolean);
+  if (!("IntersectionObserver" in window) || !heads.length) return;
+  var current = null;
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) {
+        if (current) current.classList.remove("on");
+        current = byId[e.target.id];
+        if (current) current.classList.add("on");
+      }
+    });
+  }, { rootMargin: "-60px 0px -75% 0px" });
+  heads.forEach(function (h) { io.observe(h); });
+  if (window.matchMedia("(max-width: 960px)").matches) {
+    var d = document.querySelector(".toc details");
+    if (d) d.removeAttribute("open");
+  }
+})();
+</script>
+</body>
+</html>
