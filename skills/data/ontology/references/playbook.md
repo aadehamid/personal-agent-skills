@@ -516,47 +516,48 @@ new check, it goes in `quality.md`.
 
 ### Testing and validation, end to end
 
-A change is trusted only after it has passed every check below, in this
-order. Each check catches a kind of failure the ones before it cannot see,
-and each has its rule in one reference, named in brackets.
+A change is trusted only after it has passed every check below. Each one
+catches a kind of failure the others cannot see. Each item names the rule
+that holds it; the rule, not this list, is the source.
 
 1. **Tests written from the decision.** The module's tests pin its figures,
-   its new IRIs and its corrected statements by hand, from what was decided,
-   so a builder's mistake cannot agree with itself (`release.md`, rule 29).
+   its new IRIs and its corrected statements by hand, written from what was
+   decided (`release.md`, rule 29).
 2. **The mechanical checks.** The taxonomy checker runs on the data files
-   before anyone reads a definition, and on each new package beside the one
-   it replaces: what the release fixes is gone, the other findings are
-   unchanged, and a new one appears only with a recorded decision
-   (`identity-taxonomy.md`, rule 13; `release.md`, rule 30).
-3. **Shapes on every package.** Each released package conforms to its own
-   shapes over its closure, and every shape message runs in the engines
-   that will load it (`shacl.md`, rules 9 and 19).
+   before any review (`identity-taxonomy.md`, rule 13), and on each new
+   package beside the one it replaces: what the release fixes is gone, the
+   other findings are unchanged, and a new one appears only with a recorded
+   decision (`release.md`, rule 30).
+3. **Shapes on every package.** Each written release package conforms to
+   its own shapes over its released closure (`shacl.md`, rule 9), and no
+   `sh:message` holds a single quote unless that message is tested in the
+   target engine (`shacl.md`, rule 19).
 4. **The classification, proved.** A test compares the release with the one
-   before it: no IRI is gone, nothing is deprecated in a minor or patch
-   release, and every deprecated term names its successor (`release.md`,
-   rules 3, 5 and 28).
-5. **The competency questions.** The SPARQL regression runs on the released
-   packages; a change in its answers is either a regression or a recorded
-   change (`regression.md`).
-6. **The sweep.** Every claim the change makes is searched for in all its
-   wordings, so no stale copy survives elsewhere (`quality.md`, "Soundness
-   checks on every change").
-7. **The whole check suite.** One script runs every module's tests, the
-   builds' freshness checks and the regression, after the sweep's fixes,
-   because a change in one module can break a check in another
-   (`regression.md`, rule 14).
-8. **The projection and the stores.** In the property graph, SHACL runs
+   before it: every earlier IRI is still declared, nothing is newly
+   deprecated in a minor or patch release, and every deprecated term names
+   its successor (`release.md`, rules 3, 5 and 28).
+5. **The competency questions.** The regression suite runs on the released
+   packages after every module lands and on every release, and checks each
+   question's status (`regression.md`, rule 13).
+6. **The sweep, then the check script.** Every claim the change makes is
+   searched for in all its wordings, then the project's full check script
+   runs (`quality.md`, "Soundness checks on every change"). The check script
+   runs every check the build has, each builder's `--verify` among them
+   (`governance.md`, rule 15; `release.md`, rule 9), and the whole suite runs
+   before a review, not only the module's tests (`regression.md`, rule 14).
+7. **The projection and the stores.** In the property graph, SHACL runs
    inside the graph, a deliberate broken case is caught, a round trip back
-   to RDF loses and adds nothing, and two loads in different orders hash the
-   same. Each copy to another store is compared with the files by hash and
-   by walks through the graph (the `ontology-to-lpg` skill, `pipeline.md`
-   and `multi-store.md`).
-9. **Review.** A reviewer who did not write the change reviews it before the
+   to RDF loses and adds nothing, and two loads in different orders give the
+   same graph. Each triple-store copy's hash equals the source's, the Aura
+   copy's hash equals the local graph's, and walks compare Neo4j with the
+   triple store (the `ontology-to-lpg` skill: `multi-store.md`, and
+   `add-ons.md`, section F).
+8. **Review.** A reviewer who did not write the change reviews it before the
    pull request opens, and the pull request's reviewer gives the verdict;
    nothing merges past a hold (`governance.md`, "Review").
-10. **Approval.** The release's approval is quoted in its manifest and
-    pinned in a test that reads the saved answer (`release.md`, rules 6
-    and 7).
+9. **Approval.** The release's approval is quoted in its manifest and
+   pinned in a test that reads the saved answer (`release.md`, rules 6
+   and 7).
 
 ---
 
