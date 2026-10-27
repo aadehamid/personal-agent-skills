@@ -96,9 +96,11 @@ class Inventory(unittest.TestCase):
         self.assertEqual(ONTOLOGY["sources"], ["skills/data/ontology/references/playbook.md"])
 
     def test_each_readme_links_its_page(self):
-        for readme in ("skills/data/ontology/README.md", "skills/data/ontology-to-lpg/README.md"):
+        # Each page is named for what it holds, so the two pages never share a file name.
+        for readme, page in (("skills/data/ontology/README.md", "ontology-build-playbook.html"),
+                             ("skills/data/ontology-to-lpg/README.md", "ontology-to-neo4j-playbook.html")):
             with self.subTest(readme=readme):
-                self.assertIn("[`references/playbook.html`](references/playbook.html)", read(readme))
+                self.assertIn(f"[`references/{page}`](references/{page})", read(readme))
 
 
 REMOTE_CSS = re.compile(r"url\s*\(|@import", re.I)
