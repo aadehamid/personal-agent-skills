@@ -536,7 +536,8 @@ that holds it; the rule, not this list, is the source.
 4. **The classification, proved.** A test compares the release with the one
    before it: every earlier IRI is still declared, nothing is newly
    deprecated in a minor or patch release, and every deprecated term names
-   its successor (`release.md`, rules 3, 5 and 28).
+   its successor; a first release's test asserts instead that nothing is
+   deprecated (`release.md`, rules 3, 5 and 28).
 5. **The competency questions.** The regression suite runs on the released
    packages after every module lands and on every release, and checks each
    question's status (`regression.md`, rule 13).
