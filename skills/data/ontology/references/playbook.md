@@ -525,7 +525,8 @@ and each has its rule in one reference, named in brackets.
    so a builder's mistake cannot agree with itself (`release.md`, rule 29).
 2. **The mechanical checks.** The taxonomy checker runs on the data files
    before anyone reads a definition, and on each new package beside the one
-   it replaces: what the release fixes is gone, nothing new appears
+   it replaces: what the release fixes is gone, the other findings are
+   unchanged, and a new one appears only with a recorded decision
    (`identity-taxonomy.md`, rule 13; `release.md`, rule 30).
 3. **Shapes on every package.** Each released package conforms to its own
    shapes over its closure, and every shape message runs in the engines
@@ -537,12 +538,13 @@ and each has its rule in one reference, named in brackets.
 5. **The competency questions.** The SPARQL regression runs on the released
    packages; a change in its answers is either a regression or a recorded
    change (`regression.md`).
-6. **The whole check suite.** One script runs every module's tests, the
-   builds' freshness checks and the regression, because a change in one
-   module can break a check in another (`regression.md`, rule 14).
-7. **The sweep.** Every claim the change makes is searched for in all its
+6. **The sweep.** Every claim the change makes is searched for in all its
    wordings, so no stale copy survives elsewhere (`quality.md`, "Soundness
    checks on every change").
+7. **The whole check suite.** One script runs every module's tests, the
+   builds' freshness checks and the regression, after the sweep's fixes,
+   because a change in one module can break a check in another
+   (`regression.md`, rule 14).
 8. **The projection and the stores.** In the property graph, SHACL runs
    inside the graph, a deliberate broken case is caught, a round trip back
    to RDF loses and adds nothing, and two loads in different orders hash the
