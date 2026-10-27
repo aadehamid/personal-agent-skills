@@ -527,7 +527,8 @@ that holds it; the rule, not this list, is the source.
    before any review (`identity-taxonomy.md`, rule 13), and on each new
    package beside the one it replaces: what the release fixes is gone, the
    other findings are unchanged, and a new one appears only with a recorded
-   decision (`release.md`, rule 30).
+   decision; a first release records its counts as the baseline
+   (`release.md`, rule 30).
 3. **Shapes on every package.** Each written release package conforms to
    its own shapes over its released closure (`shacl.md`, rule 9), and no
    `sh:message` holds a single quote unless that message is tested in the
