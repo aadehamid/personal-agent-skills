@@ -11,7 +11,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 GUIDE = os.path.join(HERE, "..", "references", "playbook.md")
 # The guide's HTML page, built from playbook.md (scripts/build_playbook_html.py at the repository root).
-GUIDE_HTML = os.path.join(HERE, "..", "references", "playbook.html")
+GUIDE_HTML = os.path.join(HERE, "..", "references", "ontology-build-playbook.html")
 
 # Each pattern names one kind of build-specific text. \s+ inside a pattern also matches a line break,
 # so a term wrapped across two lines is still found.

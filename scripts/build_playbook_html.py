@@ -31,7 +31,7 @@ TEMPLATE = os.path.join(ROOT, "scripts", "playbook_template.html")
 # Each page: its output, its title, one sentence on what it is, and its sources in reading order.
 PAGES = [
     {
-        "out": "skills/data/ontology/references/playbook.html",
+        "out": "skills/data/ontology/references/ontology-build-playbook.html",
         "title": "Ontology playbook",
         "scope": "The ontology skill's guide",
         "lead": "The method for building a business ontology on the W3C stack: the gated steps, the policies "
@@ -39,7 +39,7 @@ PAGES = [
         "sources": ["skills/data/ontology/references/playbook.md"],
     },
     {
-        "out": "skills/data/ontology-to-lpg/references/playbook.html",
+        "out": "skills/data/ontology-to-lpg/references/ontology-to-neo4j-playbook.html",
         "title": "Ontology-to-LPG projection playbook",
         "scope": "The ontology-to-lpg skill",
         "lead": "How to project an ontology built on the W3C stack into a Neo4j labelled property graph, check "
