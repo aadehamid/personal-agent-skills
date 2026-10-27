@@ -514,6 +514,48 @@ could appear, and whether the change's one safety fact was proved by running
 code. They catch what a script cannot judge. When a new failure teaches a
 new check, it goes in `quality.md`.
 
+### Testing and validation, end to end
+
+A change is trusted only after it has passed every check below, in this
+order. Each check catches a kind of failure the ones before it cannot see,
+and each has its rule in one reference, named in brackets.
+
+1. **Tests written from the decision.** The module's tests pin its figures,
+   its new IRIs and its corrected statements by hand, from what was decided,
+   so a builder's mistake cannot agree with itself (`release.md`, rule 29).
+2. **The mechanical checks.** The taxonomy checker runs on the data files
+   before anyone reads a definition, and on each new package beside the one
+   it replaces: what the release fixes is gone, nothing new appears
+   (`identity-taxonomy.md`, rule 13; `release.md`, rule 30).
+3. **Shapes on every package.** Each released package conforms to its own
+   shapes over its closure, and every shape message runs in the engines
+   that will load it (`shacl.md`, rules 9 and 19).
+4. **The classification, proved.** A test compares the release with the one
+   before it: no IRI is gone, nothing is deprecated in a minor or patch
+   release, and every deprecated term names its successor (`release.md`,
+   rules 3, 5 and 28).
+5. **The competency questions.** The SPARQL regression runs on the released
+   packages; a change in its answers is either a regression or a recorded
+   change (`regression.md`).
+6. **The whole check suite.** One script runs every module's tests, the
+   builds' freshness checks and the regression, because a change in one
+   module can break a check in another (`regression.md`, rule 14).
+7. **The sweep.** Every claim the change makes is searched for in all its
+   wordings, so no stale copy survives elsewhere (`quality.md`, "Soundness
+   checks on every change").
+8. **The projection and the stores.** In the property graph, SHACL runs
+   inside the graph, a deliberate broken case is caught, a round trip back
+   to RDF loses and adds nothing, and two loads in different orders hash the
+   same. Each copy to another store is compared with the files by hash and
+   by walks through the graph (the `ontology-to-lpg` skill, `pipeline.md`
+   and `multi-store.md`).
+9. **Review.** A reviewer who did not write the change reviews it before the
+   pull request opens, and the pull request's reviewer gives the verdict;
+   nothing merges past a hold (`governance.md`, "Review").
+10. **Approval.** The release's approval is quoted in its manifest and
+    pinned in a test that reads the saved answer (`release.md`, rules 6
+    and 7).
+
 ---
 
 ## 6. Working agreements
