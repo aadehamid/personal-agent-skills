@@ -514,6 +514,53 @@ could appear, and whether the change's one safety fact was proved by running
 code. They catch what a script cannot judge. When a new failure teaches a
 new check, it goes in `quality.md`.
 
+### Testing and validation, end to end
+
+A change is trusted only after it has passed every check below. Each one
+catches a kind of failure the others cannot see. Each item names the rule
+that holds it; the rule, not this list, is the source.
+
+1. **Tests written from the decision.** The module's tests pin its figures,
+   its new IRIs and its corrected statements by hand, written from what was
+   decided (`release.md`, rule 29).
+2. **The mechanical checks.** The taxonomy checker runs on the data files
+   before any review (`identity-taxonomy.md`, rule 13), and on each new
+   package beside the one it replaces: what the release fixes is gone, the
+   other findings are unchanged, and a new one appears only with a recorded
+   decision; a first release records its counts as the baseline
+   (`release.md`, rule 30).
+3. **Shapes on every package.** Each written release package conforms to
+   its own shapes over its released closure (`shacl.md`, rule 9), and no
+   `sh:message` holds a single quote unless that message is tested in the
+   target engine (`shacl.md`, rule 19).
+4. **The classification, proved.** A test compares the release with the one
+   before it: every earlier IRI is still declared, nothing is newly
+   deprecated in a minor or patch release, and every deprecated term names
+   its successor; a first release, with no earlier package, checks only the
+   last of these (`release.md`, rules 3, 5 and 28).
+5. **The competency questions.** The regression suite runs on the released
+   packages after every module lands and on every release, and checks each
+   question's status (`regression.md`, rule 13).
+6. **The sweep, then the check script.** Every claim the change makes is
+   searched for in all its wordings, then the project's full check script
+   runs (`quality.md`, "Soundness checks on every change"). The check script
+   runs every check the build has, each builder's `--verify` among them
+   (`governance.md`, rule 15; `release.md`, rule 9), and the whole suite runs
+   before a review, not only the module's tests (`regression.md`, rule 14).
+7. **The projection and the stores.** In the property graph, SHACL runs
+   inside the graph, a deliberate broken case is caught, a round trip back
+   to RDF loses and adds nothing, and two loads in different orders give the
+   same graph. Each triple-store copy's hash equals the source's, the Aura
+   copy's hash equals the local graph's, and walks compare Neo4j with the
+   triple store (the `ontology-to-lpg` skill: `multi-store.md`, and
+   `add-ons.md`, section F).
+8. **Review.** A reviewer who did not write the change reviews it before the
+   pull request opens, and the pull request's reviewer gives the verdict;
+   nothing merges past a hold (`governance.md`, "Review").
+9. **Approval.** The release's approval is quoted in its manifest and
+   pinned in a test that reads the saved answer (`release.md`, rules 6
+   and 7).
+
 ---
 
 ## 6. Working agreements
