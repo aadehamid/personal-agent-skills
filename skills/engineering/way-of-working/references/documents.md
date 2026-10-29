@@ -19,7 +19,7 @@ When approved text moves between files, move it word for word with a note naming
 
 ## Dates
 
-A record dates an event by the day it happened in the owner's own time zone, and says so once where the project keeps its conventions. A run that crosses midnight in UTC otherwise gets two dates for one landing, and a reviewer holds the record for the mismatch.
+A record dates an event by the day it happened in the time zone the project's conventions name, and says so once where the project keeps them. A project with no recorded convention records one before its first dated note, by default the owner's own time zone. A run that crosses midnight in UTC otherwise gets two dates for one landing, and a reviewer holds the record for the mismatch.
 
 ## Handover notes
 
