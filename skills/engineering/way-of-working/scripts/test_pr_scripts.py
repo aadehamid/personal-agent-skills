@@ -433,6 +433,14 @@ class MergeOnVerdict(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual((len(merges), self.polls), (1, 2))
 
+    def test_held_without_its_full_stop_is_not_a_verdict(self):
+        # Only "Held." is the bot's hold; "Held pending ..." is a note (Codex review of this change).
+        note = review("Held pending the check, then I will look again.")
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [note]),
+                                    step(pr(checks=[PASSED]), [note, review("MERGE")])])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((len(merges), self.polls), (1, 2))
+
     def test_the_newest_verdict_on_the_head_wins(self):
         r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("HOLD. One."), review("MERGE")])])
         self.assertEqual(r.returncode, 0, r.stderr)

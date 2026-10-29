@@ -97,8 +97,8 @@ strip='gsub("^(\\s*<!--[\\s\\S]*?-->)+\\s*"; "")'
 verdict() {
   call gh api --paginate "repos/{owner}/{repo}/pulls/$number/reviews" --jq "
     .[] | select(.user.login == \"$bot\" and .commit_id == \"$1\")
-        | ((.body | $strip | capture(\"^(\\\\*\\\\*)?(?<v>MERGE|HOLD|Held)\\\\b\")) // {} | .v) as \$v
-        | select(\$v != null) | (if \$v == \"Held\" then \"HOLD\" else \$v end) as \$v
+        | ((.body | $strip | capture(\"^(\\\\*\\\\*)?(?<v>MERGE\\\\b|HOLD\\\\b|Held\\\\.)\")) // {} | .v) as \$v
+        | select(\$v != null) | (if \$v == \"Held.\" then \"HOLD\" else \$v end) as \$v
         | \"\(\$v) \(.id)\"" || return 1
   REPLY=$(printf '%s\n' "$REPLY" | sed '/^$/d' | tail -n 1)
 }
