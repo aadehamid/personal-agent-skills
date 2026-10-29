@@ -9,6 +9,7 @@ For a plan or design with open questions, run the grill-with-docs interview (the
 ## Decision records
 
 - One record per decision, in the project's decision folder, with: context, decision, alternatives considered, the owner's recorded words (quoted), evidence, status (Proposed / Decided / Superseded) and date.
+- **Save the owner's words before anything cites them.** An answer goes into the project's answers file (or wherever it keeps them) before a record, document or pull request quotes or relies on it. A citation of the owner with no saved answer behind it is a claim the reviewer cannot check.
 - The index of records and each record's status agree. A check script enforces this where the project has one.
 - A decision the agent inferred from a request, rather than one the owner stated, is **Proposed** until the owner confirms it in words.
 - Amend, don't rewrite: a later decision that changes an earlier one names it ("amended by NNNN"), and the earlier record gets a dated note.
