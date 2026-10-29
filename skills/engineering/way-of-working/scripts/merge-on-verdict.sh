@@ -11,7 +11,8 @@
 #   repository is never reported as merged (2026-10-26: run from another repository, it found
 #   that repository's old #73 and printed "merged by").
 # The verdict is the bot's newest review on <head-sha> (a prefix is enough): its body,
-# after any leading HTML comments, starts with MERGE or HOLD. Reviews on older commits
+# after any leading HTML comments, starts with MERGE or HOLD (plain, or in bold as **MERGE**), or
+# with "Held.", which the bot also writes for a hold. Reviews on older commits
 # never count, and a bot review that starts with neither word (an approval note) is
 # skipped. On MERGE the script waits for the named check to finish, then runs
 # `gh pr merge --merge --match-head-commit <head>`, so GitHub refuses the merge if the
@@ -96,8 +97,9 @@ strip='gsub("^(\\s*<!--[\\s\\S]*?-->)+\\s*"; "")'
 verdict() {
   call gh api --paginate "repos/{owner}/{repo}/pulls/$number/reviews" --jq "
     .[] | select(.user.login == \"$bot\" and .commit_id == \"$1\")
-        | ((.body | $strip | capture(\"^(?<v>MERGE|HOLD)\\\\b\")) // {} | .v) as \$v
-        | select(\$v != null) | \"\(\$v) \(.id)\"" || return 1
+        | ((.body | $strip | capture(\"^(\\\\*\\\\*)?(?<v>MERGE|HOLD|Held)\\\\b\")) // {} | .v) as \$v
+        | select(\$v != null) | (if \$v == \"Held\" then \"HOLD\" else \$v end) as \$v
+        | \"\(\$v) \(.id)\"" || return 1
   REPLY=$(printf '%s\n' "$REPLY" | sed '/^$/d' | tail -n 1)
 }
 
