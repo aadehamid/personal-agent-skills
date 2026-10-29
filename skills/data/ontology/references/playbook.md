@@ -252,6 +252,39 @@ released after them and pins their current versions. Its tests fail when a
 consumer rule names a graph term that does not exist (`integration.md`,
 rule 28).
 
+#### Identifiers on measures
+
+When a consumer already refers to measures by code, give each measure a
+stable identifier in the ontology, as `dcterms:identifier`, and let its kind
+decide its prefix: one prefix for measures designated as KPIs, another for
+operational metrics, none for trackers, reports and things that are not
+measures. Fix the width (four digits keeps codes sorting as text) and number
+each prefix in one recorded order. A measure promoted to KPI later takes a
+new KPI identifier; its old one is kept and never reused. Where an asset
+already uses a code for a measure, keep that code as a recorded exception
+rather than renumber the asset.
+
+The build checks the rule, not a list of values: every identifier follows
+its kind or a recorded exception, is used once, and sits in its prefix's run
+in the recorded order with no gap. SHACL shapes say the same for consumers:
+the identifier's pattern, none on the kinds that take none, one on every
+other measure.
+
+Carry the identifiers into a BI semantic layer through the fields consumers
+search, not the field they query by. In a real multi-module ontology
+(2026-10-28 and 29) the agents queried Databricks metric-view measures by
+name, so the identifier went into each measure's comment, display name and
+synonyms and into a tag on each view, and the names stayed. A measure that
+implements no ontology measure, such as a row count, says so in its comment
+and carries no identifier; a test pins each measure to the identifiers the
+identifier table gives it, so a swapped or extra identifier fails. Views
+over the triple table then give each identified measure's definition, grain
+and basis inside the warehouse, read from the released graph rather than
+copied, so an agent there can read what a measure is before it answers.
+Scope every statement about this to the identified measures: the project's
+reviews caught "every measure carries an identifier" in several wordings,
+code comments included.
+
 ### Step 8. Scope review (do it early)
 
 **Rules:** `foundations.md`, "Step 8".
@@ -449,6 +482,14 @@ and steps.
 **Why:** two jobs. P-Plan and PROV-O separate a planned process from its
 runs. PROV-O also records who asserted what, when, and on what authority.
 **Rejected:** typing taxonomy concepts as `prov:Activity` by default.
+**Watch for:** shapes that describe process runs usually target every
+`prov:Activity`. Anything else typed `prov:Activity`, such as a business
+decision recorded as PROV, then fails them, because it has no qualified
+association naming a process as its plan. In a real project (2026-10-29) a
+decision trail of ten decisions gave ten such violations. Either type the
+other activities differently or narrow the shapes' target; otherwise say that
+such records fail those shapes and that nothing validates them against them.
+Do not write that the shapes "do not apply": by their target, they do.
 
 ### ORG: organizations and roles
 **What:** `org:Organization`, `org:Role`, `org:Membership`, sites and
