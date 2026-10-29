@@ -264,11 +264,12 @@ new KPI identifier; its old one is kept and never reused. Where an asset
 already uses a code for a measure, keep that code as a recorded exception
 rather than renumber the asset.
 
-The build checks the rule, not a list of values: every identifier follows
+The skill ships no identifier check, so write one in the module's build,
+and make it check the rule, not a list of values: every identifier follows
 its kind or a recorded exception, is used once, and sits in its prefix's run
-in the recorded order with no gap. SHACL shapes say the same for consumers:
-the identifier's pattern, none on the kinds that take none, one on every
-other measure.
+in the recorded order with no gap. Add SHACL shapes that say the same for
+consumers: the identifier's pattern, none on the kinds that take none, one on
+every other measure. A real multi-module ontology built both in its own module (2026-10-28).
 
 Carry the identifiers into a BI semantic layer through the fields consumers
 search, not the field they query by. In a real multi-module ontology
