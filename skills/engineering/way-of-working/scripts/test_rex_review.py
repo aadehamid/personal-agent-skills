@@ -303,7 +303,7 @@ class RexReview(unittest.TestCase):
         # Codex on 430049d: a shell started as -codex is still a shell, so its pane is closed and a new one opened.
         r, calls = self.run_case("reuse,shellnamedreviewer")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertIn("block close", calls)
+        self.assertEqual(open(os.path.join(self.state, "closed")).read(), "block:rev")  # that pane, not another
         self.assertNotIn("Review pane: block:rev (reused)", r.stderr)
 
     def test_another_program_whose_argv0_names_the_reviewer_is_left_alone(self):
