@@ -17,7 +17,13 @@
 # out a commit there changes the files under your feet. Inside a Herdr pane
 # (HERDR_WORKSPACE_ID set), Pi runs interactively in its own tab, pi-<role>-<repo>, so
 # the owner can watch it; the script closes the tab when Pi has answered. Elsewhere Pi
-# runs headless.
+# runs headless; inside a Rex pane (REX_SESSION and REX_BLOCK set, not in Herdr) a split
+# beside it, pi-<role>-<repo>, shows Pi's log as it runs, without taking focus, and closes
+# when the review passes. A failed run leaves it open to read. If rex cannot open it, the
+# review runs headless all the same.
+# When Pi's log shows its provider's usage limit (Ollama's 429 "weekly usage limit"), the
+# run ends with "Reviewer not available:", so the caller moves to the next reviewer in the
+# order (way-of-working, changing.md, "Who reviews").
 # Exit 0: the result is printed (the verdict line for pr, the report for independent).
 #   The independent report is also kept, and its path printed on stderr as "Report:".
 # Exit 1: no result; the output says why.
@@ -175,6 +181,20 @@ else
   (cd "$clone" && exec ollama launch pi --model "$model" -y -- -p --no-session "$prompt") < /dev/null > "$clone.log" 2>&1 &
   pi_pid=$!
   set +m
+  # Inside Rex, a pane beside this agent's shows Pi's log while it runs (the owner's choice,
+  # 2026-10-28: a visible pane, closed when the review ends). It never decides the result.
+  watch=""
+  if [ -n "${REX_SESSION:-}" ] && [ -n "${REX_BLOCK:-}" ] && command -v rex > /dev/null 2>&1; then
+    : >> "$clone.log"
+    if created=$(rex split -s "$REX_SESSION" -b "$REX_BLOCK" --split=right --focus=false \
+                   --label "pi-$role-$(basename "$top")" -c "$clone" --json -- tail -n +1 -F "$clone.log" 2>/dev/null) \
+       && watch=$(printf '%s' "$created" | python3 -c 'import json,sys; print(json.load(sys.stdin)["block_ids"][0])' 2>/dev/null); then
+      echo "Pi pane: $watch" >&2
+    else
+      watch=""
+      echo "rex could not open a pane for Pi's log; the review runs headless." >&2
+    fi
+  fi
   for _ in $(seq 1 "${PI_REVIEW_POLLS:-720}"); do
     kill -0 "$pi_pid" 2>/dev/null || break
     sleep 5
@@ -191,6 +211,12 @@ else
 fi
 if [ ! -s "$out" ]; then
   tail -n 30 "$clone.log" || true
+  # The provider's own cap message, as rex-review.sh reads Kimi's, on the log's last lines only (a log that
+  # quotes this script must not match). A bare 429, or the words for a limit alone, are not it.
+  if tail -n 20 "$clone.log" | grep -qiE 'reached (your|the) [[:alnum:]-]+ usage[[:space:]]limit'; then
+    echo "Reviewer not available: Pi's provider reports its usage limit. Try the next reviewer in the order. Its log is $clone.log."
+    exit 1
+  fi
   echo "Pi wrote no result to $out. Its log is $clone.log."
   exit 1
 fi
@@ -225,6 +251,7 @@ for c in json.load(sys.stdin)["comments"]:
 fi
 # The tab closes only now, after every check passed; on any failure it stays open to read.
 [ -n "${tab:-}" ] && herdr tab close "$tab" > /dev/null 2>&1 || true
+[ -n "${watch:-}" ] && rex block close -s "$REX_SESSION" "$watch" > /dev/null 2>&1 || true
 cat "$out"
 # A passed run keeps only the independent report, so output cut short can be read again;
 # a failed one keeps the clone and log to read.

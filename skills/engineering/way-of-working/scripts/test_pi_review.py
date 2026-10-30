@@ -36,6 +36,14 @@ FAKE_OLLAMA = textwrap.dedent(r'''
     path = m.group(1) or m.group(2)
     if "crash" in s:
         print("pi: model unavailable"); sys.exit(1)
+    if "quota" in s:
+        print('429: {"message":"you have reached your weekly usage limit"}'); sys.exit(1)
+    if "ratelimit" in s:
+        print('429: {"message":"too many requests"}'); sys.exit(1)
+    if "quotesscript" in s:
+        print("# reached your weekly usage limit, quoted from a file"); print("\n".join(f"line {i}" for i in range(25))); sys.exit(1)
+    if "echoheader" in s:
+        print("When Pi's log shows its provider's usage limit, the run ends."); sys.exit(1)
     if "hang" in s:
         # Like `ollama launch`, the parent runs Pi as a child and waits for it, and does
         # not pass a signal on. The child would post its verdict late.
@@ -67,6 +75,19 @@ FAKE_OLLAMA = textwrap.dedent(r'''
         second = "findings" if "nocommit" in s else reviewed
         comments.append({"id": "c9", "body": said + "\n" + second + "\nfindings\n" + mark})
     json.dump(comments, open(n, "w"))
+''').lstrip()
+
+# The fake rex records each call; a split answers with one block id, unless FAKE_REX=fail.
+FAKE_REX = textwrap.dedent(r'''
+    #!/usr/bin/env python3
+    import json, os, sys
+    state = os.environ["FAKE_STATE"]
+    with open(os.path.join(state, "rex_calls"), "a") as f:
+        f.write(json.dumps(sys.argv[1:]) + "\n")
+    if os.environ.get("FAKE_REX") == "fail":
+        sys.exit(1)
+    if sys.argv[1:2] == ["split"]:
+        print(json.dumps({"block_ids": ["block:pi-log"]}))
 ''').lstrip()
 
 # The fake herdr runs the same fake Pi when it is prompted, and records each call.
@@ -133,7 +154,7 @@ class PiReview(unittest.TestCase):
             json.dump([{"id": "c1", "body": "HOLD\nan earlier round"},
                        {"id": "c2", "body": "Some earlier note"}], f)
         self.bindir = tempfile.mkdtemp()
-        for name, body in (("ollama", FAKE_OLLAMA), ("gh", FAKE_GH), ("herdr", FAKE_HERDR)):
+        for name, body in (("ollama", FAKE_OLLAMA), ("gh", FAKE_GH), ("herdr", FAKE_HERDR), ("rex", FAKE_REX)):
             path = os.path.join(self.bindir, name)
             with open(path, "w") as f:
                 f.write(body)
@@ -163,14 +184,18 @@ class PiReview(unittest.TestCase):
     pr_head = None
 
     def git_env(self):
-        # HERDR_* is dropped so a headless case never drives the real Herdr.
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "HERDR_"))}
+        # HERDR_* and REX_* are dropped so a headless case never drives the real Herdr or Rex.
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "HERDR_", "REX_"))}
         env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
                    GIT_COMMITTER_EMAIL="t@t", GIT_CONFIG_GLOBAL=os.devnull)
         return env
 
-    def run_case(self, scenario, *args, herdr=False, polls=None, sleep=None, cwd=None):
+    def run_case(self, scenario, *args, herdr=False, rex=None, polls=None, sleep=None, cwd=None):
         env = self.git_env()
+        if rex:
+            env.update(REX_SESSION="session:t", REX_BLOCK="block:me")
+            if rex == "fail":
+                env["FAKE_REX"] = "fail"
         if polls:
             env["PI_REVIEW_POLLS"] = polls
         if sleep:
@@ -186,6 +211,47 @@ class PiReview(unittest.TestCase):
     def prompt(self):
         with open(os.path.join(self.state, "prompt")) as f:
             return f.read()
+
+    def rex_calls(self):
+        path = os.path.join(self.state, "rex_calls")
+        return [json.loads(l) for l in open(path)] if os.path.exists(path) else []
+
+    def test_in_rex_a_pane_shows_the_log_and_closes_when_the_review_passes(self):
+        r = self.run_case("ready", "--role", "independent", "--head", self.head, rex="yes")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("Pi pane: block:pi-log", r.stderr)
+        calls = self.rex_calls()
+        self.assertEqual(calls[0][:5], ["split", "-s", "session:t", "-b", "block:me"])
+        self.assertIn("--focus=false", calls[0])
+        self.assertEqual(calls[-1], ["block", "close", "-s", "session:t", "block:pi-log"])
+
+    def test_in_rex_a_failed_review_leaves_the_pane_open(self):
+        r = self.run_case("nothing", "--role", "independent", "--head", self.head, rex="yes")
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("close", [c[1] for c in self.rex_calls() if len(c) > 1])
+
+    def test_in_rex_a_pane_rex_refuses_still_runs_the_review(self):
+        r = self.run_case("ready", "--role", "independent", "--head", self.head, rex="fail")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("runs headless", r.stderr)
+
+    def test_a_usage_limit_says_the_reviewer_is_not_available(self):
+        r = self.run_case("quota", "--role", "independent", "--head", self.head)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("Reviewer not available", r.stdout)
+
+    def test_a_rate_limit_or_the_words_alone_are_not_the_usage_limit(self):
+        # Cursor CLI review of #80: a bare 429 or the phrase "usage limit" must not end the review as not available.
+        for case in ("ratelimit", "echoheader", "quotesscript"):
+            r = self.run_case(case, "--role", "independent", "--head", self.head)
+            self.assertNotIn("Reviewer not available", r.stdout, case)
+            self.assertIn("Pi wrote no result", r.stdout, case)
+
+    def test_a_plain_failure_is_not_read_as_a_usage_limit(self):
+        r = self.run_case("crash", "--role", "independent", "--head", self.head)
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("Reviewer not available", r.stdout)
+        self.assertIn("wrote no result", r.stdout)
 
     def test_pr_role_prints_the_verdict_after_posting(self):
         r = self.run_case("hold,post", "--role", "pr", "--pr", "7", "--head", self.head)
