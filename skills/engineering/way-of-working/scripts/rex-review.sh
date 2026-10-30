@@ -136,14 +136,17 @@ if child is None:
 if not isinstance(child, dict) or not child:
     print("unreadable"); sys.exit()
 # Every field by its base name: Cursor Agent 2026.10.22 starts as node, with its full path as argv0
-# (/Users/<you>/.local/bin/cursor-agent, seen live on 2026-10-30), so a bare-name match missed it.
+# (/Users/<you>/.local/bin/cursor-agent, as hc and ps showed it on 2026-10-30; the record Rex gives was
+# not captured, so its shape there is inferred), so a bare-name match missed it.
 names = {os.path.basename(child.get(k) or "") for k in ("name", "argv0", "path", "invoked_path")}
 names = {n.lstrip("-") for n in names if n}
-if names & set(expected):
+# A shell first, by its executable, which an argv0 cannot rename: a login shell started as -codex is still a shell.
+program = {os.path.basename(child.get(k) or "").lstrip("-") for k in ("name", "path", "invoked_path")} - {""}
+if program & {"zsh", "bash", "sh", "fish", "login"}:
+    print("shell")
+elif names & set(expected):
     cwd = child.get("cwd") or ""
     print("reviewer" if cwd and os.path.realpath(cwd) == top else "other")
-elif names & {"zsh", "bash", "sh", "fish", "login"}:
-    print("shell")
 else:
     print("other")' "$expected" "$top" 2>/dev/null) || st=""
   # Anything the parser could not turn into a word, such as a crash on an odd shape, is unreadable.
