@@ -378,6 +378,31 @@ class MergeOnVerdict(unittest.TestCase):
         r, merges = self.run_merge([step(failed, [review("MERGE")], plain_merge_fails=True)], "--admin-if-only-review")
         self.assertEqual((r.returncode, merges), (3, []))
 
+    def test_a_bot_check_that_finished_with_no_verdict_ends_the_wait(self):
+        # The owner, 2026-10-30: give the bot its time, but start its stand-in once it has stopped.
+        errored = {"name": "Cursor Automation: Review pull requests", "status": "COMPLETED", "conclusion": "NEUTRAL"}
+        seq = [step(pr(checks=[RUNNING, errored]))] * 3
+        r, merges = self.run_merge(seq, "--bot-check", "Cursor Automation")
+        self.assertEqual(r.returncode, 7, r.stderr)
+        self.assertIn("finished (NEUTRAL) with no verdict", r.stderr)
+        self.assertEqual((merges, self.polls), ([], 3))
+
+    def test_a_verdict_soon_after_the_bot_check_finished_still_counts(self):
+        done = {"name": "Cursor Automation: Review pull requests", "status": "COMPLETED", "conclusion": "SUCCESS"}
+        merge = review("MERGE")
+        r, merges = self.run_merge([step(pr(checks=[PASSED, done])), step(pr(checks=[PASSED, done]), [merge])],
+                                   "--bot-check", "Cursor Automation")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(merges, [f"7 --merge --match-head-commit {HEAD}"])
+
+    def test_a_running_bot_check_or_no_bot_check_keeps_the_wait(self):
+        running = {"name": "Cursor Automation: Review pull requests", "status": "IN_PROGRESS", "conclusion": ""}
+        r, _ = self.run_merge([step(pr(checks=[PASSED, running]))] * 4, "--bot-check", "Cursor Automation", "--timeout", "0")
+        self.assertEqual(r.returncode, 5, r.stderr)
+        errored = {"name": "Cursor Automation: Review pull requests", "status": "COMPLETED", "conclusion": "NEUTRAL"}
+        r, _ = self.run_merge([step(pr(checks=[PASSED, errored]))] * 4, "--timeout", "0")  # without the option: as before
+        self.assertEqual(r.returncode, 5, r.stderr)
+
     def test_hold_prints_the_review_and_merges_nothing(self):
         r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("HOLD. Fix the row.")])])
         self.assertEqual(r.returncode, 2)
