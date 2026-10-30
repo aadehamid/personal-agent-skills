@@ -76,6 +76,17 @@ Last review: 2026-10-22.
 - **Link:** https://github.com/aadehamid/enterprise-performance-model PRs #382, #383, #385 and #386, issue #384, and this repo's #72 and #73.
 - **What we took:** five lessons, three in scripts and two here. The stores runbook took four review rounds because its commands had not been run (`before-push.md`, item 5). The ontology guide and the generated pages linked each other across two PRs and cost a round (`changing.md`, "Files that link to each other ship in one PR"). `rex-review.sh` lost three reviews to Kimi's idle-session question, its usage limit and a busy reused pane; `merge-on-verdict.sh` reported a merge for another repository's PR; and a test that ran `git init` with a pre-push hook's `GIT_DIR` inherited made the shared checkout bare (`scripts/check.sh` now clears those variables and fails on `core.bare`).
 
+## 1o. The enterprise-performance-model Part 2 retro (2026-10-29)
+
+- **Link:** https://github.com/aadehamid/enterprise-performance-model PRs #401 to #409, and this repo's #77 to #80.
+- **What we took:** six rules, each from a review round on those PRs.
+  - `references/changing.md`, "Check each claim ... before any review starts": on #403 the Cursor bot held four times, two of them on one claim (every metric-view measure carries an identifier), restated in other words in the guide, the README, the runbook, DATA.md and two SQL headers, which those two holds and three of Pi's quick checks found one place at a time; on #405 two sentences written to fix Pi's first round described the lineage window and the PROV run shapes wrongly, and Pi's second round held them.
+  - `references/changing.md`, "After every rebase ...": the E5 branch (#405) was built on E4's head ba57340b, not its final 7eb04902, so it would have reverted the two dated sentences (ec787eac, 7eb04902) that closed E4's hold; Pi caught it and a rebase fixed it.
+  - `references/changing.md`, "Whether the code was refined": the owner asked on 2026-10-29 that ce-simplify-code run before every review ("can you /ce-simplify-code code that will write before review going forward"), after E1 and E2 (#401, #402) went to review without it.
+  - `references/before-push.md`, "Narrowing what a check claims is a redesign too": on #405 a regex scan of the projection's Cypher was held twice by the Cursor bot and once by Pi's quick check for reads it could not see; a test pinning the exact queries the counts, the hash and the round trip send, captured from a fake session, ended it.
+  - `references/documents.md`, "Dates": on #402 the E2 landing was dated 2026-10-28 in five places and 2026-10-29 in two, because the run crossed midnight in UTC; a quick check held it.
+  - `references/deciding.md`, "Save the owner's words before anything cites them": on #407 the README said use cases 19 to 21 were agreed with the owner, with no saved answer behind it; Pi's first round held it.
+
 ## 2. mattpocock-skills (marketplace `mattpocock`, v1.3.1)
 
 - **What we took:** the retro loop (`retro`), decision interviews (`grill-with-docs`, `grilling`), the rules for writing documents agents read (`writing-for-agents`), and the shape of a PR body (`pr`) — the smallest view that makes the point, evidence before and after, and merge danger as a one-way or two-way door. That shape is adapted into `references/changing.md`, not adopted as a template: `changing.md` already owns what a PR body says, and a second authority for one rule is what rule 6 forbids. The `pr` skill credits Humanlayer's `show-me`.

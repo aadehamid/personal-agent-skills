@@ -17,6 +17,10 @@ Read this when writing or restructuring a project's documents.
 
 When approved text moves between files, move it word for word with a note naming its origin. Rewording approved text needs the owner's recorded decision.
 
+## Dates
+
+A record dates an event by the day it happened in the time zone the project's conventions name, and says so once where the project keeps them. A project with no recorded convention records one before its first dated note, by default the owner's own time zone. A run that crosses midnight in UTC otherwise gets two dates for one landing, and a reviewer holds the record for the mismatch.
+
 ## Handover notes
 
 A handover brief outside the repo goes stale the moment work starts. When it is used, add a note at its top saying when, by which session, and where the outputs live; the repo is ground truth.
