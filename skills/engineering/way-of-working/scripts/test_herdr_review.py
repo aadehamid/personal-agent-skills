@@ -16,7 +16,7 @@ import unittest
 
 SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "herdr-review.sh")
 # A run inside Rex would hand off to rex-review.sh; these tests cover the Herdr host.
-BASE_ENV = {k: v for k, v in os.environ.items() if not k.startswith("REX_")}
+BASE_ENV = {k: v for k, v in os.environ.items() if not k.startswith(("REX_", "HC_"))}
 
 FAKE = textwrap.dedent(r'''
     #!/usr/bin/env python3

@@ -185,7 +185,7 @@ class PiReview(unittest.TestCase):
 
     def git_env(self):
         # HERDR_* and REX_* are dropped so a headless case never drives the real Herdr or Rex.
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "HERDR_", "REX_"))}
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("GIT_", "HERDR_", "REX_", "HC_"))}
         env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t",
                    GIT_COMMITTER_EMAIL="t@t", GIT_CONFIG_GLOBAL=os.devnull)
         return env

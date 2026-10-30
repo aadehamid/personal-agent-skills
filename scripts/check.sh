@@ -61,6 +61,7 @@ python3 scripts/test_link_skills.py
 python3 scripts/test_playbook_html.py
 python3 skills/engineering/way-of-working/scripts/test_herdr_review.py
 python3 skills/engineering/way-of-working/scripts/test_rex_review.py
+python3 skills/engineering/way-of-working/scripts/test_hc_review.py
 python3 skills/engineering/way-of-working/scripts/test_pi_review.py
 python3 skills/engineering/way-of-working/scripts/test_pr_scripts.py
 
