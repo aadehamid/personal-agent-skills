@@ -236,7 +236,7 @@ bottom = [l for i, l in enumerate(lines) if i >= len(lines) - 12 and i not in bo
 dialog = [l for i, l in enumerate(lines) if i >= len(lines) - 20 and i not in box]
 last = open(last_path).read()
 open(last_path, "w").write(screen)
-limit = re.search(r"reached your [\w-]+ usage limit", "\n".join(dialog))
+limit = re.search(r"reached your [\w-]+ usage limit", "\n".join(outside[-20:]))
 question = re.search(r"Run this command\?|Skip & tell the agent|Press enter to confirm|Hooks need review|"
                      r"\(y/n\)|\[y/N\]|Allow once|Trust this folder\?", "\n".join(dialog))
 asked_at = next((i for i, l in enumerate(dialog) if l.strip() == "Trust this folder?"), None)
@@ -255,7 +255,7 @@ ready = any(x in ready_text for x in inputs) if ready_text is not None else bool
 if kind == "kimi" and ready:
     ready = any("context:" in l for l in lines[-12:])
 busy = re.search(r"ctrl\+c to stop|esc to interrupt|Press Ctrl\+B to run in background|Working…|"
-                 r"Running \d+ agents?|Agent Running", "\n".join(bottom))
+                 r"Running \d+ agents?|Agent Running", "\n".join(outside[-12:]))
 if limit:
     word = "limit"
 elif reported == "blocked":
