@@ -396,6 +396,14 @@ class MergeOnVerdict(unittest.TestCase):
         r, _ = self.run_merge(seq, "--bot-check", "Cursor Automation")
         self.assertEqual((r.returncode, self.polls), (7, 6), r.stderr)
 
+    def test_an_empty_review_decision_does_not_shift_the_fields(self):
+        # skills #82, live: GitHub gave reviewDecision "" on a repository with no required review; the empty field
+        # collapsed in `read` and the bot-check state never reached its variable, so the wait ran to its timeout.
+        errored = {"name": "Cursor Automation: Review pull requests", "status": "COMPLETED", "conclusion": "NEUTRAL"}
+        doc = dict(pr(checks=[RUNNING, errored]), reviewDecision="", mergeStateStatus="CLEAN")
+        r, _ = self.run_merge([step(doc)] * 3, "--bot-check", "Cursor Automation")
+        self.assertEqual(r.returncode, 7, r.stderr)
+
     def test_a_verdict_soon_after_the_bot_check_finished_still_counts(self):
         done = {"name": "Cursor Automation: Review pull requests", "status": "COMPLETED", "conclusion": "SUCCESS"}
         merge = review("MERGE")

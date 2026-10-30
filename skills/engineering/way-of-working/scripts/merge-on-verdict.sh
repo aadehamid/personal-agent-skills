@@ -81,7 +81,8 @@ call() {
 # "<state> <head> <merged-by> <check-state> <review-decision> <merge-state> <all-green> <base> <bot-check>", where
 # check-state is PENDING, SUCCESS or the check's failing conclusion, and all-green is yes when
 # every check on the head, not only $check, passed. A check run reports status and conclusion;
-# a commit status reports state. bot-check is the newest check whose name starts with
+# a commit status reports state. An empty reviewDecision (a repository that requires no review) prints as
+# "-", like a missing one, so the fields after it do not shift. bot-check is the newest check whose name starts with
 # --bot-check: "-" without the option or before that check appears, PENDING while it runs, or
 # DONE:<conclusion> once it finished.
 pr_state() {
@@ -97,7 +98,7 @@ pr_state() {
          (.statusCheckRollup // [] | map(select((.name // .context // \"\") | startswith(env.BOT_CHECK))) | last)
          | if . == null then \"-\" elif has(\"status\") then (if .status == \"COMPLETED\" then \"DONE:\(.conclusion)\" else \"PENDING\" end)
            elif .state == \"PENDING\" or .state == \"EXPECTED\" then \"PENDING\" else \"DONE:\(.state)\" end end) as \$b
-    | \"\(.state) \(.headRefOid) \(.mergedBy.login // \"-\") \(\$s) \(.reviewDecision // \"-\") \(.mergeStateStatus // \"-\") \(\$g) \(.baseRefName) \(\$b)\""
+    | \"\(.state) \(.headRefOid) \(.mergedBy.login // \"-\") \(\$s) \(if (.reviewDecision // \"\") == \"\" then \"-\" else .reviewDecision end) \(if (.mergeStateStatus // \"\") == \"\" then \"-\" else .mergeStateStatus end) \(\$g) \(.baseRefName) \(\$b)\""
 }
 
 # Leading HTML comments, which the bot puts before its verdict.
