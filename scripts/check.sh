@@ -64,6 +64,7 @@ python3 skills/engineering/way-of-working/scripts/test_rex_review.py
 python3 skills/engineering/way-of-working/scripts/test_hc_review.py
 python3 skills/engineering/way-of-working/scripts/test_pi_review.py
 python3 skills/engineering/way-of-working/scripts/test_pr_scripts.py
+python3 skills/engineering/way-of-working/scripts/test_stop_cursor_review.py
 
 echo
 echo "== ontology skill scripts =="
