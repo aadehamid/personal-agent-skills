@@ -85,6 +85,8 @@ FAKE = textwrap.dedent(r'''
         child = {"name": BIN, "argv0": BIN, "path": "/opt/bin/" + BIN, "cwd": top}
         if "reuseelsewhere" in s and b == "block:rev": child["cwd"] = "/elsewhere/repo"
         if "nodechild" in s: child.update(name="node", argv0="node", path="/usr/local/bin/node")
+        if "fullpathargv" in s:  # Cursor Agent 2026.10.22, as hc and ps showed it on 2026-10-30
+            child.update(name="node", argv0="/Users/x/.local/bin/" + BIN, path="/usr/local/bin/node")
         if ("slowstart" in s and b == "block:new" and count("process_looks") <= 3) or \
                 ("diesatstart" in s and b == "block:new"):
             child = {"name": "zsh", "argv0": "-zsh", "path": "/bin/zsh", "cwd": top}
@@ -281,6 +283,14 @@ class RexReview(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotIn("split", calls)
         self.assertNotIn("run", calls)
+        self.assertIn("Review pane: block:rev (reused)", r.stderr)
+
+    def test_a_cursor_agent_that_runs_as_node_with_a_full_path_argv0_is_reused(self):
+        # Handoff of 2026-10-29: on a retry the script said the Cursor pane "runs something else". Cursor Agent
+        # 2026.10.22 runs as node with its full path as argv0, and only path and invoked_path were matched by base name.
+        r, calls = self.run_case("reuse,fullpathargv", kind="cursor")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("split", calls)
         self.assertIn("Review pane: block:rev (reused)", r.stderr)
 
     def test_a_labelled_pane_whose_reviewer_exited_is_closed_and_replaced(self):

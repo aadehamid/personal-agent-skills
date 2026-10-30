@@ -135,7 +135,9 @@ if child is None:
     print("exited" if p.get("last_exit") is not None else "unreadable"); sys.exit()
 if not isinstance(child, dict) or not child:
     print("unreadable"); sys.exit()
-names = {child.get("name") or "", child.get("argv0") or ""} | {os.path.basename(child.get(k) or "") for k in ("path", "invoked_path")}
+# Every field by its base name: Cursor Agent 2026.10.22 starts as node, with its full path as argv0
+# (/Users/<you>/.local/bin/cursor-agent, seen live on 2026-10-30), so a bare-name match missed it.
+names = {os.path.basename(child.get(k) or "") for k in ("name", "argv0", "path", "invoked_path")}
 names = {n.lstrip("-") for n in names if n}
 if names & set(expected):
     cwd = child.get("cwd") or ""
