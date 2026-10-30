@@ -3,7 +3,7 @@
 #
 # Usage: merge-on-verdict.sh <number> <head-sha> [--repo <owner/name>] [--check <name>] [--bot <login>]
 #                            [--timeout <seconds>] [--interval <seconds>] [--admin-if-only-review]
-#                            [--require-section <heading>]
+#                            [--require-section <heading>] [--bot-check <name prefix>]
 #   Defaults: --check checks, --bot cursor[bot], --timeout 3600, --interval 30.
 #   Run from the repository, or name it with --repo, as a background job the harness reports
 #   back on (Claude Code: run_in_background). The pull request must be the one at <head-sha>:
@@ -35,22 +35,29 @@
 #   2  HOLD: the review is printed
 #   3  the check finished without success
 #   4  the head is not <head-sha>: a new push needs a new verdict, or this is another pull request
-#   5  timed out
+#   5  timed out. With --bot-check, --timeout covers only the wait for the bot's verdict; after its MERGE
+#      the deadline is the later of start + --timeout and start + 3600 seconds, and the message says it
+#      was waiting for the check, not for the bot
 #   6  the body lacks the --require-section heading
+#   7  with --bot-check: the bot's check on the head finished (a skip, an error, or done) and no
+#      verdict from the bot followed within two more polls, so the bot is no longer reviewing
+#      this head and its stand-in can start (the owner, 2026-10-30: wait for the bot, but not
+#      past the point where it has stopped)
 #   64 a usage error
 # Tests: test_pr_scripts.py, run by the repository's scripts/check.sh.
 set -euo pipefail
 
-number="" head="" check="checks" bot="cursor[bot]" timeout=3600 interval=30 admin="" section=""
-usage() { echo "$1" >&2; echo "usage: $0 <number> <head-sha> [--repo <owner/name>] [--check <name>] [--bot <login>] [--timeout <seconds>] [--interval <seconds>] [--admin-if-only-review] [--require-section <heading>]" >&2; exit 64; }
+number="" head="" check="checks" bot="cursor[bot]" timeout=3600 interval=30 admin="" section="" bot_check=""
+usage() { echo "$1" >&2; echo "usage: $0 <number> <head-sha> [--repo <owner/name>] [--check <name>] [--bot <login>] [--timeout <seconds>] [--interval <seconds>] [--admin-if-only-review] [--require-section <heading>] [--bot-check <name prefix>]" >&2; exit 64; }
 while [ $# -gt 0 ]; do
   case "$1" in
-    --check|--bot|--timeout|--interval|--require-section|--repo)
+    --check|--bot|--timeout|--interval|--require-section|--repo|--bot-check)
       [ $# -ge 2 ] || usage "missing value for $1"
       case "$1" in
         --repo) [ -n "$2" ] || usage "--repo needs owner/name"; export GH_REPO="$2" ;;   # every gh call, {owner}/{repo} too
         --check) check="$2" ;; --bot) bot="$2" ;; --timeout) timeout="$2" ;; --interval) interval="$2" ;;
         --require-section) [ -n "$2" ] || usage "--require-section needs a heading"; section="$2" ;;
+        --bot-check) [ -n "$2" ] || usage "--bot-check needs a check name prefix"; bot_check="$2" ;;
       esac
       shift 2 ;;
     --admin-if-only-review) admin=1; shift ;;
@@ -61,6 +68,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$number" ] && [ -n "$head" ] || usage "a number and a head are required"
 export WANT="$section"   # the heading filter reads it with env.WANT
+export BOT_CHECK="$bot_check"   # pr_state reads it with env.BOT_CHECK
 
 failures=0
 # Runs gh in this shell and leaves its output in REPLY. A failed call counts toward the
@@ -72,10 +80,13 @@ call() {
   return 1
 }
 
-# "<state> <head> <merged-by> <check-state> <review-decision> <merge-state> <all-green> <base>", where
+# "<state> <head> <merged-by> <check-state> <review-decision> <merge-state> <all-green> <base> <bot-check>", where
 # check-state is PENDING, SUCCESS or the check's failing conclusion, and all-green is yes when
 # every check on the head, not only $check, passed. A check run reports status and conclusion;
-# a commit status reports state.
+# a commit status reports state. An empty reviewDecision (a repository that requires no review) prints as
+# "-", like a missing one, so the fields after it do not shift. bot-check is the newest check whose name starts with
+# --bot-check: "-" without the option or before that check appears, PENDING while it runs, or
+# DONE:<conclusion> once it finished.
 pr_state() {
   call gh pr view "$number" --json state,headRefOid,mergedBy,statusCheckRollup,reviewDecision,mergeStateStatus,baseRefName --jq "
     (.statusCheckRollup // [] | map(select((.name // .context) == \"$check\")) | last) as \$c
@@ -85,7 +96,11 @@ pr_state() {
     | (.statusCheckRollup // [] | all(if has(\"status\") then .status == \"COMPLETED\" and
          (.conclusion == \"SUCCESS\" or .conclusion == \"NEUTRAL\" or .conclusion == \"SKIPPED\")
          else .state == \"SUCCESS\" end) | if . then \"yes\" else \"no\" end) as \$g
-    | \"\(.state) \(.headRefOid) \(.mergedBy.login // \"-\") \(\$s) \(.reviewDecision // \"-\") \(.mergeStateStatus // \"-\") \(\$g) \(.baseRefName)\""
+    | (if env.BOT_CHECK == \"\" then \"-\" else
+         (.statusCheckRollup // [] | map(select((.name // .context // \"\") | startswith(env.BOT_CHECK))) | last)
+         | if . == null then \"-\" elif has(\"status\") then (if .status == \"COMPLETED\" then \"DONE:\(.conclusion)\" else \"PENDING\" end)
+           elif .state == \"PENDING\" or .state == \"EXPECTED\" then \"PENDING\" else \"DONE:\(.state)\" end end) as \$b
+    | \"\(.state) \(.headRefOid) \(.mergedBy.login // \"-\") \(\$s) \(if (.reviewDecision // \"\") == \"\" then \"-\" else .reviewDecision end) \(if (.mergeStateStatus // \"\") == \"\" then \"-\" else .mergeStateStatus end) \(\$g) \(.baseRefName) \(\$b)\""
 }
 
 # Leading HTML comments, which the bot puts before its verdict.
@@ -157,11 +172,22 @@ require_section() {
   fi
 }
 
-said=""
-deadline=$(( $(date +%s) + timeout ))
+said="" bot_done_polls=0 waited_for_check="" got_merge=""
+# Exit 5. After the bot's MERGE the wait was for the check, not for the bot, and the message
+# says so, so a caller does not read slow CI as a bot that never answered.
+timed_out() {
+  if [ -n "$got_merge" ]; then
+    echo "timed out after $(( $(date +%s) - started )) seconds waiting for check $check, with the bot's MERGE in hand: not a missing verdict" >&2
+  else
+    echo "timed out after $timeout seconds with no verdict from $bot" >&2
+  fi
+  exit 5
+}
+started=$(date +%s)
+deadline=$(( started + timeout ))
 while :; do
   if pr_state; then
-    read -r state current merged_by check_state review_decision merge_state all_green base <<<"$REPLY"
+    read -r state current merged_by check_state review_decision merge_state all_green base bot_state <<<"$REPLY"
     case "$current" in
       "$head"*) ;;
       *) if [ "$state" = MERGED ]; then
@@ -177,7 +203,9 @@ while :; do
       "$head"*) ;;
       *) echo "head is $current, not $head: a new push needs a new verdict" >&2; exit 4 ;;
     esac
-    if verdict "$current" && [ -n "$REPLY" ]; then
+    looked=""
+    verdict "$current" && looked=1   # a failed lookup is neither a verdict nor its absence
+    if [ -n "$looked" ] && [ -n "$REPLY" ]; then
       case "$REPLY" in
         HOLD*)
           id=${REPLY#HOLD }
@@ -188,10 +216,17 @@ while :; do
           fi
           exit 2 ;;
       esac
+      # With --bot-check, --timeout bounds only the wait for the bot's answer: once its MERGE is in hand the
+      # deadline for the check is the later of start + --timeout and start + one hour (Cursor CLI on #82).
+      got_merge=1
+      if [ -n "$bot_check" ] && [ -z "$waited_for_check" ]; then
+        waited_for_check=1
+        [ "$deadline" -ge $(( started + 3600 )) ] || deadline=$(( started + 3600 ))
+      fi
       case "$check_state" in
         PENDING) ;;
         SUCCESS)
-          require_section || { [ "$(date +%s)" -lt "$deadline" ] || { echo "timed out after $timeout seconds" >&2; exit 5; }; sleep "$interval"; continue; }
+          require_section || { [ "$(date +%s)" -lt "$deadline" ] || { timed_out; }; sleep "$interval"; continue; }
           if gh pr merge "$number" --merge --match-head-commit "$current"; then
             echo "merged by this script at head $current"; exit 0
           fi
@@ -211,8 +246,17 @@ while :; do
           ;;
         *) echo "check $check finished: $check_state" >&2; exit 3 ;;
       esac
+    elif [ -n "$looked" ] && [ -n "$bot_check" ]; then
+      case "$bot_state" in
+        PENDING|-) bot_done_polls=0 ;;   # a rerun, or a check not there yet: its grace starts again when it finishes
+        DONE:*) bot_done_polls=$((bot_done_polls + 1))
+                if [ "$bot_done_polls" -ge 3 ]; then
+                  echo "the bot's check \"$bot_check\" finished (${bot_state#DONE:}) with no verdict from $bot on $current: the bot has stopped; start its stand-in" >&2
+                  exit 7
+                fi ;;
+      esac
     fi
   fi
-  [ "$(date +%s)" -lt "$deadline" ] || { echo "timed out after $timeout seconds" >&2; exit 5; }
+  [ "$(date +%s)" -lt "$deadline" ] || { timed_out; }
   sleep "$interval"
 done
