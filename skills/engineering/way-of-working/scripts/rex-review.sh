@@ -135,13 +135,16 @@ if child is None:
     print("exited" if p.get("last_exit") is not None else "unreadable"); sys.exit()
 if not isinstance(child, dict) or not child:
     print("unreadable"); sys.exit()
-# Every field by its base name: Cursor Agent 2026.10.22 starts as node, with its full path as argv0
-# (/Users/<you>/.local/bin/cursor-agent, as hc and ps showed it on 2026-10-30; the record Rex gives was
-# not captured, so its shape there is inferred), so a bare-name match missed it.
-names = {os.path.basename(child.get(k) or "") for k in ("name", "argv0", "path", "invoked_path")}
+# As before 2026-10-30: name and argv0 as given, path and invoked_path by base name. One addition: a
+# process that is node also counts by the base name of argv0, because Cursor Agent 2026.10.22 runs as
+# node with its full path as argv0 (/Users/<you>/.local/bin/cursor-agent, as hc and ps showed it on
+# 2026-10-30; the record Rex gives was not captured, so its shape there is inferred).
+names = {child.get("name") or "", child.get("argv0") or ""} | {os.path.basename(child.get(k) or "") for k in ("path", "invoked_path")}
+if "node" in {child.get("name"), os.path.basename(child.get("path") or "")}:
+    names.add(os.path.basename(child.get("argv0") or ""))
 names = {n.lstrip("-") for n in names if n}
-# A shell first, by its executable, which an argv0 cannot rename: a login shell started as -codex is still a shell.
-program = {os.path.basename(child.get(k) or "").lstrip("-") for k in ("name", "path", "invoked_path")} - {""}
+# A shell first, by name and path, which an argv0 cannot rename: a login shell started as -codex is a shell.
+program = {(child.get("name") or "").lstrip("-"), os.path.basename(child.get("path") or "")} - {""}
 if program & {"zsh", "bash", "sh", "fish", "login"}:
     print("shell")
 elif names & set(expected):
