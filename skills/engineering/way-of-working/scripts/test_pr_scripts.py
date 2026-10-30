@@ -414,6 +414,10 @@ class MergeOnVerdict(unittest.TestCase):
         self.assertEqual(merges, [f"7 --merge --match-head-commit {HEAD}"])
         r, _ = self.run_merge([step(pr(checks=[RUNNING]))] * 2, "--bot-check", "Cursor Automation", "--timeout", "0")
         self.assertEqual(r.returncode, 5, r.stderr)  # no verdict: the timeout still ends the wait
+        self.assertIn("with no verdict from cursor[bot]", r.stderr)
+        r, _ = self.run_merge([step(pr(checks=[RUNNING]), [review("MERGE")])] * 2, "--timeout", "0")  # without the option
+        self.assertEqual(r.returncode, 5, r.stderr)
+        self.assertIn("with the bot's MERGE in hand", r.stderr)
 
     def test_a_verdict_soon_after_the_bot_check_finished_still_counts(self):
         done = {"name": "Cursor Automation: Review pull requests", "status": "COMPLETED", "conclusion": "SUCCESS"}

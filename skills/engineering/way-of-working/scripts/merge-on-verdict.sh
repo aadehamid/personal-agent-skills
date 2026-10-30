@@ -35,8 +35,9 @@
 #   2  HOLD: the review is printed
 #   3  the check finished without success
 #   4  the head is not <head-sha>: a new push needs a new verdict, or this is another pull request
-#   5  timed out; with --bot-check, --timeout covers only the wait for the bot's verdict, and after its
-#      MERGE the script waits for the check up to an hour from its start
+#   5  timed out. With --bot-check, --timeout covers only the wait for the bot's verdict; after its MERGE
+#      the deadline is the later of start + --timeout and start + 3600 seconds, and the message says it
+#      was waiting for the check, not for the bot
 #   6  the body lacks the --require-section heading
 #   7  with --bot-check: the bot's check on the head finished (a skip, an error, or done) and no
 #      verdict from the bot followed within two more polls, so the bot is no longer reviewing
@@ -171,7 +172,17 @@ require_section() {
   fi
 }
 
-said="" bot_done_polls=0 waited_for_check=""
+said="" bot_done_polls=0 waited_for_check="" got_merge=""
+# Exit 5. After the bot's MERGE the wait was for the check, not for the bot, and the message
+# says so, so a caller does not read slow CI as a bot that never answered.
+timed_out() {
+  if [ -n "$got_merge" ]; then
+    echo "timed out after $(( $(date +%s) - started )) seconds waiting for check $check, with the bot's MERGE in hand: not a missing verdict" >&2
+  else
+    echo "timed out after $timeout seconds with no verdict from $bot" >&2
+  fi
+  exit 5
+}
 started=$(date +%s)
 deadline=$(( started + timeout ))
 while :; do
@@ -207,6 +218,7 @@ while :; do
       esac
       # With --bot-check, --timeout bounds only the wait for the bot's answer: once its MERGE is in hand the
       # script waits for the check up to an hour from its start (Cursor CLI on #82).
+      got_merge=1
       if [ -n "$bot_check" ] && [ -z "$waited_for_check" ]; then
         waited_for_check=1
         [ "$deadline" -ge $(( started + 3600 )) ] || deadline=$(( started + 3600 ))
@@ -214,7 +226,7 @@ while :; do
       case "$check_state" in
         PENDING) ;;
         SUCCESS)
-          require_section || { [ "$(date +%s)" -lt "$deadline" ] || { echo "timed out after $timeout seconds" >&2; exit 5; }; sleep "$interval"; continue; }
+          require_section || { [ "$(date +%s)" -lt "$deadline" ] || { timed_out; }; sleep "$interval"; continue; }
           if gh pr merge "$number" --merge --match-head-commit "$current"; then
             echo "merged by this script at head $current"; exit 0
           fi
@@ -245,6 +257,6 @@ while :; do
       esac
     fi
   fi
-  [ "$(date +%s)" -lt "$deadline" ] || { echo "timed out after $timeout seconds" >&2; exit 5; }
+  [ "$(date +%s)" -lt "$deadline" ] || { timed_out; }
   sleep "$interval"
 done
