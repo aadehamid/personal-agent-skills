@@ -236,11 +236,14 @@ class StopCursorReview(unittest.TestCase):
     def test_an_unreadable_pull_request_exits_3_and_touches_nothing(self):
         # Codex quick check of abe3f8f: a failed lookup is not a moved head, so the stand-in still starts (exit 3)
         runs = [check_run("Cursor Automation: Review", "bc-aaa")]
-        r = self.run_stop(env={"FAKE_PR_VIEW_FAILS": "1", "FAKE_CHECK_RUNS": json.dumps(runs)})
-        self.assertEqual(r.returncode, 3)
-        self.assertIn("could not read pull request #42", r.stderr)
-        self.assertEqual(self.calls("curl"), [])
-        self.assertFalse(any(c.startswith(("pr edit", "label create")) for c in self.calls("gh")))
+        for name, env in (("gh fails", {"FAKE_PR_VIEW_FAILS": "1"}), ("gh prints nothing", {"FAKE_PR_HEAD": ""})):
+            with self.subTest(name):
+                open(os.path.join(self.dir, "gh"), "w").close()
+                r = self.run_stop(env={**env, "FAKE_CHECK_RUNS": json.dumps(runs)})
+                self.assertEqual(r.returncode, 3)
+                self.assertIn("could not read pull request #42", r.stderr)
+                self.assertEqual(self.calls("curl"), [])
+                self.assertFalse(any(c.startswith(("pr edit", "label create")) for c in self.calls("gh")))
 
     def test_usage_errors_exit_64(self):
         self.assertEqual(subprocess.run([STOP, "42"], capture_output=True).returncode, 64)
