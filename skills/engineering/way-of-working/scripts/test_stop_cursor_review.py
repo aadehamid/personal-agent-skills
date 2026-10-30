@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Tests for stop-cursor-review.sh against a fake gh and a fake curl.
 
-The fake gh answers `gh api .../check-runs` from FAKE_CHECK_RUNS and applies the script's own --jq filter with
-jq, so the filter itself is tested. It answers the label lookup from FAKE_LABEL_EXISTS and records every
-`label create` and `pr edit`. The fake curl reads its -K config from stdin, records the request and the
+The fake gh answers `gh pr view` with FAKE_PR_HEAD, and the check runs of commit abc123 only from
+FAKE_CHECK_RUNS, applying the script's own --jq filter with jq, so the filter itself is tested. Its labels behave
+like a repository's: `pr edit --add-label` fails until `label create` has made the label (FAKE_LABEL_EXISTS starts
+with it). It records every call. The fake curl reads its -K config from stdin, records the request and the
 header it was given, and answers from FAKE_CURSOR: {"GET <path>" or "POST <path>": [code, body]}.
 """
 import json
@@ -27,18 +28,25 @@ FAKE_GH = textwrap.dedent(r'''
     args = sys.argv[1:]
     with open(os.path.join(state, "gh"), "a") as f:
         f.write(" ".join(args) + "\n")
-    if args[0] == "api" and "/check-runs" in args[-3]:
+    label = os.path.join(state, "label_exists")
+    if args[:2] == ["pr", "view"]:
+        print(os.environ.get("FAKE_PR_HEAD", "abc123def"))
+        sys.exit(0)
+    if args[0] == "api" and args[-3] == "repos/{owner}/{repo}/commits/abc123/check-runs":
         runs = os.environ.get("FAKE_CHECK_RUNS")
         if runs is None:
             sys.exit(1)
         jq = args[args.index("--jq") + 1]
         doc = json.dumps({"check_runs": json.loads(runs)})
         sys.exit(subprocess.run([os.environ["FAKE_JQ"], "-r", jq], input=doc, text=True).returncode)
-    if args[0] == "api" and "/labels/" in args[1]:
-        sys.exit(0 if os.environ.get("FAKE_LABEL_EXISTS") else 1)
-    if args[:2] == ["label", "create"] or args[:2] == ["pr", "edit"]:
-        sys.exit(int(os.environ.get("FAKE_GH_EDIT_FAILS", "0")))
-    sys.exit(2)
+    if args[:2] == ["label", "create"]:
+        if os.environ.get("FAKE_LABEL_CREATE_FAILS"):
+            sys.exit(1)
+        open(label, "w").close()
+        sys.exit(0)
+    if args[:2] == ["pr", "edit"]:
+        sys.exit(0 if os.path.exists(label) and not os.environ.get("FAKE_GH_EDIT_FAILS") else 1)
+    sys.exit(2)                          # any other call, such as another commit's check runs
 ''').lstrip()
 
 FAKE_CURL = textwrap.dedent(r'''
@@ -57,6 +65,15 @@ FAKE_CURL = textwrap.dedent(r'''
     sys.stdout.write(str(code))
 ''').lstrip()
 
+# A command that fails when its FAKE_<NAME>_FAILS is set and otherwise runs the real one, for failures this system
+# cannot stage (macOS mktemp ignores a missing TMPDIR, and BSD sed reads a directory without an error).
+FAILING = textwrap.dedent(r'''
+    #!/usr/bin/env bash
+    name=$(basename "$0"); flag="FAKE_$(echo "$name" | tr a-z A-Z)_FAILS"
+    [ -z "${!flag:-}" ] || { echo "$name: failed (fake)" >&2; exit 1; }
+    exec "/usr/bin/$name" "$@"
+''').lstrip()
+
 
 def check_run(name, agent):
     return {"name": name, "details_url": f"https://cursor.com/agents/{agent}"}
@@ -69,7 +86,7 @@ class StopCursorReview(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.dir)
         self.bin = os.path.join(self.dir, "bin")
         os.mkdir(self.bin)
-        for name, text in (("gh", FAKE_GH), ("curl", FAKE_CURL)):
+        for name, text in (("gh", FAKE_GH), ("curl", FAKE_CURL), ("mktemp", FAILING), ("sed", FAILING)):
             path = os.path.join(self.bin, name)
             with open(path, "w") as f:
                 f.write(text)
@@ -81,6 +98,11 @@ class StopCursorReview(unittest.TestCase):
                     HOME=self.dir, CURSOR_API_KEY=KEY, FAKE_LABEL_EXISTS="1")
         base.update(env or {})
         base = {k: v for k, v in base.items() if v is not None}
+        label = os.path.join(self.dir, "label_exists")
+        if base.get("FAKE_LABEL_EXISTS"):
+            open(label, "w").close()
+        elif os.path.exists(label):
+            os.remove(label)
         return subprocess.run([STOP, "42", "abc123", *args], env=base, capture_output=True, text=True)
 
     def calls(self, tool):
@@ -103,6 +125,7 @@ class StopCursorReview(unittest.TestCase):
         self.assertEqual([c["call"] for c in self.calls("curl")],
                          ["GET /v1/agents/bc-aaa", "POST /v1/agents/bc-aaa/runs/run-1/cancel"])
         self.assertIn("pr edit 42 --add-label review-takeover", self.calls("gh"))
+        self.assertIn("api --paginate repos/{owner}/{repo}/commits/abc123/check-runs", " ".join(self.calls("gh")))
 
     def test_a_finished_run_is_not_a_problem(self):
         runs = [check_run("Cursor Automation: Review", "bc-aaa")]
@@ -124,18 +147,31 @@ class StopCursorReview(unittest.TestCase):
 
     def test_the_key_comes_from_the_env_file_when_the_environment_has_none(self):
         os.makedirs(os.path.join(self.dir, ".config", "cursor"))
+        sourced = os.path.join(self.dir, "sourced")
         with open(os.path.join(self.dir, ".config", "cursor", "api.env"), "w") as f:
-            f.write("# Cursor\nexport CURSOR_API_KEY='key_from_file'\n")
+            f.write(f"# Cursor\ntouch {sourced}\nexport CURSOR_API_KEY='key_from_file'\n")
         runs = [check_run("Cursor Automation: Review", "bc-aaa")]
         cursor = {"GET /v1/agents/bc-aaa": [200, {"latestRunId": "run-1"}],
                   "POST /v1/agents/bc-aaa/runs/run-1/cancel": [200, {}]}
         r = self.run_stop(env={"CURSOR_API_KEY": None, "FAKE_CHECK_RUNS": json.dumps(runs),
                                "FAKE_CURSOR": json.dumps(cursor)})
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("Bearer key_from_file\"", self.calls("curl")[0]["config"])
+        self.assertFalse(os.path.exists(sourced), "the env file was run, not read")
+        for call in self.calls("curl"):
+            self.assertIn("Bearer key_from_file\"", call["config"])
+            self.assertNotIn("key_from_file", " ".join(call["argv"]))
+        self.assertNotIn("key_from_file", r.stdout + r.stderr)
 
     def test_nothing_checkable_exits_3_and_still_labels(self):
+        os.makedirs(os.path.join(self.dir, "a-directory"))
+        os.makedirs(os.path.join(self.dir, ".config", "cursor"))
+        with open(os.path.join(self.dir, ".config", "cursor", "api.env"), "w") as f:
+            f.write("CURSOR_API_KEY=key_from_file\n")
         cases = {"no key": {"CURSOR_API_KEY": None, "FAKE_CHECK_RUNS": "[]"},
+                 "a directory as the key file": {"CURSOR_API_KEY": None, "CURSOR_API_ENV": os.path.join(self.dir, "a-directory"),
+                                                 "FAKE_CHECK_RUNS": "[]"},
+                 "the key file unreadable": {"CURSOR_API_KEY": None, "FAKE_SED_FAILS": "1", "FAKE_CHECK_RUNS": "[]"},
+                 "no temporary file": {"FAKE_MKTEMP_FAILS": "1", "FAKE_CHECK_RUNS": "[]"},
                  "no check run": {"FAKE_CHECK_RUNS": "[]"},
                  "gh fails": {},
                  "agent unreadable": {"FAKE_CHECK_RUNS": json.dumps([check_run("Cursor Automation", "bc-aaa")]),
@@ -149,10 +185,24 @@ class StopCursorReview(unittest.TestCase):
 
     def test_a_missing_label_is_created_and_a_failed_label_exits_3(self):
         r = self.run_stop(env={"FAKE_LABEL_EXISTS": None, "FAKE_CHECK_RUNS": "[]"})
-        self.assertTrue(any(c.startswith("label create review-takeover") for c in self.calls("gh")))
+        gh = self.calls("gh")
+        self.assertTrue(any(c.startswith("label create review-takeover") for c in gh))
+        self.assertEqual(gh[-1], "pr edit 42 --add-label review-takeover")  # added again once created
+        self.assertIn("labelled #42", r.stdout)
+        # a label that exists is added even when creating it again would fail
+        r = self.run_stop(env={"FAKE_LABEL_CREATE_FAILS": "1", "FAKE_CHECK_RUNS": "[]"})
+        self.assertIn("labelled #42", r.stdout)
         r = self.run_stop(env={"FAKE_GH_EDIT_FAILS": "1", "FAKE_CHECK_RUNS": "[]"})
         self.assertEqual(r.returncode, 3)
         self.assertIn("could not add the label", r.stderr)
+
+    def test_a_pull_request_at_another_head_is_left_alone(self):
+        runs = [check_run("Cursor Automation: Review", "bc-aaa")]
+        r = self.run_stop(env={"FAKE_PR_HEAD": "fff999", "FAKE_CHECK_RUNS": json.dumps(runs)})
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("not abc123", r.stderr)
+        self.assertEqual(self.calls("curl"), [])
+        self.assertFalse(any(c.startswith(("pr edit", "label create")) for c in self.calls("gh")))
 
     def test_usage_errors_exit_64(self):
         self.assertEqual(subprocess.run([STOP, "42"], capture_output=True).returncode, 64)

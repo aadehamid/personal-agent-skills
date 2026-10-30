@@ -16,13 +16,16 @@
 # The key: CURSOR_API_KEY from the environment, else the CURSOR_API_KEY= line of ~/.config/cursor/api.env
 # (CURSOR_API_ENV overrides the path). The file is read, never sourced, and the key reaches curl on stdin
 # (curl -K -), so it never appears in a command line or in this script's output.
-# The label: created in the repository if it is missing, then added to the pull request. The bot's automation
+# The label: added to the pull request; if the repository lacks it, created and added again. The bot's automation
 # skips a labelled pull request only once its owner adds that rule in the Cursor dashboard; the label alone
 # changes nothing in Cursor.
 # Exit codes:
 #   0  every bot run found on the head was cancelled or had already finished, and the label is on the pull request
 #   3  something could not be checked or done (no key, no bot check run on the head, an API or gh error, the
-#      label not added); each line on stderr says what. Start the stand-in anyway: this never blocks it
+#      label not added); each line on stderr says what. Start the stand-in anyway: this never blocks it.
+#      A pull request that is not at <head-sha> (another repository's number, or a new push) also exits 3,
+#      before anything is stopped or labelled
+# Each API call gives up after 30 seconds, so a hung connection cannot hold up the stand-in.
 #   64 a usage error
 # Tests: test_stop_cursor_review.py, run by the repository's scripts/check.sh.
 set -euo pipefail
@@ -49,23 +52,37 @@ done
 status=0
 problem() { echo "$1" >&2; status=3; }
 
+# Nothing before the label step may end the script: each step that can fail says so and moves on.
 key="${CURSOR_API_KEY:-}"
 if [ -z "$key" ]; then
   env_file="${CURSOR_API_ENV:-$HOME/.config/cursor/api.env}"
-  [ -r "$env_file" ] && key=$(sed -n 's/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}CURSOR_API_KEY=//p' "$env_file" | tail -1 | tr -d "\"'\r")
+  if [ -f "$env_file" ] && [ -r "$env_file" ]; then
+    key=$(sed -n 's/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}CURSOR_API_KEY=//p' "$env_file" 2>/dev/null |
+          tail -1 | tr -d "\"'\r") || key=""
+  fi
 fi
 
-body=$(mktemp)
-trap 'rm -f "$body"' EXIT
+body=$(mktemp 2>/dev/null) || body=""
+trap '[ -z "$body" ] || rm -f "$body"' EXIT
 # Calls the Cloud Agents API: cursor <method> <path>. The body lands in $body; the HTTP code is printed.
 cursor() {
   local code
   code=$(printf 'header = "Authorization: Bearer %s"\n' "$key" |
-    curl -sS -K - -o "$body" -w '%{http_code}' -X "$1" "$api$2") || true   # curl prints 000 when it cannot connect
+    curl -sS --connect-timeout 10 --max-time 30 -K - -o "$body" -w '%{http_code}' -X "$1" "$api$2") ||
+    true   # curl prints 000 when it cannot connect or runs out of time
   echo "${code:-000}"
 }
 
-if [ -z "$key" ]; then
+pr_head=$(gh pr view "$number" --json headRefOid --jq .headRefOid 2>/dev/null) || pr_head=""
+if [ -z "$pr_head" ] || [ "${pr_head#"$head"}" = "$pr_head" ]; then
+  # the wrong repository's pull request of that number, or a new push: stop nothing and label nothing
+  echo "pull request #$number is at ${pr_head:-an unknown head}, not $head; nothing stopped or labelled" >&2
+  exit 3
+fi
+
+if [ -z "$body" ]; then
+  problem "could not make a temporary file; the bot's run was not stopped"
+elif [ -z "$key" ]; then
   problem "no Cursor API key (CURSOR_API_KEY, or ${CURSOR_API_ENV:-~/.config/cursor/api.env}); the bot's run was not stopped"
 elif ! agents=$(BOT_CHECK="$bot_check" gh api --paginate "repos/{owner}/{repo}/commits/$head/check-runs" \
     --jq '.check_runs[] | select(.name | startswith(env.BOT_CHECK)) | .details_url
@@ -88,11 +105,10 @@ else
   done
 fi
 
-if ! gh api "repos/{owner}/{repo}/labels/$label" --silent 2>/dev/null &&
-   ! gh label create "$label" --color BFD4F2 \
-       --description "The review bot was stopped; its stand-in gives the verdict" >/dev/null; then
-  problem "could not create the label $label"
-elif gh pr edit "$number" --add-label "$label" >/dev/null; then
+# Add the label; when that fails because the repository lacks it, create it and add it again.
+if gh pr edit "$number" --add-label "$label" >/dev/null 2>&1 ||
+   { gh label create "$label" --color BFD4F2 --description "The review bot was stopped; its stand-in gives the verdict" \
+       >/dev/null 2>&1; gh pr edit "$number" --add-label "$label" >/dev/null; }; then
   echo "labelled #$number $label"
 else
   problem "could not add the label $label to #$number"
