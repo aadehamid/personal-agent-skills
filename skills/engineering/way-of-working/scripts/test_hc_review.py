@@ -11,6 +11,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import textwrap
@@ -394,6 +395,26 @@ class HcReview(unittest.TestCase):
 
     def test_the_copy_is_removed(self):
         self.run_case("ok")
+        self.assertEqual([f for f in os.listdir(self.tmpdir) if f.startswith("hc-review.")], [])
+
+    def test_review_common_is_found_beside_the_original_and_its_copy_removed(self):
+        # The run goes on from a copy in TMPDIR, where no review-common.sh sits, so a run that works
+        # found it beside the original; its private copy is gone afterwards.
+        r, _ = self.run_case("ok")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual([f for f in os.listdir(self.tmpdir) if f.startswith("hc-review.common.")], [])
+
+    def test_a_missing_review_common_ends_with_the_two_lines(self):
+        alone = os.path.join(tempfile.mkdtemp(), "hc-review.sh")
+        shutil.copy(SCRIPT, alone)
+        r, calls = self.run_case("ok", script=alone)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(calls, [])
+        self.assertIn("hc-review.sh needs review-common.sh beside it", r.stderr)
+        lines = r.stdout.splitlines()
+        self.assertEqual(lines[-2], "No review: loading review-common.sh failed; the error is above.")
+        self.assertEqual(lines[-1], "Next: restore " + os.path.join(os.path.dirname(alone), "review-common.sh")
+                         + ", then run: " + alone + " --branch b --verify v ")
         self.assertEqual([f for f in os.listdir(self.tmpdir) if f.startswith("hc-review.")], [])
 
     def test_herdr_review_hands_off_in_an_hc_terminal(self):

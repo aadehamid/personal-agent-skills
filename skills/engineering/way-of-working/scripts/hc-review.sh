@@ -5,8 +5,10 @@
 #   herdr-review.sh hands off to this script in an hc terminal (HC_TERMINAL_ID set, neither
 #   HERDR_WORKSPACE_ID nor REX_SESSION set) or with --host hc, so the commands the docs name stay
 #   the same. Reviewers, models, flags and prompt are herdr-review.sh's; test_hc_review.py runs both
-#   scripts and compares what each launches and sends. hc is herdr-core's CLI, not Herdr TUI's
-#   `herdr`: the two run separate servers and share no terminals (herdr.dev FAQ, 2026-10-29).
+#   scripts and compares what each launches and sends. The arguments, default models, prompt,
+#   report fallback and the screen reading it shares with rex-review.sh live in review-common.sh
+#   beside it, which it sources from a private copy (below). hc is herdr-core's CLI, not Herdr
+#   TUI's `herdr`: the two run separate servers and share no terminals (herdr.dev FAQ, 2026-10-29).
 #   Each run starts its own reviewer, a child terminal of this agent's (it shows under this
 #   agent in the Herdr app and ends with it), named rev-<repo>-<hash of kind:model>, with
 #   --no-notify, since this script reports and hc's notes would be typed into the agent's input.
@@ -32,58 +34,46 @@
 set -euo pipefail
 
 # The private copy, as in herdr-review.sh: a commit or checkout can rewrite this file mid-review.
+# review-common.sh is copied at the same moment, from beside this file (not beside the copy), so
+# the two copies match; the run sources its copy and removes it (below). When either copy cannot
+# be made, both run in place.
 if [ -z "${HC_REVIEW_ORIGINAL:-}" ]; then
-  copy=""
-  if copy=$(mktemp "${TMPDIR:-/tmp}/hc-review.copy.XXXXXX" 2>/dev/null) && cp "$0" "$copy"; then
-    HC_REVIEW_ORIGINAL=$0 exec bash "$copy" "$@"
+  copy="" common=""
+  if copy=$(mktemp "${TMPDIR:-/tmp}/hc-review.copy.XXXXXX" 2>/dev/null) && cp "$0" "$copy" \
+     && common=$(mktemp "${TMPDIR:-/tmp}/hc-review.common.XXXXXX" 2>/dev/null) \
+     && cp "$(dirname "$0")/review-common.sh" "$common" 2>/dev/null; then
+    HC_REVIEW_ORIGINAL=$0 HC_REVIEW_COMMON=$common exec bash "$copy" "$@"
   fi
   if [ -n "$copy" ]; then rm -f -- "$copy"; fi
-  HC_REVIEW_ORIGINAL=$0
+  if [ -n "$common" ]; then rm -f -- "$common"; fi
+  HC_REVIEW_ORIGINAL=$0 HC_REVIEW_COMMON=""
 fi
 self=$HC_REVIEW_ORIGINAL
-unset HC_REVIEW_ORIGINAL
+common=${HC_REVIEW_COMMON:-$(dirname "$self")/review-common.sh}
+unset HC_REVIEW_ORIGINAL HC_REVIEW_COMMON
 case "$0" in "${TMPDIR:-/tmp}"/hc-review.copy.*) rm -f -- "$0" ;; esac
 
 started_at=$(python3 -c 'import time; print(time.time())')
 rerun=$(printf '%q ' "$self" "$@")
 
-usage="usage: $self --branch <branch> --verify <text> [--kind codex|kimi|cursor] [--model <model>]"
-branch="" verify="" kind="codex" model=""
-while [ $# -gt 0 ]; do
-  # Every option takes a value; a missing one is a bad argument, not a later unbound variable.
-  case "$1" in
-    --branch|--verify|--model|--kind|--host)
-      [ $# -ge 2 ] || { echo "$1 needs a value" >&2; echo "$usage" >&2; exit 2; } ;;
-    *) echo "unknown argument: $1" >&2; echo "$usage" >&2; exit 2 ;;
-  esac
-  case "$1" in
-    --branch) branch="$2" ;;
-    --verify) verify="$2" ;;
-    --model) model="$2" ;;
-    --kind) kind="$2" ;;
-    # herdr-review.sh's choice of host; this script is the hc one.
-    --host) [ "$2" = hc ] || { echo "hc-review.sh runs only with --host hc, got: $2" >&2; exit 2; } ;;
-  esac
-  shift 2
-done
-[ -n "$branch" ] && [ -n "$verify" ] || { echo "$usage" >&2; exit 2; }
-case "$kind" in
-  codex) model="${model:-gpt-6-luna}" ;;
-  kimi) model="${model:-kimi-code/k3.1-pro}" ;;
-  cursor) model="${model:-cursor-grok-4.6-medium}" ;;
-  *) echo "--kind must be codex, kimi or cursor, got: $kind" >&2; exit 2 ;;
-esac
+# A missing review-common.sh is a broken install, not a bad argument: exit 1, with the two lines.
+loaded=""
+if [ -r "$common" ]; then
+  # shellcheck source=review-common.sh
+  . "$common"
+  loaded=1
+fi
+case "$common" in "${TMPDIR:-/tmp}"/hc-review.common.*) rm -f -- "$common" ;; esac
+if [ -z "$loaded" ]; then
+  echo "cannot read $common: hc-review.sh needs review-common.sh beside it." >&2
+  echo "No review: loading review-common.sh failed; the error is above."
+  echo "Next: restore $(dirname "$self")/review-common.sh, then run: $rerun"
+  exit 1
+fi
+
+parse_review_args hc "$@"
 
 step="starting" trailer="" next_on_failure="$rerun" review="" last_screen=""
-on_exit() {
-  local code=$?
-  trap '' TERM INT HUP
-  [ -z "$last_screen" ] || rm -f "$last_screen"
-  [ "$code" -ne 0 ] && [ -z "$trailer" ] || return 0
-  echo "No review: $step failed; the error is above."
-  echo "Next: $next_on_failure"
-  exit 1
-}
 trap on_exit EXIT
 trap 'exit 1' TERM INT HUP
 if [ -z "${HC_TERMINAL_ID:-}" ]; then
@@ -91,8 +81,6 @@ if [ -z "${HC_TERMINAL_ID:-}" ]; then
   step="checking for an hc terminal" next_on_failure="run it from an hc terminal: $rerun"
   exit 1
 fi
-# Ends the run with its reason and Next line.
-stop() { trailer=1; echo "$1"; echo "Next: $2"; exit 1; }
 # One field of a JSON object on stdin, by dotted path; empty when any part is missing or null.
 jfield() {
   python3 -c '
@@ -145,15 +133,9 @@ if [ -n "$holder" ]; then
   fi
 fi
 
-# Cursor's sandbox may block the macOS temporary folder ($TMPDIR, under /var/folders) but
-# allows /tmp, so a Cursor reviewer gets its report path there.
 step="creating the report file"
-report_dir="${TMPDIR:-/tmp}"
-if [ "$kind" = cursor ]; then report_dir="${HERDR_REVIEW_DIR:-/tmp/herdr-reviews}"; mkdir -p "$report_dir"; fi
-report=$(mktemp "$report_dir/review-XXXXXX")
-rm -f "$report"
-echo "Report file: $report" >&2
-prompt="Read AGENTS.md and the repository's review standards file (for example REVIEW_STANDARDS.md) first, and apply them. Run the ce-code-review skill (instructions: $HOME/.agents/skills/ce-code-review/SKILL.md) on branch $branch, diff vs main. Verify: $verify. For each finding, name the kind of defect and list every place in the repository that has it, including places outside the diff. Say how this could pass review while still being wrong. Report findings only; do not apply them. When the review is finished, write the final report as Markdown to exactly this path: $report. This is required even if the review skill also saves its own report elsewhere. Then reply with that path."
+create_report_file
+prompt=$(review_prompt)
 
 step="starting the reviewer"
 if [ "$kind" = kimi ]; then
@@ -177,7 +159,7 @@ echo "Review terminal: $review ($name)" >&2
 next_on_failure="hc read $review --lines 60; cat '$report'"
 answer="answer it (hc attach $review, or hc keys $review <key>)"
 show_screen() { hc read "$review" --lines "$1" 2>/dev/null | tail -n "$1" || true; }
-pi_next="$(dirname "$self")/pi-review.sh --role independent --head ${head_sha:-<sha>} --verify $(printf '%q' "$verify")"
+pi_next=$(next_reviewer)
 # hc's launch can say the task was not delivered; then it was not, and nothing is resent blindly.
 if [ "$(printf '%s' "$launched" | jfield first_message.sent)" = False ]; then
   show_screen 30
@@ -203,8 +185,9 @@ review_status() {
   local info screen
   info=$(hc get "$review" --json 2>/dev/null) || { echo unreadable 0; return; }
   screen=$(hc read "$review" 2>/dev/null) || screen=""
-  printf '%s' "$screen" | python3 -c '
-import json, os, re, sys
+  # The shared reading is review-common.sh's read_screen; what follows it is hc's own.
+  printf '%s' "$screen" | python3 -c "$screen_py"'
+import json
 kind, info, last_path, top = sys.argv[1:5]
 try:
     t = json.loads(info)
@@ -216,47 +199,8 @@ if t.get("state") == "finished":
 status = t.get("status") if isinstance(t.get("status"), dict) else {}
 reported = status.get("state") or ""
 lines = [l for l in sys.stdin.read().splitlines() if not l.startswith("[hc] ")][-40:]
-screen = "\n".join(lines)
-# Kimi'"'"'s input box, read whole, as rex-review.sh reads it: from its top border to its bottom
-# border just above the status lines. A long prompt wraps over many lines inside it, or scrolls
-# (the top border then reads "↑ 13 more"). Nothing inside the box counts as a question.
-box, box_text, scrolled = set(), None, False
-if kind == "kimi":
-    ends = [i for i, l in enumerate(lines) if l.strip().startswith("\u2570")]
-    if ends and len(lines) - 1 - ends[-1] <= 4:
-        starts = [i for i in range(ends[-1]) if lines[i].strip().startswith("\u256d")]
-        if starts:
-            box = set(range(starts[-1], ends[-1] + 1))
-            scrolled = bool(re.search(r"\u2191\s*\d+\s+more", lines[starts[-1]]))
-            inner = [re.sub(r"^\s*\u2502\s?|\s*\u2502\s*$", "", lines[i]) for i in range(starts[-1] + 1, ends[-1])]
-            if inner and re.match(r"^\s*>", inner[0]):
-                box_text = " ".join([re.sub(r"^\s*>\s?", "", inner[0]).strip()] + [c.strip() for c in inner[1:]]).strip()
-outside = [l for i, l in enumerate(lines) if i not in box]
-bottom = [l for i, l in enumerate(lines) if i >= len(lines) - 12 and i not in box]
-dialog = [l for i, l in enumerate(lines) if i >= len(lines) - 20 and i not in box]
-last = open(last_path).read()
-open(last_path, "w").write(screen)
-limit = re.search(r"reached your [\w-]+ usage limit", "\n".join(outside[-20:]))
-question = re.search(r"Run this command\?|Skip & tell the agent|Press enter to confirm|Hooks need review|"
-                     r"\(y/n\)|\[y/N\]|Allow once|Trust this folder\?", "\n".join(dialog))
-asked_at = next((i for i, l in enumerate(dialog) if l.strip() == "Trust this folder?"), None)
-choice_at = next((i for i, l in enumerate(dialog) if re.match(r"^\s*❯\s*Trust and continue\s*$", l)), None)
-trust = False
-if kind == "kimi" and asked_at is not None and choice_at is not None and asked_at < choice_at:
-    paths = [l.strip() for l in dialog[asked_at + 1:choice_at] if l.strip().startswith("/")]
-    trust = len(paths) == 1 and os.path.realpath(paths[0]) == top
-editor = {"kimi": r"^\s*│\s*>\s*(?P<text>.*?)\s*│?\s*$", "cursor": r"^\s*→\s*(?P<text>.*?)\s*$",
-          "codex": r"^\s*›\s*(?P<text>.*?)\s*$"}[kind]
-inputs = [box_text] if box_text is not None else [m.group("text") for m in (re.match(editor, l) for l in lines[-12:]) if m]
-held = any(x.startswith(("Read AGENTS.md", "Write your final review report", "[Pasted text")) for x in inputs) or (
-    kind == "kimi" and scrolled and box_text is not None and box_text.endswith("Then reply with that path."))
-ready_text = {"kimi": ("",), "cursor": ("Plan, search, build anything", "Add a follow-up"), "codex": None}[kind]
-ready = any(x in ready_text for x in inputs) if ready_text is not None else bool(inputs) and not held
-if kind == "kimi" and ready:
-    ready = any("context:" in l for l in lines[-12:])
-busy = re.search(r"ctrl\+c to stop|esc to interrupt|Press Ctrl\+B to run in background|Working…|"
-                 r"Running \d+ agents?|Agent Running", "\n".join(outside[-12:]))
-if limit:
+s = read_screen(kind, lines, top, last_path)
+if s.limit:
     word = "limit"
 elif reported == "blocked":
     word = "blocked"
@@ -264,19 +208,19 @@ elif reported == "error":
     word = "error"
 elif reported == "working":
     word = "working"
-elif trust:
+elif s.trust:
     word = "trust"
-elif question:
+elif s.question:
     word = "blocked"
 elif reported in ("idle", "done"):
     word = "idle"
-elif busy:
+elif s.busy:
     word = "working"
-elif held:
+elif s.held:
     word = "unsent"
-elif screen != last:
+elif s.changed:
     word = "changing"
-elif ready:
+elif s.ready:
     word = "idle"
 else:
     word = "unknown"
@@ -320,42 +264,8 @@ if [ "$kind" = kimi ]; then
   hc send "$review" "$prompt" --json >/dev/null
 fi
 
-print_if_stable() {
-  local last="" size
-  for _ in $(seq 1 12); do
-    if [ -s "$report" ]; then
-      size=$(wc -c < "$report")
-      if [ "$size" = "$last" ]; then finish; fi
-      last=$size
-    else
-      last=""
-    fi
-    pause 5
-  done
-}
-
-# herdr-review.sh's fallback, unchanged: the ce-code-review report.md of this run, branch
-# and HEAD, when the reviewer wrote no file at the report path.
-find_skill_reports() {
-  python3 - "$started_at" "$branch" "$head_sha" "$(id -u)" "${HERDR_REVIEW_ARTIFACT_ROOTS:-/tmp:${TMPDIR:-/tmp}}" <<'PY'
-import glob, json, os, sys
-start, branch, head, uid, roots = sys.argv[1:]
-for root in dict.fromkeys(r for r in roots.split(":") if r):
-    pattern = os.path.join(root, "compound-engineering-" + uid, "ce-code-review", "*", "report.md")
-    for path in sorted(glob.glob(pattern)):
-        try:
-            if os.path.getmtime(path) <= float(start) or os.path.getsize(path) == 0:
-                continue
-            with open(os.path.join(os.path.dirname(path), "metadata.json")) as f:
-                meta = json.load(f)
-        except (OSError, ValueError):
-            continue
-        if isinstance(meta, dict) and head and meta.get("branch") == branch and meta.get("head_sha") == head:
-            print(path)
-PY
-}
-
-# The report, then the reviewer's terminal ended and removed: only this run's own.
+# The report, then the reviewer's terminal ended and removed: only this run's own. This and
+# pause are the hooks review-common.sh's print_if_stable and report_fallback call.
 finish() {
   cat "$report"
   hc kill "$review" --json >/dev/null 2>&1 || true
@@ -437,24 +347,7 @@ if [ "$ended" = timeout ] && [ "$blocked" -gt 0 ]; then
 fi
 case "$ended" in
   timeout|idle)
-    print_if_stable
-    if [ -s "$report" ]; then
-      reason="$reason; the file at the report path is still changing"
-      next="cat '$report'"
-    else
-      skill_reports=$(find_skill_reports)
-      matches=$(printf '%s' "$skill_reports" | grep -c . || true)
-      if [ "$matches" = 1 ]; then
-        cp "$skill_reports" "$report"
-        echo "The reviewer did not write $report; copied the review skill's report from this run: $skill_reports" >&2
-        finish
-      elif [ "$matches" -gt 1 ]; then
-        reason="$reason; several skill reports match this run; read them and pick: $(printf '%s' "$skill_reports" | tr '\n' ' ')"
-        next="cp <the chosen report.md> '$report' && cat '$report'"
-      else
-        reason="$reason; no skill report for this run"
-      fi
-    fi ;;
+    report_fallback ;;
   *)
     [ ! -s "$report" ] || reason="$reason; the file at the report path may be partial and was not printed" ;;
 esac

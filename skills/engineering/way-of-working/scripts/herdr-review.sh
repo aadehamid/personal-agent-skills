@@ -37,6 +37,10 @@
 # has worked and gone idle, one request for the report, then the reviewer's own file at
 # the report path, or failing that the review skill's report.md from this run, copied
 # there (see find_skill_reports for which one counts).
+# rex-review.sh and hc-review.sh take the prompt, the default models, find_skill_reports and that
+# recovery's fallback from review-common.sh. This script keeps its own copies, because it must
+# run alone (a test runs a lone copy of it): change both. test_rex_review.py and
+# test_hc_review.py fail when what the scripts launch or send differs.
 # Tests: test_herdr_review.py, run by the repository's scripts/check.sh.
 set -euo pipefail
 

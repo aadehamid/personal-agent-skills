@@ -11,6 +11,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import textwrap
@@ -702,6 +703,40 @@ class RexReview(unittest.TestCase):
         self.run_case("ok")
         self.assertEqual([f for f in os.listdir(self.tmpdir) if f.startswith("rex-review.")], [])
 
+    def test_review_common_is_found_beside_the_original_and_its_copy_removed(self):
+        # The run goes on from a copy in TMPDIR, where no review-common.sh sits, so a run that works
+        # found it beside the original; its private copy is gone afterwards.
+        r, _ = self.run_case("ok")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual([f for f in os.listdir(self.tmpdir) if f.startswith("rex-review.common.")], [])
+
+    def test_a_missing_review_common_ends_with_the_two_lines(self):
+        alone = os.path.join(tempfile.mkdtemp(), "rex-review.sh")
+        shutil.copy(SCRIPT, alone)
+        r, calls = self.run_case("ok", script=alone)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(calls, [])
+        self.assertIn("rex-review.sh needs review-common.sh beside it", r.stderr)
+        lines = r.stdout.splitlines()
+        self.assertEqual(lines[-2], "No review: loading review-common.sh failed; the error is above.")
+        self.assertEqual(lines[-1], "Next: restore " + os.path.join(os.path.dirname(alone), "review-common.sh")
+                         + ", then run: " + alone + " --branch b --verify v ")
+        self.assertEqual([f for f in os.listdir(self.tmpdir) if f.startswith("rex-review.")], [])
+
+    def test_the_shared_code_lives_in_review_common_only(self):
+        # rex-review.sh and hc-review.sh take these from review-common.sh; herdr-review.sh keeps its own
+        # copies, which test_both_hosts_launch_and_prompt_alike and its hc twin compare.
+        with open(os.path.join(HERE, "review-common.sh")) as f:
+            common = f.read()
+        facts = ("Read AGENTS.md and the repository's review standards file", "kimi-code/k3.1-pro",
+                 "find_skill_reports() {", "print_if_stable() {", "reached your [", "pi-review.sh --role independent",
+                 "Trust this folder\\?", "report_dir=\"${HERDR_REVIEW_DIR:-/tmp/herdr-reviews}\"")
+        for fact in facts:
+            self.assertEqual(common.count(fact), 1, fact)
+            for name in ("rex-review.sh", "hc-review.sh"):
+                with open(os.path.join(HERE, name)) as f:
+                    self.assertNotIn(fact, f.read(), name + ": " + fact)
+
     def test_herdr_review_hands_off_inside_rex_outside_herdr(self):
         r, calls = self.run_case("ok", script=HERDR_SCRIPT)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
@@ -714,9 +749,9 @@ class RexReview(unittest.TestCase):
         self.assertIn("split", calls)
 
     def test_both_hosts_launch_and_prompt_alike(self):
-        # Finding 13: the two scripts stay separate files (each runs from a private copy of
-        # itself, which sourcing a shared sibling would undo), so this runs both and compares
-        # what each starts and sends, for every kind, a custom model and awkward arguments.
+        # Finding 13: herdr-review.sh keeps its own copy of what rex-review.sh takes from
+        # review-common.sh (a test runs a lone copy of herdr-review.sh), so this runs both and
+        # compares what each starts and sends, for every kind, a custom model and awkward arguments.
         spec = importlib.util.spec_from_file_location("test_herdr_review", os.path.join(HERE, "test_herdr_review.py"))
         herdr_tests = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(herdr_tests)

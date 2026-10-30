@@ -5,8 +5,9 @@
 #   herdr-review.sh hands off to this script inside Rex (REX_SESSION set, HERDR_WORKSPACE_ID
 #   unset) or with --host rex, so the commands the docs name stay the same. Reviewers, models,
 #   flags and prompt are herdr-review.sh's; test_rex_review.py runs both scripts and compares
-#   what each launches and sends. The two stay separate files because each runs from a private
-#   copy of itself, which sourcing a shared sibling would undo.
+#   what each launches and sends. The arguments, default models, prompt, report fallback and the
+#   screen reading it shares with hc-review.sh live in review-common.sh beside it, which it
+#   sources from a private copy (below); herdr-review.sh keeps its own copies (see that file).
 #   The first reviewer opens as a split beside this agent's pane (REX_BLOCK); when that window
 #   already holds two panes, it opens in a new tab (the owner's layout, 2026-10-24). Each
 #   reviewer's pane is labelled review-<repo>-<kind>-<hash of kind:model>-<hash of the work
@@ -30,58 +31,46 @@
 set -euo pipefail
 
 # The private copy, as in herdr-review.sh: a commit or checkout can rewrite this file mid-review.
+# review-common.sh is copied at the same moment, from beside this file (not beside the copy), so
+# the two copies match; the run sources its copy and removes it (below). When either copy cannot
+# be made, both run in place.
 if [ -z "${REX_REVIEW_ORIGINAL:-}" ]; then
-  copy=""
-  if copy=$(mktemp "${TMPDIR:-/tmp}/rex-review.copy.XXXXXX" 2>/dev/null) && cp "$0" "$copy"; then
-    REX_REVIEW_ORIGINAL=$0 exec bash "$copy" "$@"
+  copy="" common=""
+  if copy=$(mktemp "${TMPDIR:-/tmp}/rex-review.copy.XXXXXX" 2>/dev/null) && cp "$0" "$copy" \
+     && common=$(mktemp "${TMPDIR:-/tmp}/rex-review.common.XXXXXX" 2>/dev/null) \
+     && cp "$(dirname "$0")/review-common.sh" "$common" 2>/dev/null; then
+    REX_REVIEW_ORIGINAL=$0 REX_REVIEW_COMMON=$common exec bash "$copy" "$@"
   fi
   if [ -n "$copy" ]; then rm -f -- "$copy"; fi
-  REX_REVIEW_ORIGINAL=$0
+  if [ -n "$common" ]; then rm -f -- "$common"; fi
+  REX_REVIEW_ORIGINAL=$0 REX_REVIEW_COMMON=""
 fi
 self=$REX_REVIEW_ORIGINAL
-unset REX_REVIEW_ORIGINAL
+common=${REX_REVIEW_COMMON:-$(dirname "$self")/review-common.sh}
+unset REX_REVIEW_ORIGINAL REX_REVIEW_COMMON
 case "$0" in "${TMPDIR:-/tmp}"/rex-review.copy.*) rm -f -- "$0" ;; esac
 
 started_at=$(python3 -c 'import time; print(time.time())')
 rerun=$(printf '%q ' "$self" "$@")
 
-usage="usage: $self --branch <branch> --verify <text> [--kind codex|kimi|cursor] [--model <model>]"
-branch="" verify="" kind="codex" model=""
-while [ $# -gt 0 ]; do
-  # Every option takes a value; a missing one is a bad argument, not a later unbound variable.
-  case "$1" in
-    --branch|--verify|--model|--kind|--host)
-      [ $# -ge 2 ] || { echo "$1 needs a value" >&2; echo "$usage" >&2; exit 2; } ;;
-    *) echo "unknown argument: $1" >&2; echo "$usage" >&2; exit 2 ;;
-  esac
-  case "$1" in
-    --branch) branch="$2" ;;
-    --verify) verify="$2" ;;
-    --model) model="$2" ;;
-    --kind) kind="$2" ;;
-    # herdr-review.sh's choice of host; this script is the Rex one.
-    --host) [ "$2" = rex ] || { echo "rex-review.sh runs only with --host rex, got: $2" >&2; exit 2; } ;;
-  esac
-  shift 2
-done
-[ -n "$branch" ] && [ -n "$verify" ] || { echo "$usage" >&2; exit 2; }
-case "$kind" in
-  codex) model="${model:-gpt-6-luna}" ;;
-  kimi) model="${model:-kimi-code/k3.1-pro}" ;;
-  cursor) model="${model:-cursor-grok-4.6-medium}" ;;
-  *) echo "--kind must be codex, kimi or cursor, got: $kind" >&2; exit 2 ;;
-esac
+# A missing review-common.sh is a broken install, not a bad argument: exit 1, with the two lines.
+loaded=""
+if [ -r "$common" ]; then
+  # shellcheck source=review-common.sh
+  . "$common"
+  loaded=1
+fi
+case "$common" in "${TMPDIR:-/tmp}"/rex-review.common.*) rm -f -- "$common" ;; esac
+if [ -z "$loaded" ]; then
+  echo "cannot read $common: rex-review.sh needs review-common.sh beside it." >&2
+  echo "No review: loading review-common.sh failed; the error is above."
+  echo "Next: restore $(dirname "$self")/review-common.sh, then run: $rerun"
+  exit 1
+fi
+
+parse_review_args rex "$@"
 
 step="starting" trailer="" next_on_failure="$rerun" review_pane="" last_screen=""
-on_exit() {
-  local code=$?
-  trap '' TERM INT HUP
-  [ -z "$last_screen" ] || rm -f "$last_screen"
-  [ "$code" -ne 0 ] && [ -z "$trailer" ] || return 0
-  echo "No review: $step failed; the error is above."
-  echo "Next: $next_on_failure"
-  exit 1
-}
 trap on_exit EXIT
 trap 'exit 1' TERM INT HUP
 if [ -z "${REX_SESSION:-}" ]; then
@@ -89,8 +78,6 @@ if [ -z "${REX_SESSION:-}" ]; then
   step="checking for a Rex pane" next_on_failure="run it from a Rex pane: $rerun"
   exit 1
 fi
-# Ends the run with its reason and Next line.
-stop() { trailer=1; echo "$1"; echo "Next: $2"; exit 1; }
 # rex with this session: -s goes after the command's words (split, block ls, block call).
 rx() {
   local n=1
@@ -271,70 +258,20 @@ except (ValueError, AttributeError):
 root = next((r for r in recs if isinstance(r, dict) and "id" not in r), None)
 print((root or {}).get("state", ""))' || true)
   screen=$(rx capture -b "$review_pane" --trim 2>/dev/null) || { echo unreadable; return; }
-  printf '%s' "$screen" | python3 -c '
-import os, re, sys
+  # The shared reading is review-common.sh's read_screen; what follows it is Rex's own.
+  printf '%s' "$screen" | python3 -c "$screen_py"'
 kind, reported, last_path, top, strict = sys.argv[1:6]
 lines = sys.stdin.read().splitlines()[-40:]
-screen = "\n".join(lines)
-bottom = "\n".join(lines[-12:])
-# Kimi'"'"'s input box, read whole: from its top border to its bottom border, which must sit just
-# above the status lines. A long prompt wraps over many lines inside it, so its "│ >" line can
-# be far above the bottom twelve (2026-10-25: 23 lines up). The box is the reviewer'"'"'s own text:
-# nothing inside it counts as a question.
-box, box_text, scrolled = set(), None, False
-if kind == "kimi":
-    ends = [i for i, l in enumerate(lines) if l.strip().startswith("\u2570")]
-    if ends and len(lines) - 1 - ends[-1] <= 4:
-        starts = [i for i in range(ends[-1]) if lines[i].strip().startswith("\u256d")]
-        if starts:
-            box = set(range(starts[-1], ends[-1] + 1))
-            # A prompt longer than the box scrolls inside it, and the top border then reads "↑ 13 more".
-            scrolled = bool(re.search(r"\u2191\s*\d+\s+more", lines[starts[-1]]))
-            inner = [re.sub(r"^\s*\u2502\s?|\s*\u2502\s*$", "", lines[i]) for i in range(starts[-1] + 1, ends[-1])]
-            if inner and re.match(r"^\s*>", inner[0]):
-                box_text = " ".join([re.sub(r"^\s*>\s?", "", inner[0]).strip()] + [c.strip() for c in inner[1:]]).strip()
-outside = [l for i, l in enumerate(lines) if i not in box]
-dialog = [l for i, l in enumerate(lines) if i >= len(lines) - 20 and i not in box]
-last = open(last_path).read()
-open(last_path, "w").write(screen)
-# Each reviewer'"'"'s own input line: empty when ready, holding the prompt when unsent.
-editor = {
-    "kimi": r"^\s*│\s*>\s*(?P<text>.*?)\s*│?\s*$",
-    "cursor": r"^\s*→\s*(?P<text>.*?)\s*$",
-    "codex": r"^\s*›\s*(?P<text>.*?)\s*$",
-}[kind]
-ready_text = {"kimi": ("",), "cursor": ("Plan, search, build anything", "Add a follow-up"), "codex": None}[kind]
-question = re.search(r"Run this command\?|Skip & tell the agent|Press enter to confirm|Hooks need review|"
-                     r"\(y/n\)|\[y/N\]|Allow once|Trust this folder\?", "\n".join(dialog))
-# Trust counts only for the dialog'"'"'s own path line: the single absolute path between its
-# question and its selected choice. A path anywhere else on screen counts for nothing.
-asked_at = next((i for i, l in enumerate(dialog) if l.strip() == "Trust this folder?"), None)
-choice_at = next((i for i, l in enumerate(dialog) if re.match(r"^\s*❯\s*Trust and continue\s*$", l)), None)
-trust = False
-if kind == "kimi" and asked_at is not None and choice_at is not None and asked_at < choice_at:
-    paths = [l.strip() for l in dialog[asked_at + 1:choice_at] if l.strip().startswith("/")]
-    trust = len(paths) == 1 and os.path.realpath(paths[0]) == top
-inputs = [box_text] if box_text is not None else [m.group("text") for m in (re.match(editor, l) for l in lines[-12:]) if m]
-# A prompt longer than Kimi'"'"'s box scrolls inside it: the top border reads "↑ 13 more" and the first
-# visible line is the middle of the prompt (2026-10-25, three times), so the prompt'"'"'s own last
-# sentence marks it too.
-held = any(t.startswith(("Read AGENTS.md", "Write your final review report", "[Pasted text")) for t in inputs) or (
-    kind == "kimi" and scrolled and box_text is not None and box_text.endswith("Then reply with that path."))
-# Codex: its idle placeholder text was not checked live (its hook-review prompt stood in the
-# way on 2026-10-24), so any input line not holding the prompt counts as ready.
-ready = any(t in ready_text for t in inputs) if ready_text is not None else bool(inputs) and not held
-if kind == "kimi" and ready:
-    ready = "context:" in bottom
-others = [l for i, l in enumerate(lines) if i >= len(lines) - 12 and i not in box and not re.match(editor, l)]
+s = read_screen(kind, lines, top, last_path)
+ready = s.ready
+others = [l for i, l in enumerate(lines) if i >= len(lines) - 12 and i not in s.box and not re.match(s.editor, l)]
 choices = any(re.search(r"\?\s*$", l) or re.match(r"^\s*(\d+[.)]\s|❯\s|\[[ xX]\]\s)", l) for l in others)
 if strict and choices:
     ready = False
 # Kimi'"'"'s question when a prompt goes into a session left idle: how to resume it.
-idle_session = (kind == "kimi" and any("has been idle for" in l for l in dialog)
-                and any(re.match(r"^\s*\u276f?\s*Compact and continue\s*$", l) for l in dialog))
-# A usage limit on the bottom lines (2026-10-26: Kimi said "429 ... reached your 5-hour usage limit").
-limit = re.search(r"reached your [\w-]+ usage limit", "\n".join(outside[-20:]))
-if limit:
+idle_session = (kind == "kimi" and any("has been idle for" in l for l in s.dialog)
+                and any(re.match(r"^\s*❯?\s*Compact and continue\s*$", l) for l in s.dialog))
+if s.limit:
     print("limit")
 elif reported == "blocked":
     print("blocked")
@@ -342,16 +279,15 @@ elif reported == "working":
     print("working")
 elif idle_session:
     print("idlesession")
-elif trust:
+elif s.trust:
     print("trust")
-elif question:
+elif s.question:
     print("blocked")
-elif re.search(r"ctrl\+c to stop|esc to interrupt|Press Ctrl\+B to run in background|Working\u2026|"
-               r"Running \d+ agents?|Agent Running", "\n".join(l for l in outside[-12:])):
+elif s.busy:
     print("working")
-elif held:
+elif s.held:
     print("unsent")
-elif screen != last:
+elif s.changed:
     print("changing")
 elif ready:
     print("idle")
@@ -379,7 +315,7 @@ settled_status() {
 # hook review approves code, not a folder, and stays a question, like any screen that holds
 # without the input line.
 # The next reviewer in AGENTS.md's order when this one reports its usage limit.
-pi_next="$(dirname "$self")/pi-review.sh --role independent --head ${head_sha:-<sha>} --verify $(printf '%q' "$verify")"
+pi_next=$(next_reviewer)
 step="waiting for the reviewer to be ready"
 settled=0 starting=0 unread=0 unknown=0 trusted=0 resumed=0 busy_at_start="" looks=0
 # A reused pane can still be working on a review this script started earlier and gave up on
@@ -435,12 +371,8 @@ done
 [ "$settled" = 1 ] || { show_pane 30; stop "Reviewer did not start: its screen never settled on its input line." "$rerun"; }
 
 step="creating the report file"
-report_dir="${TMPDIR:-/tmp}"
-if [ "$kind" = cursor ]; then report_dir="${HERDR_REVIEW_DIR:-/tmp/herdr-reviews}"; mkdir -p "$report_dir"; fi
-report=$(mktemp "$report_dir/review-XXXXXX")
-rm -f "$report"
-echo "Report file: $report" >&2
-prompt="Read AGENTS.md and the repository's review standards file (for example REVIEW_STANDARDS.md) first, and apply them. Run the ce-code-review skill (instructions: $HOME/.agents/skills/ce-code-review/SKILL.md) on branch $branch, diff vs main. Verify: $verify. For each finding, name the kind of defect and list every place in the repository that has it, including places outside the diff. Say how this could pass review while still being wrong. Report findings only; do not apply them. When the review is finished, write the final report as Markdown to exactly this path: $report. This is required even if the review skill also saves its own report elsewhere. Then reply with that path."
+create_report_file
+prompt=$(review_prompt)
 
 # Text first, then Enter as its own key, a moment later: an Enter sent with the text can
 # land as a new line in the input box (Kimi, 2026-10-24). A fresh look comes right before the
@@ -458,40 +390,9 @@ send_prompt() {
   fi
 }
 
-print_if_stable() {
-  local last="" size
-  for _ in $(seq 1 12); do
-    if [ -s "$report" ]; then
-      size=$(wc -c < "$report")
-      if [ "$size" = "$last" ]; then cat "$report"; exit 0; fi
-      last=$size
-    else
-      last=""
-    fi
-    sleep 5
-  done
-}
-
-# herdr-review.sh's fallback, unchanged: the ce-code-review report.md of this run, branch
-# and HEAD, when the reviewer wrote no file at the report path.
-find_skill_reports() {
-  python3 - "$started_at" "$branch" "$head_sha" "$(id -u)" "${HERDR_REVIEW_ARTIFACT_ROOTS:-/tmp:${TMPDIR:-/tmp}}" <<'PY'
-import glob, json, os, sys
-start, branch, head, uid, roots = sys.argv[1:]
-for root in dict.fromkeys(r for r in roots.split(":") if r):
-    pattern = os.path.join(root, "compound-engineering-" + uid, "ce-code-review", "*", "report.md")
-    for path in sorted(glob.glob(pattern)):
-        try:
-            if os.path.getmtime(path) <= float(start) or os.path.getsize(path) == 0:
-                continue
-            with open(os.path.join(os.path.dirname(path), "metadata.json")) as f:
-                meta = json.load(f)
-        except (OSError, ValueError):
-            continue
-        if isinstance(meta, dict) and head and meta.get("branch") == branch and meta.get("head_sha") == head:
-            print(path)
-PY
-}
+# review-common.sh's hooks: the report, once found, and the pause between looks.
+finish() { cat "$report"; exit 0; }
+pause() { sleep "$1"; }
 
 # The pane was busy when this run began: an earlier run's review, now finished. Its report is this
 # run's when it matches the branch and HEAD, so the review is not sent a second time.
@@ -605,24 +506,7 @@ if [ "$ended" = timeout ] && [ "$blocked" -gt 0 ]; then
 fi
 case "$ended" in
   timeout|idle)
-    print_if_stable
-    if [ -s "$report" ]; then
-      reason="$reason; the file at the report path is still changing"
-      next="cat '$report'"
-    else
-      skill_reports=$(find_skill_reports)
-      matches=$(printf '%s' "$skill_reports" | grep -c . || true)
-      if [ "$matches" = 1 ]; then
-        cp "$skill_reports" "$report"
-        echo "The reviewer did not write $report; copied the review skill's report from this run: $skill_reports" >&2
-        cat "$report"; exit 0
-      elif [ "$matches" -gt 1 ]; then
-        reason="$reason; several skill reports match this run; read them and pick: $(printf '%s' "$skill_reports" | tr '\n' ' ')"
-        next="cp <the chosen report.md> '$report' && cat '$report'"
-      else
-        reason="$reason; no skill report for this run"
-      fi
-    fi ;;
+    report_fallback ;;
   *)
     # A file the reviewer left while blocked or after it exited may be partial: not printed.
     [ ! -s "$report" ] || reason="$reason; the file at the report path may be partial and was not printed" ;;
