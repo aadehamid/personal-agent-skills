@@ -85,6 +85,14 @@ FAKE = textwrap.dedent(r'''
         child = {"name": BIN, "argv0": BIN, "path": "/opt/bin/" + BIN, "cwd": top}
         if "reuseelsewhere" in s and b == "block:rev": child["cwd"] = "/elsewhere/repo"
         if "nodechild" in s: child.update(name="node", argv0="node", path="/usr/local/bin/node")
+        if "fullpathargv" in s:  # Cursor Agent 2026.10.22, as hc and ps showed it on 2026-10-30 (Rex's record inferred)
+            child.update(name="node", argv0="/Users/x/.local/bin/" + BIN, path="/usr/local/bin/node")
+            if "nodepathonly" in s:
+                child["name"] = "MainThread"
+        if "argvspoof" in s and b == "block:rev":  # another program whose argv0 names the reviewer: not node, so no match
+            child = {"name": "python3", "argv0": "/tmp/x/" + BIN, "path": "/usr/bin/python3", "cwd": top}
+        if "shellnamedreviewer" in s and b == "block:rev":  # a login shell whose argv0 names the reviewer
+            child = {"name": "zsh", "argv0": "-" + BIN, "path": "/bin/zsh", "cwd": top}
         if ("slowstart" in s and b == "block:new" and count("process_looks") <= 3) or \
                 ("diesatstart" in s and b == "block:new"):
             child = {"name": "zsh", "argv0": "-zsh", "path": "/bin/zsh", "cwd": top}
@@ -281,6 +289,34 @@ class RexReview(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertNotIn("split", calls)
         self.assertNotIn("run", calls)
+        self.assertIn("Review pane: block:rev (reused)", r.stderr)
+
+    def test_a_cursor_agent_that_runs_as_node_with_a_full_path_argv0_is_reused(self):
+        # Handoff of 2026-10-29: on a retry the script said the Cursor pane "runs something else". Cursor Agent
+        # 2026.10.22 runs as node with its full path as argv0, and only path and invoked_path were matched by base name.
+        r, calls = self.run_case("reuse,fullpathargv", kind="cursor")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("split", calls)
+        self.assertIn("Review pane: block:rev (reused)", r.stderr)
+
+    def test_a_shell_whose_argv0_names_the_reviewer_is_closed_not_reused(self):
+        # Codex on 430049d: a shell started as -codex is still a shell, so its pane is closed and a new one opened.
+        r, calls = self.run_case("reuse,shellnamedreviewer")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(open(os.path.join(self.state, "closed")).read(), "block:rev")  # that pane, not another
+        self.assertNotIn("Review pane: block:rev (reused)", r.stderr)
+
+    def test_another_program_whose_argv0_names_the_reviewer_is_left_alone(self):
+        # Codex round 2 on 430049d: the base name of argv0 counts only for node, the Cursor Agent case.
+        r, calls = self.run_case("reuse,argvspoof")
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("block close", calls)
+        self.assertNotIn("send", calls)
+        self.assertRegex(r.stdout.splitlines()[-2], r"runs something else; it was left alone")
+
+    def test_a_node_process_counts_by_argv0_when_only_its_path_says_node(self):
+        r, _ = self.run_case("reuse,fullpathargv,nodepathonly", kind="cursor")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("Review pane: block:rev (reused)", r.stderr)
 
     def test_a_labelled_pane_whose_reviewer_exited_is_closed_and_replaced(self):
