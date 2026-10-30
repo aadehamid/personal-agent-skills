@@ -90,13 +90,19 @@ FAKE = textwrap.dedent(r'''
         text = args[2]
         if text.startswith("Read AGENTS.md"):
             m = re.search(r"exactly this path: (\S+)\. ", text)
-            write("report_path", m.group(1)); write("prompt", text); start_work()
+            write("report_path", m.group(1)); write("prompt", text)
+            if "kimiwrapped" in s or "kimiscrolled" in s:
+                write("phase", "kimiunsent")   # the prompt sits in Kimi's box until Enter
+            else:
+                start_work()
         elif text.startswith("Write your final review"):
             start_work(asked=True)
         out({"sent": True})
     if cmd == "keys":
         if phase == "trustq":
             write("phase", "ready" if "stilltrust" not in s else "trustq")
+        elif phase == "kimiunsent":
+            write("enters", str(int(read("enters", "0")) + 1)); start_work()
         elif phase == "unsent" and "neverenter" not in s:
             start_work()
         out({})
@@ -115,6 +121,9 @@ FAKE = textwrap.dedent(r'''
             print("  429 You've reached your 5-hour usage limit\n" + editor()); sys.exit(0)
         if phase == "blocked":
             print("  Run this command?\n  → Run (once) (y)"); sys.exit(0)
+        if phase == "kimiunsent":
+            name = "kimi-wrapped-prompt.txt" if "kimiwrapped" in s else "kimi-scrolled-prompt.txt"
+            print(open(os.path.join(os.environ["FAKE_FIXTURES"], name)).read().rstrip("\n")); sys.exit(0)
         if phase == "unsent":
             print(editor("Read AGENTS.md and the repository's review standards file")); sys.exit(0)
         if phase == "working" and not reported:
@@ -168,7 +177,7 @@ class HcReview(unittest.TestCase):
         self.tmpdir = tempfile.mkdtemp()
         env = {k: v for k, v in os.environ.items() if not k.startswith(("REX_", "HERDR_", "HC_", "GIT_"))}
         env.update(PATH=bindir + os.pathsep + os.environ["PATH"], FAKE_HC=scenario, FAKE_STATE=state, FAKE_KIND=kind,
-                   FAKE_TOP=self.top, FAKE_NAME=name_for(kind, model or KINDS[kind]), HC_TERMINAL_ID="t1",
+                   FAKE_TOP=self.top, FAKE_FIXTURES=os.path.join(HERE, "fixtures"), FAKE_NAME=name_for(kind, model or KINDS[kind]), HC_TERMINAL_ID="t1",
                    TMPDIR=self.tmpdir, HERDR_REVIEW_ARTIFACT_ROOTS=self.tmpdir, HERDR_REVIEW_DIR=self.tmpdir,
                    HOME=home or tempfile.mkdtemp())
         env.update(env_extra or {})
@@ -304,6 +313,18 @@ class HcReview(unittest.TestCase):
         lines = r.stdout.splitlines()
         self.assertEqual(lines[-2], "Reviewer not available: it reports its usage limit.")
         self.assertRegex(lines[-1], r"^Next: \S*pi-review\.sh --role independent ")
+
+    def test_a_prompt_wrapped_in_kimis_input_box_is_unsent_and_gets_its_enter(self):
+        # Cursor's HOLD on #81: the box's "│ >" line sits above the bottom twelve lines.
+        r, calls = self.run_case("kimiwrapped", kind="kimi")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(calls.count("keys"), 1)
+
+    def test_a_prompt_scrolled_inside_kimis_input_box_is_unsent_and_gets_its_enter(self):
+        # Cursor's HOLD on #81: the visible "│ >" line is mid-prompt; the box ends with its last sentence.
+        r, calls = self.run_case("kimiscrolled", kind="kimi")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(calls.count("keys"), 1)
 
     def test_a_prompt_left_unsent_gets_an_enter(self):
         r, calls = self.run_case("unsent,unreported", kind="cursor")

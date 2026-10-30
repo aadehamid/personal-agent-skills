@@ -217,8 +217,23 @@ status = t.get("status") if isinstance(t.get("status"), dict) else {}
 reported = status.get("state") or ""
 lines = [l for l in sys.stdin.read().splitlines() if not l.startswith("[hc] ")][-40:]
 screen = "\n".join(lines)
-bottom = lines[-12:]
-dialog = lines[-20:]
+# Kimi'"'"'s input box, read whole, as rex-review.sh reads it: from its top border to its bottom
+# border just above the status lines. A long prompt wraps over many lines inside it, or scrolls
+# (the top border then reads "↑ 13 more"). Nothing inside the box counts as a question.
+box, box_text, scrolled = set(), None, False
+if kind == "kimi":
+    ends = [i for i, l in enumerate(lines) if l.strip().startswith("\u2570")]
+    if ends and len(lines) - 1 - ends[-1] <= 4:
+        starts = [i for i in range(ends[-1]) if lines[i].strip().startswith("\u256d")]
+        if starts:
+            box = set(range(starts[-1], ends[-1] + 1))
+            scrolled = bool(re.search(r"\u2191\s*\d+\s+more", lines[starts[-1]]))
+            inner = [re.sub(r"^\s*\u2502\s?|\s*\u2502\s*$", "", lines[i]) for i in range(starts[-1] + 1, ends[-1])]
+            if inner and re.match(r"^\s*>", inner[0]):
+                box_text = " ".join([re.sub(r"^\s*>\s?", "", inner[0]).strip()] + [c.strip() for c in inner[1:]]).strip()
+outside = [l for i, l in enumerate(lines) if i not in box]
+bottom = [l for i, l in enumerate(lines) if i >= len(lines) - 12 and i not in box]
+dialog = [l for i, l in enumerate(lines) if i >= len(lines) - 20 and i not in box]
 last = open(last_path).read()
 open(last_path, "w").write(screen)
 limit = re.search(r"reached your [\w-]+ usage limit", "\n".join(dialog))
@@ -232,12 +247,13 @@ if kind == "kimi" and asked_at is not None and choice_at is not None and asked_a
     trust = len(paths) == 1 and os.path.realpath(paths[0]) == top
 editor = {"kimi": r"^\s*│\s*>\s*(?P<text>.*?)\s*│?\s*$", "cursor": r"^\s*→\s*(?P<text>.*?)\s*$",
           "codex": r"^\s*›\s*(?P<text>.*?)\s*$"}[kind]
-inputs = [m.group("text") for m in (re.match(editor, l) for l in bottom) if m]
-held = any(x.startswith(("Read AGENTS.md", "Write your final review report", "[Pasted text")) for x in inputs)
+inputs = [box_text] if box_text is not None else [m.group("text") for m in (re.match(editor, l) for l in lines[-12:]) if m]
+held = any(x.startswith(("Read AGENTS.md", "Write your final review report", "[Pasted text")) for x in inputs) or (
+    kind == "kimi" and scrolled and box_text is not None and box_text.endswith("Then reply with that path."))
 ready_text = {"kimi": ("",), "cursor": ("Plan, search, build anything", "Add a follow-up"), "codex": None}[kind]
 ready = any(x in ready_text for x in inputs) if ready_text is not None else bool(inputs) and not held
 if kind == "kimi" and ready:
-    ready = any("context:" in l for l in bottom)
+    ready = any("context:" in l for l in lines[-12:])
 busy = re.search(r"ctrl\+c to stop|esc to interrupt|Press Ctrl\+B to run in background|Working…|"
                  r"Running \d+ agents?|Agent Running", "\n".join(bottom))
 if limit:
@@ -371,8 +387,13 @@ for _ in $(seq 1 720); do
     unsent)
       if [ "$enters" -ge 3 ]; then ended="unsent" reason="the prompt stayed unsent after three Enters" next="$rerun"; break; fi
       enters=$((enters + 1)) idle_unworked=0
-      hc keys "$review" enter >/dev/null 2>&1 || true
-      echo "The prompt sat unsent on the input line; sent Enter." >&2 ;;
+      read -r again _ < <(review_status)
+      if [ "$again" = unsent ]; then
+        hc keys "$review" enter >/dev/null 2>&1 || true
+        echo "The prompt sat unsent on the input line; sent Enter." >&2
+      else
+        echo "Held the Enter: a fresh look shows $again." >&2
+      fi ;;
     gone) ended="gone" reason="the reviewer exited" next="$rerun"; break ;;
     limit) ended="unavailable" reason="reviewer not available: it reports its usage limit" next="$pi_next"; break ;;
     unreadable)

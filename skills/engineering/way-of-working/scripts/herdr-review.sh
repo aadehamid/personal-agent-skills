@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run the independent review in a Herdr pane, wait for it, and print its report.
 #
-# Usage: herdr-review.sh --branch <branch> --verify "<claims to verify>" [--kind codex|kimi|cursor] [--model <model>] [--host herdr|rex]
+# Usage: herdr-review.sh --branch <branch> --verify "<claims to verify>" [--kind codex|kimi|cursor] [--model <model>] [--host herdr|rex|hc]
 #   The default reviewer is Codex on gpt-6-luna. --kind kimi runs Kimi Code (model default
 #   kimi-code/k3.1-pro, whose default effort is high); --kind cursor runs the Cursor agent
 #   CLI (default cursor-grok-4.6-medium). changing.md ("Who reviews") says which to try first.
