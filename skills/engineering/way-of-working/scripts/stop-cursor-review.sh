@@ -5,7 +5,8 @@
 # Usage: stop-cursor-review.sh <number> <head-sha> [--repo <owner/name>] [--bot-check <name prefix>]
 #                              [--label <name>]
 #   Defaults: --bot-check "Cursor Automation", --label review-takeover.
-#   Run it when merge-on-verdict.sh --bot-check exits 5 or 7, before the stand-in starts ("Who reviews",
+#   Run it when merge-on-verdict.sh --bot-check exits 7, or exits 5 "with no verdict from" the bot (not its exit 5
+#   "with the bot's MERGE in hand", which is only a slow check), before the stand-in starts ("Who reviews",
 #   rule 4, in references/changing.md). Run from the repository, or name it with --repo.
 # How it finds the bot: each check run on <head-sha> whose name starts with the --bot-check prefix links its
 # agent (details_url https://cursor.com/agents/bc-...). The Cloud Agents API's list by prUrl does not return
