@@ -40,6 +40,8 @@ FAKE_OLLAMA = textwrap.dedent(r'''
         print('429: {"message":"you have reached your weekly usage limit"}'); sys.exit(1)
     if "ratelimit" in s:
         print('429: {"message":"too many requests"}'); sys.exit(1)
+    if "quotesscript" in s:
+        print("# reached your weekly usage limit, quoted from a file"); print("\n".join(f"line {i}" for i in range(25))); sys.exit(1)
     if "echoheader" in s:
         print("When Pi's log shows its provider's usage limit, the run ends."); sys.exit(1)
     if "hang" in s:
@@ -240,7 +242,7 @@ class PiReview(unittest.TestCase):
 
     def test_a_rate_limit_or_the_words_alone_are_not_the_usage_limit(self):
         # Cursor CLI review of #80: a bare 429 or the phrase "usage limit" must not end the review as not available.
-        for case in ("ratelimit", "echoheader"):
+        for case in ("ratelimit", "echoheader", "quotesscript"):
             r = self.run_case(case, "--role", "independent", "--head", self.head)
             self.assertNotIn("Reviewer not available", r.stdout, case)
             self.assertIn("Pi wrote no result", r.stdout, case)
