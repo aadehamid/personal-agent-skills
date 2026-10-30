@@ -28,6 +28,9 @@ FAKE_GH = textwrap.dedent(r'''
     args = sys.argv[1:]
     with open(os.path.join(state, "gh"), "a") as f:
         f.write(" ".join(args) + "\n")
+    if os.environ.get("FAKE_GH_HANGS") and args[0] == "api":
+        import time
+        time.sleep(30)
     label = os.path.join(state, "label_exists")
     if args[:2] == ["pr", "view"]:
         print(os.environ.get("FAKE_PR_HEAD", "abc123def"))
@@ -86,7 +89,7 @@ class StopCursorReview(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.dir)
         self.bin = os.path.join(self.dir, "bin")
         os.mkdir(self.bin)
-        for name, text in (("gh", FAKE_GH), ("curl", FAKE_CURL), ("mktemp", FAILING), ("sed", FAILING)):
+        for name, text in (("gh", FAKE_GH), ("curl", FAKE_CURL), ("mktemp", FAILING), ("sed", FAILING), ("sort", FAILING)):
             path = os.path.join(self.bin, name)
             with open(path, "w") as f:
                 f.write(text)
@@ -143,6 +146,9 @@ class StopCursorReview(unittest.TestCase):
         for call in self.calls("curl"):
             self.assertNotIn(KEY, " ".join(call["argv"]))
             self.assertIn(f"Bearer {KEY}", call["config"])
+            argv = call["argv"]
+            self.assertEqual(argv[argv.index("--max-time") + 1], "30")  # a hung API cannot hold up the stand-in
+            self.assertIn("--connect-timeout", argv)
         self.assertNotIn(KEY, r.stdout + r.stderr)
 
     def test_the_key_comes_from_the_env_file_when_the_environment_has_none(self):
@@ -162,32 +168,50 @@ class StopCursorReview(unittest.TestCase):
             self.assertNotIn("key_from_file", " ".join(call["argv"]))
         self.assertNotIn("key_from_file", r.stdout + r.stderr)
 
-    def test_nothing_checkable_exits_3_and_still_labels(self):
+    def test_each_failure_exits_3_says_what_and_still_labels(self):
         os.makedirs(os.path.join(self.dir, "a-directory"))
         os.makedirs(os.path.join(self.dir, ".config", "cursor"))
         with open(os.path.join(self.dir, ".config", "cursor", "api.env"), "w") as f:
             f.write("CURSOR_API_KEY=key_from_file\n")
-        cases = {"no key": {"CURSOR_API_KEY": None, "FAKE_CHECK_RUNS": "[]"},
-                 "a directory as the key file": {"CURSOR_API_KEY": None, "CURSOR_API_ENV": os.path.join(self.dir, "a-directory"),
-                                                 "FAKE_CHECK_RUNS": "[]"},
-                 "the key file unreadable": {"CURSOR_API_KEY": None, "FAKE_SED_FAILS": "1", "FAKE_CHECK_RUNS": "[]"},
-                 "no temporary file": {"FAKE_MKTEMP_FAILS": "1", "FAKE_CHECK_RUNS": "[]"},
-                 "no check run": {"FAKE_CHECK_RUNS": "[]"},
-                 "gh fails": {},
-                 "agent unreadable": {"FAKE_CHECK_RUNS": json.dumps([check_run("Cursor Automation", "bc-aaa")]),
-                                      "FAKE_CURSOR": json.dumps({"GET /v1/agents/bc-aaa": [401, {}]})}}
-        for name, env in cases.items():
+        runs = json.dumps([check_run("Cursor Automation", "bc-aaa")])
+        cases = {"no key": ({"CURSOR_API_KEY": None, "FAKE_CHECK_RUNS": runs, "CURSOR_API_ENV": "/no/such/file"}, "no Cursor API key"),
+                 "no HOME": ({"CURSOR_API_KEY": None, "HOME": None, "FAKE_CHECK_RUNS": runs}, "no Cursor API key"),
+                 "a directory as the key file": ({"CURSOR_API_KEY": None, "CURSOR_API_ENV": os.path.join(self.dir, "a-directory"),
+                                                  "FAKE_CHECK_RUNS": runs}, "no Cursor API key"),
+                 "the key file unreadable": ({"CURSOR_API_KEY": None, "FAKE_SED_FAILS": "1", "FAKE_CHECK_RUNS": runs},
+                                             "no Cursor API key"),
+                 "no temporary file": ({"FAKE_MKTEMP_FAILS": "1", "FAKE_CHECK_RUNS": runs}, "could not make a temporary file"),
+                 "no check run": ({"FAKE_CHECK_RUNS": "[]"}, "nothing to stop"),
+                 "gh fails": ({}, "could not read the check runs"),
+                 "gh hangs": ({"FAKE_GH_HANGS": "1", "STOP_CURSOR_TIMEOUT": "1", "FAKE_CHECK_RUNS": runs},
+                              "could not read the check runs"),
+                 "agent unreadable": ({"FAKE_CHECK_RUNS": runs, "FAKE_CURSOR": json.dumps({"GET /v1/agents/bc-aaa": [401, {}]})},
+                                      "no latest run to stop (HTTP 401)"),
+                 "cancel refused": ({"FAKE_CHECK_RUNS": runs, "FAKE_CURSOR": json.dumps(
+                     {"GET /v1/agents/bc-aaa": [200, {"latestRunId": "run-1"}],
+                      "POST /v1/agents/bc-aaa/runs/run-1/cancel": [500, {}]})}, "returned HTTP 500")}
+        for name, (env, message) in cases.items():
             with self.subTest(name):
                 open(os.path.join(self.dir, "gh"), "w").close()
+                open(os.path.join(self.dir, "curl"), "w").close()
                 r = self.run_stop(env=env)
                 self.assertEqual(r.returncode, 3, r.stderr)
+                self.assertIn(message, r.stderr)
                 self.assertIn("pr edit 42 --add-label review-takeover", self.calls("gh"))
+
+    def test_an_agent_with_two_check_runs_is_stopped_once_without_sort(self):
+        runs = [check_run("Cursor Automation: Review", "bc-aaa"), check_run("Cursor Automation: Review", "bc-aaa")]
+        cursor = {"GET /v1/agents/bc-aaa": [200, {"latestRunId": "run-1"}],
+                  "POST /v1/agents/bc-aaa/runs/run-1/cancel": [200, {}]}
+        r = self.run_stop(env={"FAKE_SORT_FAILS": "1", "FAKE_CHECK_RUNS": json.dumps(runs), "FAKE_CURSOR": json.dumps(cursor)})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([c["call"] for c in self.calls("curl")],
+                         ["GET /v1/agents/bc-aaa", "POST /v1/agents/bc-aaa/runs/run-1/cancel"])
 
     def test_a_missing_label_is_created_and_a_failed_label_exits_3(self):
         r = self.run_stop(env={"FAKE_LABEL_EXISTS": None, "FAKE_CHECK_RUNS": "[]"})
-        gh = self.calls("gh")
-        self.assertTrue(any(c.startswith("label create review-takeover") for c in gh))
-        self.assertEqual(gh[-1], "pr edit 42 --add-label review-takeover")  # added again once created
+        labels = [c.split(" --")[0] for c in self.calls("gh") if c.startswith(("pr edit", "label create"))]
+        self.assertEqual(labels, ["pr edit 42", "label create review-takeover", "pr edit 42"])  # add, create, add again
         self.assertIn("labelled #42", r.stdout)
         # a label that exists is added even when creating it again would fail
         r = self.run_stop(env={"FAKE_LABEL_CREATE_FAILS": "1", "FAKE_CHECK_RUNS": "[]"})
@@ -195,11 +219,14 @@ class StopCursorReview(unittest.TestCase):
         r = self.run_stop(env={"FAKE_GH_EDIT_FAILS": "1", "FAKE_CHECK_RUNS": "[]"})
         self.assertEqual(r.returncode, 3)
         self.assertIn("could not add the label", r.stderr)
+        r = self.run_stop(env={"FAKE_LABEL_EXISTS": None, "FAKE_LABEL_CREATE_FAILS": "1", "FAKE_CHECK_RUNS": "[]"})
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("could not add the label", r.stderr)
 
     def test_a_pull_request_at_another_head_is_left_alone(self):
         runs = [check_run("Cursor Automation: Review", "bc-aaa")]
         r = self.run_stop(env={"FAKE_PR_HEAD": "fff999", "FAKE_CHECK_RUNS": json.dumps(runs)})
-        self.assertEqual(r.returncode, 3)
+        self.assertEqual(r.returncode, 4)
         self.assertIn("not abc123", r.stderr)
         self.assertEqual(self.calls("curl"), [])
         self.assertFalse(any(c.startswith(("pr edit", "label create")) for c in self.calls("gh")))

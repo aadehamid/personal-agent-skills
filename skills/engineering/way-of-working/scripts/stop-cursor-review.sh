@@ -23,15 +23,16 @@
 #   0  every bot run found on the head was cancelled or had already finished, and the label is on the pull request
 #   3  something could not be checked or done (no key, no bot check run on the head, an API or gh error, the
 #      label not added); each line on stderr says what. Start the stand-in anyway: this never blocks it.
-#      A pull request that is not at <head-sha> (another repository's number, or a new push) also exits 3,
-#      before anything is stopped or labelled
-# Each API call gives up after 30 seconds, so a hung connection cannot hold up the stand-in.
+#   4  the pull request is not at <head-sha> (another repository's number, or a new push): nothing was stopped or
+#      labelled. Do not start a stand-in for <head-sha>; a new head needs its own wait for the bot
+# Each gh and API call gives up after 30 seconds (STOP_CURSOR_TIMEOUT), so a hung connection cannot hold up the
+# stand-in.
 #   64 a usage error
 # Tests: test_stop_cursor_review.py, run by the repository's scripts/check.sh.
 set -euo pipefail
 
 number="" head="" bot_check="Cursor Automation" label="review-takeover"
-api="${CURSOR_API_URL:-https://api.cursor.com}"
+api="${CURSOR_API_URL:-https://api.cursor.com}" limit="${STOP_CURSOR_TIMEOUT:-30}"
 usage() { echo "$1" >&2; echo "usage: $0 <number> <head-sha> [--repo <owner/name>] [--bot-check <name prefix>] [--label <name>]" >&2; exit 64; }
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -51,11 +52,13 @@ done
 
 status=0
 problem() { echo "$1" >&2; status=3; }
+# Runs gh with a deadline: perl's alarm ends it after $limit seconds, on macOS and Linux alike.
+gh_() { perl -e 'alarm shift; exec @ARGV or exit 127' "$limit" gh "$@"; }
 
 # Nothing before the label step may end the script: each step that can fail says so and moves on.
 key="${CURSOR_API_KEY:-}"
 if [ -z "$key" ]; then
-  env_file="${CURSOR_API_ENV:-$HOME/.config/cursor/api.env}"
+  env_file="${CURSOR_API_ENV:-${HOME:+$HOME/.config/cursor/api.env}}"
   if [ -f "$env_file" ] && [ -r "$env_file" ]; then
     key=$(sed -n 's/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}CURSOR_API_KEY=//p' "$env_file" 2>/dev/null |
           tail -1 | tr -d "\"'\r") || key=""
@@ -68,30 +71,33 @@ trap '[ -z "$body" ] || rm -f "$body"' EXIT
 cursor() {
   local code
   code=$(printf 'header = "Authorization: Bearer %s"\n' "$key" |
-    curl -sS --connect-timeout 10 --max-time 30 -K - -o "$body" -w '%{http_code}' -X "$1" "$api$2") ||
+    curl -sS --connect-timeout 10 --max-time "$limit" -K - -o "$body" -w '%{http_code}' -X "$1" "$api$2") ||
     true   # curl prints 000 when it cannot connect or runs out of time
   echo "${code:-000}"
 }
 
-pr_head=$(gh pr view "$number" --json headRefOid --jq .headRefOid 2>/dev/null) || pr_head=""
+pr_head=$(gh_ pr view "$number" --json headRefOid --jq .headRefOid 2>/dev/null) || pr_head=""
 if [ -z "$pr_head" ] || [ "${pr_head#"$head"}" = "$pr_head" ]; then
   # the wrong repository's pull request of that number, or a new push: stop nothing and label nothing
   echo "pull request #$number is at ${pr_head:-an unknown head}, not $head; nothing stopped or labelled" >&2
-  exit 3
+  exit 4
 fi
 
 if [ -z "$body" ]; then
   problem "could not make a temporary file; the bot's run was not stopped"
 elif [ -z "$key" ]; then
   problem "no Cursor API key (CURSOR_API_KEY, or ${CURSOR_API_ENV:-~/.config/cursor/api.env}); the bot's run was not stopped"
-elif ! agents=$(BOT_CHECK="$bot_check" gh api --paginate "repos/{owner}/{repo}/commits/$head/check-runs" \
+elif ! agents=$(BOT_CHECK="$bot_check" gh_ api --paginate "repos/{owner}/{repo}/commits/$head/check-runs" \
     --jq '.check_runs[] | select(.name | startswith(env.BOT_CHECK)) | .details_url
           | capture("cursor\\.com/agents/(?<id>bc-[A-Za-z0-9-]+)").id'); then
   problem "could not read the check runs on $head"
 elif [ -z "$agents" ]; then
   problem "no \"$bot_check\" check run on $head links an agent; nothing to stop"
 else
-  for agent in $(printf '%s\n' "$agents" | sort -u); do
+  seen=" "
+  for agent in $agents; do   # check-run ids; an agent with several check runs is stopped once
+    case "$seen" in *" $agent "*) continue ;; esac
+    seen="$seen$agent "
     code=$(cursor GET "/v1/agents/$agent")
     run=""
     [ "$code" = 200 ] && run=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("latestRunId") or "")' "$body" 2>/dev/null || true)
@@ -106,9 +112,9 @@ else
 fi
 
 # Add the label; when that fails because the repository lacks it, create it and add it again.
-if gh pr edit "$number" --add-label "$label" >/dev/null 2>&1 ||
-   { gh label create "$label" --color BFD4F2 --description "The review bot was stopped; its stand-in gives the verdict" \
-       >/dev/null 2>&1; gh pr edit "$number" --add-label "$label" >/dev/null; }; then
+if gh_ pr edit "$number" --add-label "$label" >/dev/null 2>&1 ||
+   { gh_ label create "$label" --color BFD4F2 --description "The review bot was stopped; its stand-in gives the verdict" \
+       >/dev/null 2>&1; gh_ pr edit "$number" --add-label "$label" >/dev/null; }; then
   echo "labelled #$number $label"
 else
   problem "could not add the label $label to #$number"
