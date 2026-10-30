@@ -387,6 +387,15 @@ class MergeOnVerdict(unittest.TestCase):
         self.assertIn("finished (NEUTRAL) with no verdict", r.stderr)
         self.assertEqual((merges, self.polls), ([], 3))
 
+    def test_a_rerun_of_the_bot_check_gets_its_own_grace(self):
+        # Codex round 2: two polls seen done, then a rerun, must not end the wait on the rerun's first done poll.
+        name = "Cursor Automation: Review pull requests"
+        done = {"name": name, "status": "COMPLETED", "conclusion": "NEUTRAL"}
+        rerun = {"name": name, "status": "IN_PROGRESS", "conclusion": ""}
+        seq = [step(pr(checks=[RUNNING, done]))] * 2 + [step(pr(checks=[RUNNING, rerun]))] + [step(pr(checks=[RUNNING, done]))] * 3
+        r, _ = self.run_merge(seq, "--bot-check", "Cursor Automation")
+        self.assertEqual((r.returncode, self.polls), (7, 6), r.stderr)
+
     def test_a_verdict_soon_after_the_bot_check_finished_still_counts(self):
         done = {"name": "Cursor Automation: Review pull requests", "status": "COMPLETED", "conclusion": "SUCCESS"}
         merge = review("MERGE")

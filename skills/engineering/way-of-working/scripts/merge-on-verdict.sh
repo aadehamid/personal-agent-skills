@@ -227,6 +227,7 @@ while :; do
       esac
     elif [ -n "$looked" ] && [ -n "$bot_check" ]; then
       case "$bot_state" in
+        PENDING|-) bot_done_polls=0 ;;   # a rerun, or a check not there yet: its grace starts again when it finishes
         DONE:*) bot_done_polls=$((bot_done_polls + 1))
                 if [ "$bot_done_polls" -ge 3 ]; then
                   echo "the bot's check \"$bot_check\" finished (${bot_state#DONE:}) with no verdict from $bot on $current: the bot has stopped; start its stand-in" >&2
