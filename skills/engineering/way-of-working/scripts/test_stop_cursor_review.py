@@ -33,6 +33,8 @@ FAKE_GH = textwrap.dedent(r'''
         time.sleep(30)
     label = os.path.join(state, "label_exists")
     if args[:2] == ["pr", "view"]:
+        if os.environ.get("FAKE_PR_VIEW_FAILS"):
+            sys.exit(1)
         print(os.environ.get("FAKE_PR_HEAD", "abc123def"))
         sys.exit(0)
     if args[0] == "api" and args[-3] == "repos/{owner}/{repo}/commits/abc123/check-runs":
@@ -228,6 +230,15 @@ class StopCursorReview(unittest.TestCase):
         r = self.run_stop(env={"FAKE_PR_HEAD": "fff999", "FAKE_CHECK_RUNS": json.dumps(runs)})
         self.assertEqual(r.returncode, 4)
         self.assertIn("not abc123", r.stderr)
+        self.assertEqual(self.calls("curl"), [])
+        self.assertFalse(any(c.startswith(("pr edit", "label create")) for c in self.calls("gh")))
+
+    def test_an_unreadable_pull_request_exits_3_and_touches_nothing(self):
+        # Codex quick check of abe3f8f: a failed lookup is not a moved head, so the stand-in still starts (exit 3)
+        runs = [check_run("Cursor Automation: Review", "bc-aaa")]
+        r = self.run_stop(env={"FAKE_PR_VIEW_FAILS": "1", "FAKE_CHECK_RUNS": json.dumps(runs)})
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("could not read pull request #42", r.stderr)
         self.assertEqual(self.calls("curl"), [])
         self.assertFalse(any(c.startswith(("pr edit", "label create")) for c in self.calls("gh")))
 

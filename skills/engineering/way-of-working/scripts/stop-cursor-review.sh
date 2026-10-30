@@ -22,7 +22,8 @@
 # Exit codes:
 #   0  every bot run found on the head was cancelled or had already finished, and the label is on the pull request
 #   3  something could not be checked or done (no key, no bot check run on the head, an API or gh error, the
-#      label not added); each line on stderr says what. Start the stand-in anyway: this never blocks it.
+#      label not added); each line on stderr says what. Start the stand-in anyway: this never blocks it. When the
+#      pull request's own head cannot be read, nothing is stopped or labelled.
 #   4  the pull request is not at <head-sha> (another repository's number, or a new push): nothing was stopped or
 #      labelled. Do not start a stand-in for <head-sha>; a new head needs its own wait for the bot
 # Each gh and API call gives up after 30 seconds (STOP_CURSOR_TIMEOUT), so a hung connection cannot hold up the
@@ -76,10 +77,14 @@ cursor() {
   echo "${code:-000}"
 }
 
-pr_head=$(gh_ pr view "$number" --json headRefOid --jq .headRefOid 2>/dev/null) || pr_head=""
-if [ -z "$pr_head" ] || [ "${pr_head#"$head"}" = "$pr_head" ]; then
+if ! pr_head=$(gh_ pr view "$number" --json headRefOid --jq .headRefOid 2>/dev/null) || [ -z "$pr_head" ]; then
+  # nothing shows which pull request this is, so touch none; the stand-in starts all the same
+  echo "could not read pull request #$number's head; nothing stopped or labelled" >&2
+  exit 3
+fi
+if [ "${pr_head#"$head"}" = "$pr_head" ]; then
   # the wrong repository's pull request of that number, or a new push: stop nothing and label nothing
-  echo "pull request #$number is at ${pr_head:-an unknown head}, not $head; nothing stopped or labelled" >&2
+  echo "pull request #$number is at $pr_head, not $head; nothing stopped or labelled" >&2
   exit 4
 fi
 
