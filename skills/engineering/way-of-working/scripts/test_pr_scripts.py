@@ -410,6 +410,37 @@ class MergeOnVerdict(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual((len(merges), self.polls), (1, 2))
 
+    def test_held_is_a_hold(self):
+        # The bot sometimes writes "Held." for a hold; the script used to wait for a verdict that never came.
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("<!-- id -->\nHeld. The count is wrong.")])])
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("Held. The count is wrong.", r.stdout)
+        self.assertEqual(merges, [])
+
+    def test_a_bold_verdict_counts(self):
+        # The bot wrote "**MERGE**" on enterprise-performance-model #407 (2026-10-29).
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("<!-- id -->\n**MERGE**  Head checked.")])])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(len(merges), 1)
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("**HOLD**. Fix it.")])])
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertEqual(merges, [])
+
+    def test_a_word_that_only_starts_like_a_verdict_is_not_one(self):
+        note = review("Holding this until the check runs.")
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [note]),
+                                    step(pr(checks=[PASSED]), [note, review("MERGE")])])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((len(merges), self.polls), (1, 2))
+
+    def test_held_without_its_full_stop_is_not_a_verdict(self):
+        # Only "Held." is the bot's hold; "Held pending ..." is a note (Codex review of this change).
+        note = review("Held pending the check, then I will look again.")
+        r, merges = self.run_merge([step(pr(checks=[PASSED]), [note]),
+                                    step(pr(checks=[PASSED]), [note, review("MERGE")])])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((len(merges), self.polls), (1, 2))
+
     def test_the_newest_verdict_on_the_head_wins(self):
         r, merges = self.run_merge([step(pr(checks=[PASSED]), [review("HOLD. One."), review("MERGE")])])
         self.assertEqual(r.returncode, 0, r.stderr)
