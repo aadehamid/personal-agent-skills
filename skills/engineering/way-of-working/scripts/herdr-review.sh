@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # Run the independent review in a Herdr pane, wait for it, and print its report.
 #
-# Usage: herdr-review.sh --branch <branch> --verify "<claims to verify>" [--kind codex|kimi|cursor] [--model <model>] [--host herdr|rex]
+# Usage: herdr-review.sh --branch <branch> --verify "<claims to verify>" [--kind codex|kimi|cursor] [--model <model>] [--host herdr|rex|hc]
 #   The default reviewer is Codex on gpt-6-luna. --kind kimi runs Kimi Code (model default
 #   kimi-code/k3.1-pro, whose default effort is high); --kind cursor runs the Cursor agent
 #   CLI (default cursor-grok-4.6-medium). changing.md ("Who reviews") says which to try first.
 #   Each reviewer, the default too, gets its own tab, review-<repo>-<kind>-<hash of kind:model>,
 #   because a reused tab keeps the reviewer and model it started with: a new default model
 #   must not land in the old default's tab.
-#   Run from the repository under review, inside a Herdr pane (HERDR_WORKSPACE_ID set).
+#   Run from the repository under review, inside a Herdr TUI pane (HERDR_WORKSPACE_ID set).
 #   Inside Rex instead (REX_SESSION set, HERDR_WORKSPACE_ID unset), or with --host rex, it
-#   hands the same arguments to rex-review.sh beside it; --host herdr keeps it here.
+#   hands the same arguments to rex-review.sh beside it. In an hc terminal of the Herdr app
+#   (HC_TERMINAL_ID set, neither of the others), or with --host hc, it hands them to
+#   hc-review.sh. --host herdr keeps it here.
 #   A review takes longer than a foreground tool call allows: run this as a background
 #   job the harness reports back on, with its exit status (Claude Code: run_in_background).
 # Exit 0: the report is on stdout, and nothing else is.
@@ -86,15 +88,18 @@ case "$kind" in
   cursor) model="${model:-cursor-grok-4.6-medium}" ;;
   *) echo "--kind must be codex, kimi or cursor, got: $kind" >&2; exit 2 ;;
 esac
-# Herdr wins where it runs; Rex is the host only inside Rex and outside Herdr, or when asked.
+# Herdr TUI wins where it runs; then Rex inside Rex; then hc (herdr-core, the Herdr app) in an hc
+# terminal; --host picks one.
 if [ -z "$host" ]; then
   host=herdr
-  if [ -z "${HERDR_WORKSPACE_ID:-}" ] && [ -n "${REX_SESSION:-}" ]; then host=rex; fi
+  if [ -z "${HERDR_WORKSPACE_ID:-}" ] && [ -n "${REX_SESSION:-}" ]; then host=rex
+  elif [ -z "${HERDR_WORKSPACE_ID:-}" ] && [ -n "${HC_TERMINAL_ID:-}" ]; then host=hc; fi
 fi
 case "$host" in
   herdr) ;;
   rex) exec bash "$(dirname "$self")/rex-review.sh" "${args[@]}" ;;
-  *) echo "--host must be herdr or rex, got: $host" >&2; exit 2 ;;
+  hc) exec bash "$(dirname "$self")/hc-review.sh" "${args[@]}" ;;
+  *) echo "--host must be herdr, rex or hc, got: $host" >&2; exit 2 ;;
 esac
 
 # From here, any failure exits 1 and ends with the reason and a Next line. A path that

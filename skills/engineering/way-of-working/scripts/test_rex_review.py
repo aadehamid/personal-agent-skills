@@ -233,7 +233,7 @@ class RexReview(unittest.TestCase):
                                   text=True).stdout.strip()
         self.top = os.path.realpath(repo)
         self.tmpdir = tempfile.mkdtemp()
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("REX_", "HERDR_", "GIT_"))}
+        env = {k: v for k, v in os.environ.items() if not k.startswith(("REX_", "HERDR_", "HC_", "GIT_"))}
         env.update(PATH=bindir + os.pathsep + os.environ["PATH"], FAKE_REX=scenario, FAKE_STATE=state,
                    FAKE_KIND=kind, FAKE_TOP=self.top, FAKE_HEAD=head, FAKE_FIXTURES=os.path.join(HERE, "fixtures"), FAKE_LABEL=label_for(kind, model or KINDS[kind], repo),
                    REX_SESSION="session:s", REX_BLOCK="block:me",
@@ -700,7 +700,7 @@ class RexReview(unittest.TestCase):
             repo = os.path.join(tempfile.mkdtemp(), "repo")
             os.mkdir(repo)
             label, name = herdr_tests.default_identity("repo")
-            env = {k: v for k, v in os.environ.items() if not k.startswith(("REX_", "HERDR_", "GIT_"))}
+            env = {k: v for k, v in os.environ.items() if not k.startswith(("REX_", "HERDR_", "HC_", "GIT_"))}
             env.update(PATH=bindir + os.pathsep + os.environ["PATH"], FAKE_HERDR="newtab,fresh", FAKE_STATE=state,
                        FAKE_LABEL=label, FAKE_NAME=name, HERDR_WORKSPACE_ID="w2", HOME=home,
                        TMPDIR=tempfile.mkdtemp(), HERDR_REVIEW_DIR=tempfile.mkdtemp())
