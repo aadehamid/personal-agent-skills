@@ -217,7 +217,7 @@ while :; do
           exit 2 ;;
       esac
       # With --bot-check, --timeout bounds only the wait for the bot's answer: once its MERGE is in hand the
-      # script waits for the check up to an hour from its start (Cursor CLI on #82).
+      # deadline for the check is the later of start + --timeout and start + one hour (Cursor CLI on #82).
       got_merge=1
       if [ -n "$bot_check" ] && [ -z "$waited_for_check" ]; then
         waited_for_check=1
