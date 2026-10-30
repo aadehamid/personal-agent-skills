@@ -404,6 +404,17 @@ class MergeOnVerdict(unittest.TestCase):
         r, _ = self.run_merge([step(doc)] * 3, "--bot-check", "Cursor Automation")
         self.assertEqual(r.returncode, 7, r.stderr)
 
+    def test_with_bot_check_a_merge_in_hand_waits_past_the_timeout_for_the_check(self):
+        # Cursor CLI on #82: --timeout bounds the wait for the bot's answer, not the wait for CI after its MERGE.
+        done = {"name": "Cursor Automation: Review pull requests", "status": "COMPLETED", "conclusion": "SUCCESS"}
+        merge = review("MERGE")
+        r, merges = self.run_merge([step(pr(checks=[RUNNING, done]), [merge]), step(pr(checks=[PASSED, done]), [merge])],
+                                   "--bot-check", "Cursor Automation", "--timeout", "0")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(merges, [f"7 --merge --match-head-commit {HEAD}"])
+        r, _ = self.run_merge([step(pr(checks=[RUNNING]))] * 2, "--bot-check", "Cursor Automation", "--timeout", "0")
+        self.assertEqual(r.returncode, 5, r.stderr)  # no verdict: the timeout still ends the wait
+
     def test_a_verdict_soon_after_the_bot_check_finished_still_counts(self):
         done = {"name": "Cursor Automation: Review pull requests", "status": "COMPLETED", "conclusion": "SUCCESS"}
         merge = review("MERGE")

@@ -35,7 +35,8 @@
 #   2  HOLD: the review is printed
 #   3  the check finished without success
 #   4  the head is not <head-sha>: a new push needs a new verdict, or this is another pull request
-#   5  timed out
+#   5  timed out; with --bot-check, --timeout covers only the wait for the bot's verdict, and after its
+#      MERGE the script waits for the check up to an hour from its start
 #   6  the body lacks the --require-section heading
 #   7  with --bot-check: the bot's check on the head finished (a skip, an error, or done) and no
 #      verdict from the bot followed within two more polls, so the bot is no longer reviewing
@@ -170,8 +171,9 @@ require_section() {
   fi
 }
 
-said="" bot_done_polls=0
-deadline=$(( $(date +%s) + timeout ))
+said="" bot_done_polls=0 waited_for_check=""
+started=$(date +%s)
+deadline=$(( started + timeout ))
 while :; do
   if pr_state; then
     read -r state current merged_by check_state review_decision merge_state all_green base bot_state <<<"$REPLY"
@@ -203,6 +205,12 @@ while :; do
           fi
           exit 2 ;;
       esac
+      # With --bot-check, --timeout bounds only the wait for the bot's answer: once its MERGE is in hand the
+      # script waits for the check up to an hour from its start (Cursor CLI on #82).
+      if [ -n "$bot_check" ] && [ -z "$waited_for_check" ]; then
+        waited_for_check=1
+        [ "$deadline" -ge $(( started + 3600 )) ] || deadline=$(( started + 3600 ))
+      fi
       case "$check_state" in
         PENDING) ;;
         SUCCESS)
