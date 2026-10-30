@@ -211,7 +211,9 @@ else
 fi
 if [ ! -s "$out" ]; then
   tail -n 30 "$clone.log" || true
-  if grep -qiE '(^|[^0-9])429([^0-9]|$)|usage limit' "$clone.log"; then
+  # The provider's own cap message, as rex-review.sh reads Kimi's: "reached your weekly usage limit".
+  # A bare 429 or the words "usage limit" alone (this header, a rate-limit retry) are not it.
+  if grep -qiE 'reached your [[:alnum:]-]+ usage limit' "$clone.log"; then
     echo "Reviewer not available: Pi's provider reports its usage limit. Try the next reviewer in the order. Its log is $clone.log."
     exit 1
   fi

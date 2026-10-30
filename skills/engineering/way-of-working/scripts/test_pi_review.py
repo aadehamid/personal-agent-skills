@@ -38,6 +38,10 @@ FAKE_OLLAMA = textwrap.dedent(r'''
         print("pi: model unavailable"); sys.exit(1)
     if "quota" in s:
         print('429: {"message":"you have reached your weekly usage limit"}'); sys.exit(1)
+    if "ratelimit" in s:
+        print('429: {"message":"too many requests"}'); sys.exit(1)
+    if "echoheader" in s:
+        print("When Pi's log shows its provider's usage limit, the run ends."); sys.exit(1)
     if "hang" in s:
         # Like `ollama launch`, the parent runs Pi as a child and waits for it, and does
         # not pass a signal on. The child would post its verdict late.
@@ -233,6 +237,13 @@ class PiReview(unittest.TestCase):
         r = self.run_case("quota", "--role", "independent", "--head", self.head)
         self.assertEqual(r.returncode, 1)
         self.assertIn("Reviewer not available", r.stdout)
+
+    def test_a_rate_limit_or_the_words_alone_are_not_the_usage_limit(self):
+        # Cursor CLI review of #80: a bare 429 or the phrase "usage limit" must not end the review as not available.
+        for case in ("ratelimit", "echoheader"):
+            r = self.run_case(case, "--role", "independent", "--head", self.head)
+            self.assertNotIn("Reviewer not available", r.stdout, case)
+            self.assertIn("Pi wrote no result", r.stdout, case)
 
     def test_a_plain_failure_is_not_read_as_a_usage_limit(self):
         r = self.run_case("crash", "--role", "independent", "--head", self.head)
