@@ -1,10 +1,37 @@
 # ontology
 
-An agent skill for building a business ontology in any domain, on the W3C stack (RDF, SKOS, OWL, SHACL, PROV-O, DCAT). The agent works in thirteen gated steps, from intake and competency questions to a released, checked package and an optional Neo4j property-graph projection, which the `ontology-to-lpg` skill carries out. You, the ontology owner, make every decision; the agent brings the evidence, the options and a recommendation, and records your answers word for word.
+An agent skill for building a business ontology in any domain, on the W3C stack (RDF, SKOS, OWL, SHACL, PROV-O, DCAT). The agent starts with an intake of what you bring, then works in thirteen gated steps, to a released, checked package and an optional Neo4j property-graph projection, which the `ontology-to-lpg` skill carries out. You, the ontology owner, make every decision; the agent brings the evidence, the options and a recommendation, and records your answers word for word.
 
 The method comes from a downstream refining enterprise's process ontology, built privately and rewritten here in neutral terms. The examples use a public library's lending and, in two places, Marathon Petroleum's public SEC filings.
 
 This README is for people. Agents read `SKILL.md` and the files it points to.
+
+## What to bring
+
+The agent starts by sorting what you have into six kinds of input, and it stops to ask you about any that are missing or thin (`references/governance.md`, rule 1). Plan for these:
+
+| Input | What it means | Example |
+|---|---|---|
+| Purpose | Who will use the ontology, for what, and what is in and out of scope | Staff and a lending system need one meaning of "loan" |
+| Competency questions | The questions it must answer. Draft them at intake; you lock them at Step 1 | "Which events start and end a loan?" |
+| Representative data | **The backbone:** a hierarchy of the business's processes or concepts. Tables and lists beside it, such as value streams and measure lists, return as overlays at Step 7 | A process map |
+| Reusable vocabularies | Frameworks, public ontologies and code lists to check against or map to | A published process framework, a code list |
+| Semantic evidence | Sources that say what things mean | Glossaries, policies, filings, definitions |
+| Constraints | What limits the work | Licences, privacy, hosting, deadlines |
+
+**The backbone is what Steps 2 and 3 turn into identities and a taxonomy.** A file of any format works if each node has a name and exactly one parent, except the top nodes, which have none. An ID is kept when a node has one, and Step 2 mints a slug when it does not. Levels and descriptions help. Nodes need no definitions on day one: Step 3 writes the missing ones with the owner.
+
+If you have no hierarchy, the agent records it as missing, says how that limits the design, and stops for your answer. It does not build one for you. A published framework checks your hierarchy at Step 0; it does not replace it.
+
+## Where it starts
+
+1. **Intake:** fill `templates/requirements.yaml`, including draft competency questions.
+2. **Step 0:** check the reference framework and survey existing ontologies.
+3. **Step 8:** review the scope. It runs early because scope shapes the foundations.
+4. **Step 1:** record the ten policies, and lock the competency questions.
+5. **Steps 2 to 7 and 9 to 12,** in order.
+
+To add a module to an ontology that already has releases, start at `references/new-module.md` instead.
 
 ## How to use it
 
@@ -43,6 +70,7 @@ The skill works on its own. If the `way-of-working` skill is installed too, the 
 | `references/lpg-projection.md` | agent, Step 12 and Step 1's target formats | When to project into a property graph and the Rule 4 choice; points to the `ontology-to-lpg` skill, which holds the method. |
 | `references/external-ontologies.md` | agent, Step 0 or when asked about existing ontologies | Where to find public ontologies and code lists, how to assess them, and the map, import or ignore choice. |
 | `references/packaging-walkthrough.md` | agent, Step 10, when a user has files but no packages | The interview that turns files into a release: releases versus plain files, the git setup, twelve questions with an example and a reason each, then build, show and check. |
+| `references/new-module.md` | agent, when a module joins an ontology that already has releases | Whether it should be a new module, what each step covers for it, and how to release it beside the others. |
 | `references/governance.md` | agent, before a new ontology, a decision, a delegation, setting up checks, a review, a release or publication | Intake and requirements, "not yet" answers, decision records, delegation, checks, generated content, review, privacy, and claims; with and without `way-of-working`. |
 | `templates/requirements.yaml` | agent, before Step 0 | The intake and requirements file, with its schema in the header. |
 | `templates/survey-register.md` | agent, Step 0 | The reference framework's verified elements, boundary notes, and the survey of public ontologies. |
