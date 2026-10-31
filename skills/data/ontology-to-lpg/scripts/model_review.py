@@ -84,7 +84,7 @@ SEP = "_" * 2   # n10s's separator; --separator names another when the graph was
 
 
 def local(name, sep=None):
-    """The local part of a prefixed name (lib__Work -> Work), squashed for comparison."""
+    """The local part of a prefixed name (prefix, separator, Work -> work), squashed for comparison."""
     return name.split(sep or SEP, 1)[-1].replace("_", "").replace("-", "").lower()
 
 

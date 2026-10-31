@@ -78,7 +78,7 @@ import check_projection_rules as cpr
 import in_graph_shapes as igs
 
 SCHEMA_NS = "neo4j://graph.schema#"
-MODULE_TAG = "graph"   # add-on F's tag; never a SHORTEN key, which is always prefix__local
+MODULE_TAG = "graph"   # add-on F's tag; never a SHORTEN key, which always holds the n10s separator
 EXPORT = ("CALL n10s.rdf.export.cypher('MATCH (n:Resource) OPTIONAL MATCH (n)-[r]->(m) RETURN n, r, m') "
           "YIELD subject, predicate, object, isLiteral, literalType, literalLang "
           "RETURN subject, predicate, object, isLiteral, literalType, literalLang")
@@ -658,7 +658,7 @@ def dump(session):
 
 def rename_separator(session, sep):
     """After every check has run on n10s's names: rename each label, relationship type and property key from
-    prefix__local to prefix<sep>local with APOC, and prove it lossless (the dump before, with the plan applied,
+    the n10s form (two underscores) to the <sep> form with APOC, and prove it lossless (the dump before, with the plan applied,
     equals the dump after). Returns ({labels, rels, keys} counts, lossless)."""
     plan = rename_plan(*names_in_use(session), sep)
     before = dump(session)

@@ -12,7 +12,7 @@ owl:versionIRI, the same IRI the rdf-store skill names the package's named graph
 (repeatable) makes a plain file a package named IRI, with no requirements, whatever header it has: the
 files mode of run_projection.py names a file without an owl:versionIRI that way, as it names its graph. The tag is that
 version IRI, stored on the reserved property `graph` (add-on F's name); the projection's own keys are
-always prefixed (SHORTEN gives prefix__local), so a bare `graph` cannot collide with ontology data.
+always prefixed (SHORTEN joins prefix and local name with two underscores), so a bare `graph` cannot collide with ontology data.
 load_verify.graph_hash leaves `graph` out, so tagging after step 6 keeps the report's hash, and
 copy_graph.py still copies the tags; `check` proves them on any target.
 
