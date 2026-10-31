@@ -10,6 +10,7 @@ the `graph` tags module_tags.py would set. So a walk that agrees here agrees bec
 paths read the same graph the same way; the live comparison is references/add-ons.md, add-on F.
 """
 import os
+import sys
 import tempfile
 import unittest
 
@@ -48,10 +49,10 @@ def write(folder, name, text):
     return path
 
 
-def shorten(iri):
+def shorten(iri, sep=mt.SEP):
     for prefix, ns in PREFIXES.items():
         if iri.startswith(ns):
-            return f"{prefix}__{iri[len(ns):]}"
+            return f"{prefix}{sep}{iri[len(ns):]}"
     raise ValueError(iri)
 
 
@@ -59,27 +60,30 @@ SCHEMA_EDGES = 2   # the n4sch__ relationships FakeNeo4j adds, beyond the packag
 
 
 class FakeNeo4j:
-    """Answers the Cypher statements explore.py and module_tags.py send, from an edge list."""
+    """Answers the Cypher statements explore.py and module_tags.py send, from an edge list. sep is the
+    separator the graph was loaded with: n10s's, or the one load_verify.py renamed the names to."""
 
-    def __init__(self, packages, wrong=None):
+    def __init__(self, packages, wrong=None, sep=mt.SEP):
         nodes, edges = mt.expected_tags(packages)
+        self.sep = sep
         self.nodes = dict(nodes)
-        self.edges = [(s, shorten(p), o, t) for (s, p, o), t in edges.items()]
+        self.edges = [(s, shorten(p, sep), o, t) for (s, p, o), t in edges.items()]
         if wrong:
             self.nodes[wrong] = "https://example.org/wrong/0.0.0"
         # Schema relationships n10s.onto.import writes, tagged by the node they start from; one points at a
         # node standing for a restriction filler, repeating no single triple.
-        for s, t, o in (("https://example.org/base/p1", "n4sch__EQC", "https://example.org/base/p0"),
-                        ("https://example.org/base/p1", "n4sch__SCO_RESTRICTION", "https://example.org/base/shared")):
+        for s, t, o in (("https://example.org/base/p1", "n4sch" + sep + "EQC", "https://example.org/base/p0"),
+                        ("https://example.org/base/p1", "n4sch" + sep + "SCO_RESTRICTION", "https://example.org/base/shared")):
             self.edges.append((s, t, o, self.nodes.get(s)))
         self.mods, self.reqs = mt.module_rows(packages)
         self.set_calls = 0
 
     def __call__(self, stmt, **params):
-        if stmt == explore.CY_EDGES:   # it leaves out n10s's schema relationships
+        if stmt in (explore.CY_EDGES, explore.cy_edges(self.sep)):   # it leaves out n10s's schema relationships
+            schema = mt.schema_prefix(self.sep if stmt == explore.cy_edges(self.sep) else None)
             f = set(params["frontier"])
             return [{"s": s, "t": t, "o": o, "g": g} for s, t, o, g in self.edges
-                    if (s in f or o in f) and not t.startswith("n4sch__")]
+                    if (s in f or o in f) and not t.startswith(schema)]
         if stmt == explore.CY_NODES:
             return [{"uri": u, "g": self.nodes[u]} for u in params["uris"] if u in self.nodes]
         if stmt == explore.CY_MODULES:
@@ -152,6 +156,51 @@ class ModuleTags(Fixture):
             self.assertIsNone(mt.predicate(schema, PREFIXES))   # schema: tagged by its start node instead
         self.assertEqual(mt.predicate("skos__broader", PREFIXES), PREFIXES["skos"] + "broader")
         self.assertIsNone(mt.predicate("nope__x", PREFIXES))
+
+    def test_a_renamed_graphs_types_map_only_under_its_separator(self):
+        self.assertEqual(mt.predicate("skos_broader", PREFIXES, "_"), PREFIXES["skos"] + "broader")
+        self.assertEqual(mt.predicate("skos_SCO_RESTRICTION", PREFIXES, "_"), PREFIXES["skos"] + "SCO_RESTRICTION")
+        self.assertIsNone(mt.predicate("n4sch_SCO_RESTRICTION", PREFIXES, "_"))
+        self.assertIsNone(mt.predicate("skos_broader", PREFIXES))               # read with n10s's separator
+        self.assertEqual(mt.schema_prefix("_"), "n4sch_")
+        self.assertEqual(mt.schema_prefix(), mt.SCHEMA_PREFIX)
+        self.assertIn("STARTS WITH 'n4sch_' ", explore.cy_edges("_"))
+        self.assertEqual(explore.cy_edges(), explore.CY_EDGES)
+
+    def test_tag_and_check_read_a_renamed_graph_under_its_separator(self):
+        nodes, edges = mt.expected_tags(self.packages)
+        fake = FakeNeo4j(self.packages, sep="_")
+        self.assertEqual(mt.tag(fake, nodes, edges, PREFIXES, sep="_"), (len(nodes), len(edges) + SCHEMA_EDGES, 0, 0))
+        read_nodes, read_edges, problems = mt.check(fake, nodes, edges, PREFIXES, sep="_")
+        self.assertEqual((read_nodes, read_edges), (len(nodes), len(edges) + SCHEMA_EDGES))
+        self.assertEqual({k: v for k, v in problems.items() if v}, {})
+        # read with n10s's separator, no type expands and every edge is unstated
+        _, _, problems = mt.check(fake, nodes, edges, PREFIXES)
+        self.assertEqual(len(problems["not_in_packages"]), len(edges) + SCHEMA_EDGES)
+        self.assertEqual(mt.tag(FakeNeo4j(self.packages, sep="_"), nodes, edges, PREFIXES)[3], len(edges) + SCHEMA_EDGES)
+
+    def test_a_prefix_holding_the_separator_stops_the_tag_check_and_walk_commands_before_any_query(self):
+        import json
+        import build
+        config = write(self.tmp, "config.json", json.dumps({
+            "rule4": "4a", "rule4_reason": "test", "own_namespaces": ["https://example.org/base/"],
+            "prefixes": {**PREFIXES, "my_ns": "https://example.org/my-ns/"}}))
+        with self.assertRaises(build.Refusal):
+            build.check_prefixes(build.load_config(config).prefixes, "_")
+        from unittest import mock
+        import contextlib
+        import io
+        for main, argv in ((mt.main, ["check", "--config", config, "--uri", "bolt://h", "--separator", "_",
+                                      os.path.join(self.tmp, "base.ttl")]),
+                           (explore.main, ["walk", "--config", config, "--uri", "bolt://h", "--sparql", "http://h/q",
+                                           "--iri", "https://example.org/base/p1", "--separator", "_"])):
+            with self.subTest(main=main.__module__), mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "pw"}), \
+                    mock.patch.dict(sys.modules, {"neo4j": mock.MagicMock()}) as modules, \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as err:
+                self.assertEqual(main(argv), 2)
+                modules["neo4j"].GraphDatabase.driver.assert_not_called()
+            self.assertIn("inside 1 of the configured prefixes", err.getvalue())
+            self.assertNotIn("my_ns", err.getvalue())
 
     def test_check_passes_on_a_correctly_tagged_graph(self):
         nodes, edges = mt.expected_tags(self.packages)
@@ -282,6 +331,16 @@ class Walk(Fixture):
         self.assertEqual(explore.modules_reached(edges, nodes),
                          ["https://example.org/app/2.0.0", "https://example.org/base/1.1.0"])
 
+    def test_a_renamed_graph_walks_equal_only_under_its_separator(self):
+        fake = FakeNeo4j(self.packages, sep="_")
+        told = explore.compare_walk(explore.Neo4jSide(fake, PREFIXES, "_"), store(self.packages), "https://example.org/app/sys", 2)
+        self.assertTrue(told["equal"], told)
+        self.assertEqual(told["modules"], ["https://example.org/app/2.0.0", "https://example.org/base/1.1.0"])
+        # read with n10s's separator: no type expands and the schema relationships are walked
+        untold = explore.compare_walk(explore.Neo4jSide(fake, PREFIXES), store(self.packages), "https://example.org/app/sys", 2)
+        self.assertFalse(untold["equal"])
+        self.assertTrue(any(e[1] is None for e in untold["only_in_neo4j"]), untold)
+
     def test_a_wrong_tag_in_neo4j_makes_the_walks_differ(self):
         result = explore.compare_walk(
             explore.Neo4jSide(FakeNeo4j(self.packages, wrong="https://example.org/base/p1"), PREFIXES),
@@ -389,6 +448,8 @@ class QueryFiles(unittest.TestCase):
             text = self.read(name)
             match, rest = text.split("MATCH p = ", 1)[1].split("\n", 1)
             self.assertTrue(rest.startswith("WHERE none(") and "STARTS WITH 'n4sch__'" in rest.split("\n", 1)[0], name)
+            # a graph renamed with another separator needs that edit, which the file's comment says
+            self.assertIn("separator", text.split("MATCH p = ", 1)[0], name)
         self.assertIn("r.graph AS module", self.read("walk.cypher"))
 
 

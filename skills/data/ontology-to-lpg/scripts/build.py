@@ -21,15 +21,20 @@ Run with: uv run --no-project --with rdflib python3 build.py <command> ...
             Fails unless both files are in byte order without duplicates, and inferred.nt holds only
             rdf:type and rdfs:subClassOf triples between two IRIs whose object is outside the OWL and
             RDFS namespaces (the step 4 gate in SKILL.md).
-  graph-type --config <config.json> --shapes <shapes.ttl>... --output graph-type.cypher <data.ttl>...
+  graph-type --config <config.json> --shapes <shapes.ttl>... --output graph-type.cypher [--separator _] <data.ttl>...
             Writes an ALTER CURRENT GRAPH TYPE SET statement generated from the shapes (Cypher 25,
             Enterprise Edition, introduced in Neo4j 2026.02), with what it leaves out as comments
             (add-ons.md, H).
-  data-model --config <config.json> --shapes <shapes.ttl>... --output data-model.json <data.ttl>...
+  data-model --config <config.json> --shapes <shapes.ttl>... --output data-model.json [--separator _] <data.ttl>...
             Writes the same element types as a DataModel for the Neo4j Data Modeling MCP server
             (mcp-neo4j-data-modeling 0.8.2), checked against its validators first (add-ons.md, L).
   check-report --manifest manifest.json --report report.json
             Fails unless the report names the manifest's fingerprints and every verify check passed.
+
+graph-type and data-model name labels, relationship types and property keys as the kept graph does:
+n10s's prefix, two underscores, local name, or with --separator (underscores only) the separator a
+load_verify.py run renamed them to, so the artifacts describe the graph that exists. The load script
+(cypher) always uses n10s's names.
 
 Definitions (references/pipeline.md, rule 5):
   sorted            lines ordered by their UTF-8 bytes, duplicates removed (the order of LC_ALL=C sort -u)
@@ -111,11 +116,43 @@ def multivalued(data, shapes):
     return sorted(str(p) for p in literal_predicates if p not in single or p in many)
 
 
-def shorten(iri, cfg):
+SEPARATOR = "_" * 2   # what n10s writes between a prefix and a local name (SHORTEN); --separator names another
+
+
+def separator(opts):
+    """--separator: what sits between a prefix and a local name in the kept graph. n10s writes two
+    underscores; another value, underscores only, is what load_verify.py renamed every label, type and
+    key to after the checks."""
+    sep = opts.get("--separator", SEPARATOR)
+    if not isinstance(sep, str) or not sep or not all(c == "_" for c in sep):
+        raise Refusal("--separator takes underscores only, such as _ or __")
+    return sep
+
+
+def prefixes_holding(prefixes, sep):
+    """The configured prefixes that contain the separator. A renamed name made from one of them could
+    not be split back into prefix and local name at the first separator (my_ns_x reads as my, ns_x),
+    so the scripts refuse the pair before anything is loaded. With n10s's own separator nothing is
+    renamed, so nothing is refused."""
+    if sep == SEPARATOR:
+        return []
+    return sorted(p for p in prefixes if sep in p)
+
+
+def check_prefixes(prefixes, sep):
+    """Refuses when prefixes_holding finds any; the count, never the prefix (a configured value)."""
+    clash = prefixes_holding(prefixes, sep)
+    if clash:
+        raise Refusal(f"the separator appears inside {len(clash)} of the configured prefixes, so a renamed name "
+                      "could not be split back into prefix and local name; use a separator no prefix holds, "
+                      "or rename that prefix")
+
+
+def shorten(iri, cfg, sep=SEPARATOR):
     ns = cpr.namespace(iri)
     for prefix, value in cfg.prefixes.items():
         if value == ns:
-            return f"{prefix}__{str(iri)[len(ns):]}"
+            return f"{prefix}{sep}{str(iri)[len(ns):]}"
     raise ValueError(f"no prefix for {iri}")
 
 
@@ -231,26 +268,27 @@ def _q(name):
 PropertyType = namedtuple("PropertyType", "base listed required")
 
 
-def element_types(cfg, shapes, data):
+def element_types(cfg, shapes, data, sep=SEPARATOR):
     """(nodes, rels, left out) read from the shapes, the one mapping behind graph_type and data_model.
 
     nodes maps each sh:targetClass label to {key: PropertyType}; rels maps each relationship key to
     its {(source label, target label)}. Everything the shapes give no typed form is listed in left
-    out, in graph_type's words. What only a GRAPH TYPE cannot hold is graph_type_omissions'."""
+    out, in graph_type's words. What only a GRAPH TYPE cannot hold is graph_type_omissions'. Names
+    are prefix, sep, local name: the kept graph's names, so n10s's unless a run renamed them."""
     from rdflib import BNode
     from rdflib.namespace import SH, XSD
     multi = set(multivalued(data, shapes))
     nodes, rels, left_out = {}, {}, []
     for ns in sorted(set(shapes.subjects(SH.targetClass, None)), key=str):
         for cls in sorted(shapes.objects(ns, SH.targetClass), key=str):
-            label = shorten(cls, cfg)
+            label = shorten(cls, cfg, sep)
             props = nodes.setdefault(label, {})
             for ps in sorted(shapes.objects(ns, SH.property), key=str):
                 path = shapes.value(ps, SH.path)
                 if isinstance(path, BNode) or path is None:
                     left_out.append(f"{label}: a property shape with a non-predicate path ({ps})")
                     continue
-                key = shorten(path, cfg)
+                key = shorten(path, cfg, sep)
                 dt, target = shapes.value(ps, SH.datatype), shapes.value(ps, SH["class"])
                 min_c, max_c = shapes.value(ps, SH.minCount), shapes.value(ps, SH.maxCount)
                 for term in ("in", "hasValue", "pattern", "minInclusive", "maxInclusive", "minExclusive",
@@ -278,7 +316,7 @@ def element_types(cfg, shapes, data):
                     else:
                         props.setdefault(key, typed)
                 elif target is not None:
-                    rels.setdefault(key, set()).add((label, shorten(target, cfg)))
+                    rels.setdefault(key, set()).add((label, shorten(target, cfg, sep)))
                     if min_c is not None or max_c is not None:
                         left_out.append(f"{label}.{key}: relationship counts (no GRAPH TYPE form)")
                 else:
@@ -305,7 +343,7 @@ def graph_type_omissions(nodes, rels):
     return omitted
 
 
-def graph_type(cfg, shapes, data):
+def graph_type(cfg, shapes, data, sep=SEPARATOR):
     """(statement, left out) for the shapes: one node element type per sh:targetClass that has at
     least one typed property, and one relationship element type per predicate whose property shapes
     name one sh:class, from the shapes' target class to that class. An endpoint may name a label
@@ -317,8 +355,8 @@ def graph_type(cfg, shapes, data):
     (multivalued(data, shapes), references/pipeline.md, rule 10), and a scalar otherwise. It is NOT
     NULL when sh:minCount is at least 1 (Aura Free accepted `LIST<STRING NOT NULL> NOT NULL`). When two property shapes on one target map one key
     differently, the first (by shape IRI) is kept and the other is listed. Everything that has no
-    GRAPH TYPE form is listed in left out."""
-    nodes, rels, left_out = element_types(cfg, shapes, data)
+    GRAPH TYPE form is listed in left out. sep is the kept graph's separator (element_types)."""
+    nodes, rels, left_out = element_types(cfg, shapes, data, sep)
     left_out += graph_type_omissions(nodes, rels)
     elements = [f"  (:{_q(label)} => {{" + ", ".join(_spec(k, props[k]) for k in sorted(props)) + "})"
                 for label, props in sorted(nodes.items()) if props]
@@ -333,7 +371,7 @@ def graph_type(cfg, shapes, data):
 
 
 
-def data_model(cfg, shapes, data):
+def data_model(cfg, shapes, data, sep=SEPARATOR):
     """The shapes' element types as a DataModel of the Neo4j Data Modeling MCP server
     (mcp-neo4j-data-modeling 0.8.2, data_model.py at commit 0eaf613e0f), so its validate_data_model,
     export_to_arrows_json and get_mermaid_config_str can run on the projection (add-ons.md, L).
@@ -342,10 +380,10 @@ def data_model(cfg, shapes, data):
     label that a shape targets or a relationship reaches, keyed on n10s's uri, typed properties or
     none; one property per typed key, a list typed LIST with its element type and NOT NULL in the
     description; one relationship per (source, key, target), every label pair kept. Labels and types
-    are the SHORTEN names. metadata.left_out is element_types' list (what the shapes give no typed
+    are the kept graph's names (element_types, sep). metadata.left_out is element_types' list (what the shapes give no typed
     form); metadata.not_in_graph_type is graph_type_omissions' (what this model holds and a GRAPH TYPE
     cannot). graph_type's comments are exactly the two lists together."""
-    nodes, rels, left_out = element_types(cfg, shapes, data)
+    nodes, rels, left_out = element_types(cfg, shapes, data, sep)
     omitted = graph_type_omissions(nodes, rels)
     for ends in rels.values():
         for source, target in ends:
@@ -480,6 +518,15 @@ def report_earned(rep):
         fails.append("report in_graph_shape_constraints is missing or differs from shapes_import_rows")
     if rep.get("passed") is not True:
         fails.append("report does not say passed: true (load_verify.py writes a report only when every check passed)")
+    # A run that renamed the graph's names (a separator other than n10s's) must have proven the rename
+    # lossless; a report that states the field must state true. A report from before the field exists
+    # names no separator and is read as n10s's names, unrenamed.
+    sep = rep.get("separator", SEPARATOR)
+    if not isinstance(sep, str) or not sep or any(c != "_" for c in sep):
+        fails.append(f"report separator is not a string of underscores ({sep!r})")
+    elif (sep != SEPARATOR or "rename_lossless" in rep) and rep.get("rename_lossless") is not True:
+        fails.append(f"report rename_lossless is not true: the rename to the separator {sep!r} was not proven "
+                     "lossless, so the graph's names are not the verified ones")
     cases = rep.get("fail_cases")
     if not isinstance(cases, list) or not cases:
         fails.append("report has no fail cases (pipeline.md, rule 14)")
@@ -616,7 +663,7 @@ def main(argv):
             if not data:
                 raise ValueError("give the data files: the property types follow the load's multivalued list")
             statement, left_out = graph_type(load_config(opts["--config"]), parse(opts.get("--shapes", [])),
-                                             parse(data))
+                                             parse(data), separator(opts))
             # The statement goes to a file, never to the terminal; each left-out line is one quoted
             # Cypher comment, so a shapes term cannot break out of it.
             write(opts["--output"], statement + "\n" + "".join(comment("left out: " + line) + "\n" for line in left_out))
@@ -625,7 +672,8 @@ def main(argv):
             need(opts, "--config", "--output")
             if not data:
                 raise ValueError("give the data files: the property types follow the load's multivalued list")
-            model = data_model(load_config(opts["--config"]), parse(opts.get("--shapes", [])), parse(data))
+            model = data_model(load_config(opts["--config"]), parse(opts.get("--shapes", [])), parse(data),
+                               separator(opts))
             problems = data_model_problems(model)
             for message in problems:
                 print(f"FAIL {q(message)}")

@@ -2,7 +2,8 @@
 // predicate type and module tag, and the tag of the node at each end. Paste into Neo4j Browser; change
 // the IRI, and the 2 in [*1..2] for another hop limit. n10s's schema relationships (n4sch__*) are derived
 // from the ontology (the triples they repeat are ordinary relationships too), so no path crosses one,
-// as explore.py's walk never does.
+// as explore.py's walk never does. A graph loaded with a separator other than n10s's (run-config.md,
+// `separator`) names them n4sch plus that separator: change 'n4sch__' in the WHERE line to match.
 :param iri => 'https://example.org/your-node';
 MATCH p = (start:Resource {uri: $iri})-[*1..2]-(:Resource)
 WHERE none(x IN relationships(p) WHERE type(x) STARTS WITH 'n4sch__')

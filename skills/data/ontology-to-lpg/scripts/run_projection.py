@@ -169,6 +169,11 @@ def read_config(path):
     graphs = cfg.setdefault("release_graphs", [])
     if not isinstance(graphs, list) or not all(isinstance(g, str) and g and "/" not in g for g in graphs):
         raise Refusal("release_graphs must be a list of file names without .ttl, such as shapes")
+    if "separator" in cfg:
+        # The same rule as load_verify.py --separator, checked here so --plan and every step refuse it first.
+        sep = cfg["separator"]
+        if not isinstance(sep, str) or not sep or any(c != "_" for c in sep):
+            raise Refusal("separator must be a non-empty string of underscores only, such as \"_\"")
     for key, default in DEFAULTS.items():
         cfg[key] = {**default, **cfg.get(key, {})}
     cfg.setdefault("rdf_store", os.path.join(os.path.dirname(SKILL), "rdf-store"))
@@ -723,7 +728,9 @@ class Driver:
                 "--report", o("projection-report.json"))
 
     def sep_args(self):
-        """--separator for the scripts that read the kept graph's names, when the configuration names one."""
+        """--separator for every script that reads or describes the kept graph's names (load, review, tags,
+        graph-type, the copy's checks and review, explore, and the rebuild's run of each), when the
+        configuration names one."""
         return ["--separator", self.cfg["separator"]] if "separator" in self.cfg else []
 
     def step_review(self):
@@ -747,7 +754,7 @@ class Driver:
 
     def step_graph_type(self):
         self.py("build.py graph-type", "build.py", "graph-type", "--config", self.cfg["projection_config"],
-                *self.shape_args(), "--output", self.out_file("graph-type.cypher"), *self.data)
+                *self.shape_args(), "--output", self.out_file("graph-type.cypher"), *self.sep_args(), *self.data)
 
     def step_triplestore(self):
         self.need("inferred.nt", "projection-report.json")
@@ -770,7 +777,8 @@ class Driver:
         self.copied = True
         target = ["--env", target_env]
         self.tag_checks(target, None, write=False)
-        self.py("model_review.py (target)", "model_review.py", *target, "--report", self.out_file("model-review-target.json"))
+        self.py("model_review.py (target)", "model_review.py", *target, "--report", self.out_file("model-review-target.json"),
+                *self.sep_args())
 
     def step_jena(self):
         ds = self.jena_ds()
@@ -807,7 +815,7 @@ class Driver:
                 report = self.out_file("explore-report.json" if name == "local" else "explore-report-target.json")
                 self.py(f"explore.py compare ({name})", "explore.py", "compare", "--config", self.cfg["projection_config"],
                         *target, "--sparql", ds + "/query", "--queries", self.cfg["queries"], "--report", report,
-                        *(["--files"] if self.files else []), env=env)
+                        *(["--files"] if self.files else []), *self.sep_args(), env=env)
         finally:
             self.remove(lambda b=self.fusekis[-1]: self.fuseki_down(b))
 

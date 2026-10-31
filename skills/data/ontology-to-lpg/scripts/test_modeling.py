@@ -26,8 +26,9 @@ TEMPLATES = os.path.join(HERE, "..", "templates")
 GOOD_CONSTRAINT = {"type": "UNIQUENESS", "entityType": "NODE", "labelsOrTypes": ["Resource"], "properties": ["uri"]}
 
 
-def emulated_domain(labels, skipped):
-    return [lb for lb in labels if lb not in skipped and not lb.startswith("n4sch__")]
+def emulated_domain(labels, skipped, schema_prefix):
+    """The Cypher DOMAIN list: $skipped and the schema labels under $schema_prefix left out."""
+    return [lb for lb in labels if lb not in skipped and not lb.startswith(schema_prefix)]
 
 
 def fake(labels=("Resource", "lib__Work", "lib__Person"), types=("lib__createdBy",),
@@ -49,8 +50,8 @@ def fake(labels=("Resource", "lib__Work", "lib__Person"), types=("lib__createdBy
             return [{"type": t} for t in types]
         if stmt == mr.CONSTRAINTS:
             return list(constraints)
-        skipped = params["skipped"]
-        reviewed = [(u, emulated_domain(lbs, skipped), d) for u, lbs, d in nodes if emulated_domain(lbs, skipped)]
+        skipped, schema = params["skipped"], params["schema_prefix"]
+        reviewed = [(u, emulated_domain(lbs, skipped, schema), d) for u, lbs, d in nodes if emulated_domain(lbs, skipped, schema)]
         if stmt == mr.LABEL_MEDIANS:
             by = {}
             for _, dl, d in reviewed:
@@ -67,7 +68,7 @@ def fake(labels=("Resource", "lib__Work", "lib__Person"), types=("lib__createdBy
             # A pair (x, y) of one edge: x on its source and not its target, y the reverse.
             pairs = {}
             for t, a, b in edges:
-                da, db = emulated_domain(a, skipped), emulated_domain(b, skipped)
+                da, db = emulated_domain(a, skipped, schema), emulated_domain(b, skipped, schema)
                 for x in (lb for lb in da if lb not in db):
                     for y in (lb for lb in db if lb not in da):
                         pairs.setdefault(t, set()).add((x, y))
@@ -153,7 +154,22 @@ class Review(unittest.TestCase):
         self.assertIn("size(dl) > 0", mr.OFFENDERS)
         self.assertEqual(sent.count(mr.OFFENDERS), 1)
         offender_params = next(p for stmt, p in calls if stmt == mr.OFFENDERS)
-        self.assertEqual(sorted(offender_params), ["factor", "limit", "max_degree", "medians", "min_degree", "skipped"])
+        self.assertEqual(sorted(offender_params), ["factor", "limit", "max_degree", "medians", "min_degree", "schema_prefix", "skipped"])
+        self.assertEqual({p["schema_prefix"] for stmt, p in calls if "schema_prefix" in p}, {"n4sch" + mr.SEP})
+        self.assertIn("NOT l STARTS WITH $schema_prefix", mr.DOMAIN)
+
+    def test_a_renamed_graphs_schema_labels_and_local_names_are_read_under_its_separator(self):
+        # Under one underscore the schema label is n4sch_Class: left out of every degree rule only when
+        # the review is told the separator; generic names are found only then too.
+        nodes = [("cls", ["Resource", "n4sch_Class"], 200000), ("w1", ["Resource", "lib_Work"], 1)]
+        labels, types = ("Resource", "n4sch_Class", "lib_Work", "lib_Entity"), ("lib_HAS",)
+        found, _ = mr.review(fake(labels=labels, types=types, nodes=nodes), sep="_")
+        self.assertEqual([(f["severity"], f["rule"]) for f in found], [("WARNING", "generic-label"), ("WARNING", "generic-type")])
+        self.assertEqual(rules(mr.review(fake(labels=labels, types=types, nodes=nodes))), ["supernode"])
+        # the schema prefix the Cypher gets is the separator's
+        calls = []
+        mr.review(fake(calls=calls), sep="_")
+        self.assertEqual({p["schema_prefix"] for stmt, p in calls if "schema_prefix" in p}, {"n4sch_"})
 
     def test_one_type_in_both_directions_is_an_info_local_heuristic(self):
         edges = [("lib__about", ["Resource", "lib__Work"], ["Resource", "lib__Person"]),
@@ -227,10 +243,11 @@ class FakeSession:
     """A driver session that records each query it is given and answers with no rows."""
 
     def __init__(self, fail=None):
-        self.queries, self.fail = [], fail
+        self.queries, self.params, self.fail = [], [], fail
 
     def run(self, query, parameters=None, **_):
         self.queries.append(query)
+        self.params.append(parameters or {})
         if self.fail:
             raise self.fail
         result = mock.MagicMock()
@@ -300,6 +317,20 @@ class Cli(unittest.TestCase):
         self.assertEqual(code, 0)
         with open(report) as f:
             self.assertEqual(json.load(f), {"errors": 0, "findings": [], "offenders_capped": False})
+
+    def test_the_separator_reaches_every_cypher_analysis_and_a_bad_one_exits_2(self):
+        session = FakeSession()
+        code, out = self.main(session, "--separator", "_")
+        self.assertEqual(code, 0, out)
+        self.assertEqual({p["schema_prefix"] for p in session.params if "schema_prefix" in p}, {"n4sch_"})
+        self.assertEqual(sum("schema_prefix" in p for p in session.params), 3)
+        session = FakeSession()
+        self.main(session)
+        self.assertEqual({p["schema_prefix"] for p in session.params if "schema_prefix" in p}, {"n4sch" + mr.SEP})
+        session = FakeSession()
+        code, out = self.main(session, "--separator", "x")
+        self.assertEqual(code, 2, out)
+        self.assertEqual(session.queries, [])
 
 
 class Timeouts(unittest.TestCase):

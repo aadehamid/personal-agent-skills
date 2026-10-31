@@ -131,9 +131,13 @@ class Config(Base):
     def test_bad_configurations_are_refused(self):
         for extra in ({"other": 1}, {"inputs_script": "x.py"}, {"mode": "both"}, {"databricks": {"env": "dbx.env"}},
                       {"rebuild": {"source": "s3", "out": "re"}}, {"rebuild": {"source": "jena", "out": "out"}},
-                      {"release_graphs": ["a/b"]}, {"rebuild": {"source": "databricks", "out": "re"}}):
+                      {"release_graphs": ["a/b"]}, {"rebuild": {"source": "databricks", "out": "re"}},
+                      {"separator": None}, {"separator": 1}, {"separator": ["_"]}, {"separator": ""},
+                      {"separator": "-"}, {"separator": "x"}, {"separator": "_x"}):
             with self.subTest(extra), self.assertRaises(rp.Refusal):
                 self.run_config(**extra)
+        for sep in ("_", "__", "___"):
+            self.assertEqual(self.run_config(separator=sep)["separator"], sep)
 
     def test_an_output_folder_inside_the_repository_is_refused(self):
         # Without the hook's variables: inherited from a pre-push hook run in a linked worktree, `git init`
@@ -468,6 +472,10 @@ class Cli(Base):
                 contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(rp.main(["--config", path, "--plan"]), 0)
             run.assert_not_called()
+            bad = self.write("bad.json", json.dumps({"mode": "files", "projection_config": "config.json", "out": "out",
+                                                     "files": ["releases"], "separator": "x"}))
+            self.assertEqual(rp.main(["--config", bad, "--plan"]), 2)
+            run.assert_not_called()
             self.assertEqual(rp.main(["--config", path, "--only", "nope"]), 2)
             self.assertEqual(rp.main(["--plan"]), 2)
             self.assertEqual(rp.main(["--config", path, "--extra"]), 2)
@@ -600,15 +608,67 @@ if __name__ == "__main__":
     unittest.main()
 
 
+# The scripts that read or describe the kept graph's names, by the name FakeRun.scripts gives them.
+READS_THE_GRAPH = {"load_verify.py", "model_review.py", "module_tags.py tag", "module_tags.py check",
+                   "module_tags.py modules", "build.py graph-type", "explore.py"}
 
-class SeparatorKey(unittest.TestCase):
-    """`separator` in the run configuration reaches load_verify, model_review and module_tags."""
+
+def separator_of(cmd):
+    return cmd[cmd.index("--separator") + 1] if "--separator" in cmd else None
+
+
+class SeparatorKey(Base):
+    """`separator` in the run configuration reaches every script that reads or describes the kept graph's
+    names, on the local graph, the copy and the rebuild, and no other script."""
 
     def test_the_key_is_known_and_passed_on(self):
-        import run_projection as rp
-        cfg = {"mode": "files", "projection_config": "p.json", "files": ["a.ttl"], "out": "/tmp/out", "separator": "_"}
         d = rp.Driver.__new__(rp.Driver)
-        d.cfg = cfg
+        d.cfg = {"separator": "_"}
         self.assertEqual(d.sep_args(), ["--separator", "_"])
-        d.cfg = {k: v for k, v in cfg.items() if k != "separator"}
+        d.cfg = {}
         self.assertEqual(d.sep_args(), [])
+
+    def test_every_consumer_of_the_kept_graph_gets_the_separator_and_no_other_script_does(self):
+        fake = FakeRun()
+        d = self.driver(self.run_config(separator="_"), fake)
+        d.run_steps(["project", "load", "review", "tags", "graph-type", "copy", "jena", "explore"])
+        seen = {}
+        for cmd, _, _ in fake.calls:
+            script = next((os.path.basename(c) for c in cmd if c.endswith(".py")), None)
+            if script is None:
+                continue
+            name = script + (" " + cmd[[os.path.basename(c) for c in cmd].index(script) + 1]
+                             if script in ("module_tags.py", "build.py") else "")
+            seen.setdefault(name, []).append(separator_of(cmd))
+        for name in READS_THE_GRAPH:
+            with self.subTest(name):
+                self.assertTrue(seen[name] and all(s == "_" for s in seen[name]), (name, seen[name]))
+        self.assertEqual(len(seen["model_review.py"]), 2)            # the local graph and the copy
+        self.assertEqual(len(seen["explore.py"]), 2)
+        self.assertEqual(len(seen["module_tags.py check"]), 2)
+        for name, values in seen.items():
+            if name not in READS_THE_GRAPH:
+                with self.subTest(name):
+                    self.assertEqual(values, [None] * len(values), name)
+        self.assertIn("copy_graph.py", seen)
+        self.assertIn("build.py manifest", seen)
+        # without the key, no script gets the flag
+        fake = FakeRun()
+        self.driver(self.run_config(), fake).run_steps(["project", "load", "review", "tags", "graph-type", "copy"])
+        self.assertFalse(any("--separator" in cmd for cmd, _, _ in fake.calls))
+
+    def test_the_rebuild_passes_the_separator_to_its_own_load_review_tags_copy_and_walk(self):
+        fake = FakeRun()
+        d = self.driver(self.run_config(separator="_", rebuild={"source": "repo", "out": "re"}), fake)
+        d.run_steps(["project", "load", "rebuild"])
+        rebuilt = [cmd for cmd, _, _ in fake.calls if any(c.endswith(".py") for c in cmd)
+                   and any(os.path.join(self.tmp, "re") in c for c in cmd)]
+        names = {next(os.path.basename(c) for c in cmd if c.endswith(".py")) for cmd in rebuilt}
+        self.assertTrue({"load_verify.py", "module_tags.py", "model_review.py", "explore.py"} <= names, names)
+        for cmd in rebuilt:
+            script = next(os.path.basename(c) for c in cmd if c.endswith(".py"))
+            with self.subTest(script=script):
+                if script in ("load_verify.py", "module_tags.py", "model_review.py", "explore.py"):
+                    self.assertEqual(separator_of(cmd), "_", cmd)
+                else:
+                    self.assertIsNone(separator_of(cmd), cmd)
