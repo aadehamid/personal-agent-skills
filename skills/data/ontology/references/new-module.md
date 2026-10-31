@@ -12,22 +12,24 @@ The steps stay the same and their gates still apply. What changes is their scope
 
 ## What each step covers
 
-| Step | For a new module | It may be empty only when |
-|---|---|---|
-| Intake | Add the module's purpose, questions, inputs and scope to the requirements file, and sort its inputs into the six kinds (`governance.md`, rule 1) | Never |
-| 0, reference framework | Survey the module's domain only: frameworks, public ontologies and code lists | Never |
-| 8, scope review | Review the candidate areas of this domain, with a boundary note on each out call | Never |
-| 1, foundations | The ten policies already hold, so do not decide them again; a change to one is its own decision and applies to every module. Lock the new competency questions with the owner. If policy 10 says the ontology is projected, or this module is why projection starts, record that and the Rule 4 option, and read `ontology-to-lpg`'s design rules | Never |
-| 2, identity | IRIs under the module's namespace, in the URI policy's form. Point to another module's terms by IRI; never redefine them | Never |
-| 3, terms | Classes, properties, concepts and definitions, each with its kind, to the quality bar | Never |
-| 4, relationships | Promote provisional data through the evidence gate | Every source mention has a recorded disposition, none became a relationship, the conservation ledger reconciles, and the evidence gate has no row left (`promotion.md`) |
-| 5, organizations | RACI, the role register, party roles and reference instances | A recorded scope assigns no RACI, each process outside it is on the source author's backlog and listed by a must-be-none query (`organization.md`, rule 11), the role register has no new strings, and the module defines no party role and no reference instance (rules 16 to 21) |
-| 6, plans and runs | The definition-to-run pattern | You recorded that it defines no process, plan or run |
-| 7, integration | Link it to the other modules by IRI, in one direction, with no cycle. Record each gap as linked or parked | A recorded decision parks every integration gap |
-| 9, SHACL | The module's own shapes and negative tests. Add the module to the project's lists first (rule 6), then run the whole-graph gate with its data and shapes included | Never |
-| 10, release | The first release, then the combined catalog (below) | Never |
-| 11, regression | The new questions, plus the full suite (`regression.md`, rule 13) | Never |
-| 12, projection | Design rules are already met from Step 1. Add the module to the projection's inputs, and rerun it | The ontology is not projected |
+| Step | For a new module |
+|---|---|
+| Intake | Add the module's purpose, questions, inputs and scope to the requirements file, and sort its inputs into the six kinds (`governance.md`, rule 1) |
+| 0, reference framework | Survey the module's domain only: frameworks, public ontologies and code lists |
+| 8, scope review | Review the candidate areas of this domain, with a boundary note on each out call |
+| 1, foundations | The ten policies already hold, so do not decide them again; a change to one is its own decision and applies to every module. Lock the new competency questions with the owner. If policy 10 says the ontology is projected, or this module is why projection starts, record that and the Rule 4 option, and read `ontology-to-lpg`'s design rules |
+| 2, identity | IRIs under the module's namespace, in the URI policy's form. Point to another module's terms by IRI; never redefine them |
+| 3, terms | Classes, properties, concepts and definitions, each with its kind, to the quality bar |
+| 4, relationships | Promote provisional data through the evidence gate |
+| 5, organizations | RACI, the role register, party roles and reference instances |
+| 6, plans and runs | The definition-to-run pattern |
+| 7, integration | Link it to the other modules by IRI, in one direction, with no cycle. Record each gap as linked or parked |
+| 9, SHACL | The module's own shapes and negative tests. Add the module to the project's lists first (rule 6), then run the whole-graph gate with its data and shapes included |
+| 10, release | The first release, then the combined catalog (below) |
+| 11, regression | The new questions, plus the full suite (`regression.md`, rule 13) |
+| 12, projection | Design rules are already met from Step 1. Add the module to the projection's inputs, and rerun it |
+
+This table says what each step covers, and `SKILL.md` holds its gate. A step can have little to do for a module, but no step is skipped: meet each gate as `SKILL.md` and the reference it names state it, and record why a step holds little.
 
 ## Releasing it beside the others
 
