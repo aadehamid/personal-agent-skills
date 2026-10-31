@@ -17,7 +17,7 @@ The steps stay the same and their gates still apply. What changes is their scope
 | Intake | Add the module's purpose, questions, inputs and scope to the requirements file, and sort its inputs into the six kinds (`governance.md`, rule 1) |
 | 0, reference framework | Survey the module's domain only: frameworks, public ontologies and code lists |
 | 8, scope review | Review the candidate areas of this domain, with a boundary note on each out call |
-| 1, foundations | The ten policies already hold, so do not decide them again; a change to one is its own decision and applies to every module. Lock the new competency questions with the owner. If policy 10 says the ontology is projected, or this module is why projection starts, record that and the Rule 4 option, and read `ontology-to-lpg`'s design rules |
+| 1, foundations | The ten policies already hold, so do not decide them again; a change to one is its own decision and applies to every module. Lock the new competency questions with the owner. If policy 10 says the ontology will be projected, or this module is why projection starts, record that and the Rule 4 option, and read `ontology-to-lpg`'s design rules |
 | 2, identity | IRIs under the module's namespace, in the URI policy's form. Point to another module's terms by IRI; never redefine them |
 | 3, terms | Classes, properties, concepts and definitions, each with its kind, to the quality bar |
 | 4, relationships | Promote provisional data through the evidence gate |
@@ -29,7 +29,7 @@ The steps stay the same and their gates still apply. What changes is their scope
 | 11, regression | The new questions, plus the full suite (`regression.md`, rule 13) |
 | 12, projection | Design rules are already met from Step 1. Add the module to the projection's inputs, and rerun it |
 
-This table says what each step covers, and `SKILL.md` holds its gate. A step can have little to do for a module, but no required step is skipped, and Step 12 applies when policy 10 says the ontology is projected: meet each gate as `SKILL.md` and the reference it names state it, and record why a step holds little.
+This table says what each step covers, and `SKILL.md` holds its gate. A step can have little to do for a module, but no required step is skipped, and Step 12 applies when policy 10 says the ontology will be projected: meet each gate as `SKILL.md` and the reference it names state it, and record why a step holds little.
 
 ## Releasing it beside the others
 
@@ -39,4 +39,4 @@ This table says what each step covers, and `SKILL.md` holds its gate. A step can
 7. **Run the whole check suite, not only the module's tests (`regression.md`, rule 14).** An earlier question that now fails is a regression or a recorded, deliberate change (`regression.md`, rule 13); one may move from waiting to answerable. *Why:* a new module can break a query or a shape elsewhere.
 8. **If the release lives in several stores, reload them and prove nothing was lost (`ontology-to-lpg`, `references/multi-store.md`).** *Why:* a store that holds the old release set answers without the new module, and nothing in the answer shows it.
 
-Done when the module's question passes on its released package, its entries exist everywhere the project lists modules, each step's gate in `SKILL.md` is met, the whole-graph gate and the full regression pass with the module included, the catalog lists the release, Step 12's gates are met if the ontology is projected, and every store in a multi-store plan holds the new release with nothing lost.
+Done when the module's question passes on its released package, its entries exist everywhere the project lists modules, each step's gate in `SKILL.md` is met, the whole-graph gate and the full regression pass with the module included, the catalog lists the release, Step 12's gates are met if the ontology will be projected, and every store in a multi-store plan holds the new release with nothing lost.
