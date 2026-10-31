@@ -61,7 +61,9 @@ class Guide(unittest.TestCase):
                 self.assertIn(kind, {k for _, k, _ in problems(text)})
 
     def test_a_term_wrapped_across_lines_is_reported_on_its_first_line(self):
-        self.assertEqual(problems("one\ntwo Phillips\n66 three"), [(2, "a company or its filer names", "Phillips\n66")])
+        # A term whose pattern allows a line break inside it; a refining term, so the test reads the same wherever
+        # the company list differs.
+        self.assertEqual(problems("one\ntwo crack\nspread three"), [(2, "a refining or oil and gas term", "crack\nspread")])
 
 
 if __name__ == "__main__":
