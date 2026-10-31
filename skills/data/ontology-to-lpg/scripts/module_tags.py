@@ -57,7 +57,7 @@ from shell import Refusal, error_line, q
 
 TAG = lv.MODULE_TAG
 # n10s.onto.import's schema relationships: tagged by the node they start from (module docstring).
-SCHEMA_PREFIX = "n4sch__"
+SCHEMA_PREFIX = "n4sch" + "_" * 2   # n10s's schema nodes; --separator changes it with SEP (below)
 LPG = "https://w3id.org/ontology-to-lpg/module#"
 
 Package = namedtuple("Package", "path ontology version requires graph")
@@ -158,11 +158,14 @@ def expected_tags(packages, inferred=None):
     return nodes, edges
 
 
-def predicate(rel_type, prefixes):
-    """The predicate IRI of a relationship type: SHORTEN's prefix__local expanded, or a schema type."""
+SEP = "_" * 2   # n10s's separator; --separator names another when the graph was renamed (load_verify.py)
+
+
+def predicate(rel_type, prefixes, sep=None):
+    """The predicate IRI of a relationship type: the prefixed name expanded, or a schema type."""
     if rel_type.startswith(SCHEMA_PREFIX):
         return None
-    prefix, sep, local = rel_type.partition("__")
+    prefix, sep, local = rel_type.partition(sep or SEP)
     if not sep or prefix not in prefixes:
         return None
     return prefixes[prefix] + local
@@ -261,7 +264,7 @@ CLEAR_MODULES = "MATCH (n:Module) DETACH DELETE n"
 
 def options(argv):
     opts, files, i = {"--graph": {}}, [], 0
-    known = {"--config", "--uri", "--env", "--inferred", "--query-timeout"}
+    known = {"--config", "--uri", "--env", "--inferred", "--query-timeout", "--separator"}
     while i < len(argv):
         if argv[i] == "--graph" and i + 1 < len(argv):
             path, sep, iri = argv[i + 1].partition("=")
@@ -306,6 +309,9 @@ def main(argv):
         if command != "modules" and "--config" not in opts:
             raise Refusal("give --config")
         timeout = lv.query_timeout(opts)
+        global SEP, SCHEMA_PREFIX
+        SEP = lv.separator(opts)
+        SCHEMA_PREFIX = "n4sch" + SEP
         packages = read_packages(files, opts["--graph"])
         inferred = Graph().parse(opts["--inferred"], format="nt") if "--inferred" in opts else None
         prefixes = {}

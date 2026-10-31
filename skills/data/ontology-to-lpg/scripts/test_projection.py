@@ -1221,3 +1221,43 @@ class DocsAgreeWithScripts(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class Separator(unittest.TestCase):
+    """The separator: n10s's two underscores by default; another value renames after the checks, losslessly."""
+
+    def test_the_plan_renames_every_prefixed_name_and_nothing_else(self):
+        plan = lv.rename_plan(["Resource", "lib" + lv.N10S_SEP + "Work", "_GraphConfig"],
+                              ["lib" + lv.N10S_SEP + "copyOf", "n4sch" + lv.N10S_SEP + "SCO"],
+                              ["uri", "lib" + lv.N10S_SEP + "title"], "_")
+        self.assertEqual(plan, {"labels": {"lib" + lv.N10S_SEP + "Work": "lib_Work"},
+                                "rels": {"lib" + lv.N10S_SEP + "copyOf": "lib_copyOf", "n4sch" + lv.N10S_SEP + "SCO": "n4sch_SCO"},
+                                "keys": {"lib" + lv.N10S_SEP + "title": "lib_title"}})
+
+    def test_a_collision_stops_the_rename(self):
+        with self.assertRaises(lv.Failed):
+            lv.rename_plan(["lib" + lv.N10S_SEP + "Work", "lib_Work"], [], [], "_")
+
+    def test_the_expected_dump_applies_the_plan(self):
+        plan = {"labels": {"a" + lv.N10S_SEP + "B": "a_B"}, "rels": {"a" + lv.N10S_SEP + "r": "a_r"}, "keys": {"a" + lv.N10S_SEP + "k": "a_k"}}
+        nodes = [{"uri": "u", "labels": ["Resource", "a" + lv.N10S_SEP + "B"], "props": {"uri": "u", "a" + lv.N10S_SEP + "k": 1}}]
+        edges = [{"s": "u", "t": "a" + lv.N10S_SEP + "r", "o": "v", "props": {}}]
+        self.assertEqual(lv.apply_plan(nodes, edges, plan),
+                         ([{"uri": "u", "labels": ["Resource", "a_B"], "props": {"uri": "u", "a_k": 1}}],
+                          [{"s": "u", "t": "a_r", "o": "v", "props": {}}]))
+
+    def test_the_option_takes_underscores_only(self):
+        self.assertEqual(lv.separator({}), lv.N10S_SEP)
+        self.assertEqual(lv.separator({"--separator": "_"}), "_")
+        for bad in ("", "-", "x"):
+            with self.assertRaises(lv.Refusal):
+                lv.separator({"--separator": bad})
+
+    def test_passed_needs_a_lossless_rename(self):
+        report = {"shacl_violations_in_graph": 0, "in_graph_mutant_violations": 1, "mutant": {"after_restore": 0},
+                  "roundtrip_lost": 0, "roundtrip_added": 0, "determinism_hash_sorted": "h", "determinism_hash_shuffled": "h",
+                  "fail_cases": []}
+        self.assertTrue(lv.passed(report))
+        self.assertTrue(lv.passed({**report, "rename_lossless": True}))
+        self.assertFalse(lv.passed({**report, "rename_lossless": False}))

@@ -607,12 +607,71 @@ def mutant(session, label, key):
     return {"focus": uri, "removed": key, "violations": len(caught), "after_restore": len(after)}
 
 
-def hash_graph(session):
+N10S_SEP = "_" * 2   # what n10s writes between a prefix and a local name (SHORTEN)
+
+
+def hash_graph(session, sep=N10S_SEP):
     nodes = session.run("MATCH (n:Resource) RETURN n.uri AS uri, labels(n) AS labels, properties(n) AS props").data()
     edges = session.run("MATCH (a:Resource)-[r]->(b:Resource) RETURN a.uri AS s, type(r) AS t, b.uri AS o, "
                         "r.uri AS u, properties(r) AS props").data()
-    schema = sum(1 for e in edges if e["t"].startswith("n4sch__"))
+    schema = sum(1 for e in edges if e["t"].startswith("n4sch" + sep))
     return graph_hash(nodes, edges), len(nodes), len(edges), schema
+
+
+def names_in_use(session):
+    """Every label, relationship type and property key the data holds (the token tables keep deleted names)."""
+    labels = session.run("MATCH (n) UNWIND labels(n) AS l RETURN collect(DISTINCT l) AS l").single()["l"]
+    rels = session.run("MATCH ()-[r]->() RETURN collect(DISTINCT type(r)) AS l").single()["l"]
+    keys = session.run("MATCH (n) UNWIND keys(n) AS k RETURN collect(DISTINCT k) AS l").single()["l"]
+    keys += [k for k in session.run("MATCH ()-[r]->() UNWIND keys(r) AS k RETURN collect(DISTINCT k) AS l").single()["l"]
+             if k not in keys]
+    return labels, rels, keys
+
+
+def rename_plan(labels, rels, keys, sep):
+    """What a separator change renames: {labels, rels, keys} of old -> new. Raises Failed on a collision
+    (two names that would become one, or a new name already in use)."""
+    plan = {}
+    for kind, names in (("labels", labels), ("rels", rels), ("keys", keys)):
+        plan[kind] = {x: x.replace(N10S_SEP, sep, 1) for x in names if N10S_SEP in x}
+        new = list(plan[kind].values())
+        if len(set(new)) != len(new) or set(new) & set(names):
+            raise Failed(f"renaming the separator to {sep!r} collides in {kind}")
+    return plan
+
+
+def apply_plan(nodes, edges, plan):
+    """The dump as it should read after the plan: the expected result of the rename."""
+    L, R, K = plan["labels"], plan["rels"], plan["keys"]
+    return ([{"uri": n["uri"], "labels": sorted(L.get(x, x) for x in n["labels"]), "props": {K.get(k, k): v for k, v in n["props"].items()}}
+             for n in nodes],
+            [{"s": e["s"], "t": R.get(e["t"], e["t"]), "o": e["o"], "props": {K.get(k, k): v for k, v in e["props"].items()}}
+             for e in edges])
+
+
+def dump(session):
+    nodes = session.run("MATCH (n:Resource) RETURN n.uri AS uri, labels(n) AS labels, properties(n) AS props ORDER BY uri").data()
+    edges = session.run("MATCH (a:Resource)-[r]->(b:Resource) RETURN a.uri AS s, type(r) AS t, b.uri AS o, properties(r) AS props "
+                        "ORDER BY s, t, o").data()
+    return [{**n, "labels": sorted(n["labels"])} for n in nodes], edges
+
+
+def rename_separator(session, sep):
+    """After every check has run on n10s's names: rename each label, relationship type and property key from
+    prefix__local to prefix<sep>local with APOC, and prove it lossless (the dump before, with the plan applied,
+    equals the dump after). Returns ({labels, rels, keys} counts, lossless)."""
+    plan = rename_plan(*names_in_use(session), sep)
+    before = dump(session)
+    for old, new in plan["labels"].items():
+        session.run("CALL apoc.refactor.rename.label($o, $n)", o=old, n=new).consume()
+    for old, new in plan["rels"].items():
+        session.run("CALL apoc.refactor.rename.type($o, $n)", o=old, n=new).consume()
+    for old, new in plan["keys"].items():
+        session.run("CALL apoc.refactor.rename.nodeProperty($o, $n)", o=old, n=new).consume()
+        session.run("CALL apoc.refactor.rename.typeProperty($o, $n)", o=old, n=new).consume()
+    expected, after = apply_plan(*before, plan), dump(session)
+    lossless = json.dumps(expected, sort_keys=True, default=str) == json.dumps(after, sort_keys=True, default=str)
+    return {k: len(v) for k, v in plan.items()}, lossless
 
 
 def plugin_checksums(folder):
@@ -667,7 +726,7 @@ def query_timeout(opts):
 
 
 def run(driver, cfg, data_paths, shape_paths, import_dir, merged, loadable, inferred, plugins_dir=None, manual=(),
-        timeout=DEFAULT_QUERY_TIMEOUT):
+        timeout=DEFAULT_QUERY_TIMEOUT, sep=N10S_SEP):
     data, shapes = build.parse(data_paths), build.parse(shape_paths)
     safe, left_out = igs.subset(shapes)
     safe.serialize(os.path.join(import_dir, "shapes-in-graph.ttl"), format="turtle")
@@ -716,7 +775,11 @@ def run(driver, cfg, data_paths, shape_paths, import_dir, merged, loadable, infe
         report.update({"export_rows": len(exported_rows), "schema_rows_skipped": skipped,
                        "roundtrip_lost": len(lost), "roundtrip_added": len(added),
                        "export_predicate_counts": predicate_counts(exported)})
-        sorted_hash, nodes, rels, schema = hash_graph(session)
+        # The separator: the graph keeps n10s's two underscores unless a run asks for another, in which case every
+        # check above ran on n10s's names and the kept graph, hashed here, carries the renamed ones.
+        renamed, lossless = ({}, True) if sep == N10S_SEP else rename_separator(session, sep)
+        report.update({"separator": sep, "renamed": renamed, "rename_lossless": lossless})
+        sorted_hash, nodes, rels, schema = hash_graph(session, sep)
         report.update({"determinism_hash_sorted": sorted_hash, "nodes": nodes, "relationships": rels,
                        "schema_relationships": schema})
         wipe(session)
@@ -725,7 +788,9 @@ def run(driver, cfg, data_paths, shape_paths, import_dir, merged, loadable, infe
             with open(target_file, "w", encoding="utf-8") as f:
                 f.write(shuffled(loadable_text))
             load(session, statements)
-            report["determinism_hash_shuffled"] = hash_graph(session)[0]
+            if sep != N10S_SEP:
+                rename_separator(session, sep)
+            report["determinism_hash_shuffled"] = hash_graph(session, sep)[0]
         finally:
             shutil.copyfile(loadable, target_file)
     report["samples"] = {"violations": found[:5], "lost": lost[:10], "added": added[:10],
@@ -744,6 +809,7 @@ def predicate_counts(g):
 
 def passed(report):
     return (report["shacl_violations_in_graph"] == 0 and report["in_graph_mutant_violations"] > 0
+            and report.get("rename_lossless", True) is True
             and report["mutant"]["after_restore"] == 0
             and report["roundtrip_lost"] == 0 and report["roundtrip_added"] == 0
             and report["determinism_hash_sorted"] == report["determinism_hash_shuffled"]
@@ -756,6 +822,15 @@ def check_report_command(report_path):
 
 
 DEFAULT_CONTAINER = "lpg-projection"
+
+
+def separator(opts):
+    """--separator: what sits between a prefix and a local name in the kept graph. n10s writes two underscores;
+    another value, such as one underscore, renames every label, type and key after the checks (rename_separator)."""
+    sep = opts.get("--separator", N10S_SEP)
+    if not sep or not all(c == "_" for c in sep):
+        raise Refusal("--separator takes underscores only, such as _ or __")
+    return sep
 
 
 def container_name(opts):
@@ -832,7 +907,8 @@ def main(argv):
         driver = GraphDatabase.driver(opts["--bolt"], auth=("neo4j", password))
         try:
             report = run(driver, cfg, data, opts["--shapes"], opts["--import-dir"], opts["--merged"],
-                         opts["--loadable"], opts["--inferred"], opts.get("--plugins-dir"), manual, timeout)
+                         opts["--loadable"], opts["--inferred"], opts.get("--plugins-dir"), manual, timeout,
+                         sep=separator(opts))
         finally:
             driver.close()
     except Exception as exc:  # Failed, a driver error or a file error: no report

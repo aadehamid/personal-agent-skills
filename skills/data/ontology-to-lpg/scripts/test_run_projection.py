@@ -598,3 +598,17 @@ class FilesMode(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class SeparatorKey(unittest.TestCase):
+    """`separator` in the run configuration reaches load_verify, model_review and module_tags."""
+
+    def test_the_key_is_known_and_passed_on(self):
+        import run_projection as rp
+        cfg = {"mode": "files", "projection_config": "p.json", "files": ["a.ttl"], "out": "/tmp/out", "separator": "_"}
+        d = rp.Driver.__new__(rp.Driver)
+        d.cfg = cfg
+        self.assertEqual(d.sep_args(), ["--separator", "_"])
+        d.cfg = {k: v for k, v in cfg.items() if k != "separator"}
+        self.assertEqual(d.sep_args(), [])

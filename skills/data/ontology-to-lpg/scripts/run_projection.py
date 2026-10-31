@@ -114,7 +114,7 @@ def read_config(path):
 
     known = {"mode", "projection_config", "data", "shapes", "releases", "inputs_script", "files", "graphs", "out",
              "robot_jar", "manual_cases", "release_graphs", "queries", "target_env", "replace_target", "databricks",
-             "rdf_store", "rebuild", "keep_neo4j"} | set(DEFAULTS)
+             "rdf_store", "rebuild", "keep_neo4j", "separator"} | set(DEFAULTS)
     unknown = sorted(set(cfg) - known)
     if unknown:
         raise Refusal("the run configuration has a key it does not know; references/run-config.md lists them")
@@ -713,6 +713,7 @@ class Driver:
         self.sleep(5)
         o = self.out_file
         manual = ["--manual-cases", self.cfg["manual_cases"]] if "manual_cases" in self.cfg else []
+        manual += self.sep_args()
         self.py("load_verify.py", "load_verify.py", "--config", self.cfg["projection_config"], *self.shape_args(),
                 "--bolt", f"bolt://127.0.0.1:{self.cfg['neo4j']['bolt_port']}", "--import-dir", os.path.join(run, "import"),
                 "--plugins-dir", os.path.join(run, "plugins"), "--compose-project", self.cfg["neo4j"]["compose_project"],
@@ -721,18 +722,23 @@ class Driver:
         self.py("build.py check-report", "build.py", "check-report", "--manifest", o("projection-manifest.json"),
                 "--report", o("projection-report.json"))
 
+    def sep_args(self):
+        """--separator for the scripts that read the kept graph's names, when the configuration names one."""
+        return ["--separator", self.cfg["separator"]] if "separator" in self.cfg else []
+
     def step_review(self):
         target, env = self.local()
-        self.py("model_review.py", "model_review.py", *target, "--report", self.out_file("model-review.json"), env=env)
+        self.py("model_review.py", "model_review.py", *target, "--report", self.out_file("model-review.json"),
+                *self.sep_args(), env=env)
 
     def tag_checks(self, target, env, write):
         c, inferred = self.cfg["projection_config"], self.out_file("inferred.nt")
         if write:
             self.py("module_tags.py tag", "module_tags.py", "tag", "--config", c, "--inferred", inferred, *target,
-                    *self.plain(), *self.data, env=env)
+                    *self.plain(), *self.sep_args(), *self.data, env=env)
         self.py("module_tags.py check", "module_tags.py", "check", "--config", c, "--inferred", inferred, *target,
-                *self.plain(), *self.data, env=env)
-        self.py("module_tags.py modules", "module_tags.py", "modules", *target, *self.plain(), *self.data, env=env)
+                *self.plain(), *self.sep_args(), *self.data, env=env)
+        self.py("module_tags.py modules", "module_tags.py", "modules", *target, *self.plain(), *self.sep_args(), *self.data, env=env)
 
     def step_tags(self):
         self.need("inferred.nt")

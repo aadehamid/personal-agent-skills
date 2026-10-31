@@ -80,9 +80,12 @@ RECIPROCAL = ("MATCH (a)-[r]->(b) "
               "RETURN t AS type, x AS a, y AS b ORDER BY type, a, b LIMIT $limit")
 
 
-def local(name):
-    """The local part of a SHORTEN name (lib__Work -> Work), squashed for comparison."""
-    return name.split("__", 1)[-1].replace("_", "").replace("-", "").lower()
+SEP = "_" * 2   # n10s's separator; --separator names another when the graph was renamed (load_verify.py)
+
+
+def local(name, sep=None):
+    """The local part of a prefixed name (lib__Work -> Work), squashed for comparison."""
+    return name.split(sep or SEP, 1)[-1].replace("_", "").replace("-", "").lower()
 
 
 def finding(severity, rule, message):
@@ -102,7 +105,7 @@ def review(run, key_label="Resource", key_property="uri", max_degree=100000, fac
                              f"add CREATE CONSTRAINT IF NOT EXISTS FOR (n:{key_label}) REQUIRE n.{key_property} IS UNIQUE"))
     for row in run(LABELS):
         label = row["label"]
-        if label not in SKIPPED_LABELS and not label.startswith("n4sch__") and local(label) in GENERIC_LABELS:
+        if label not in SKIPPED_LABELS and not label.startswith("n4sch" + SEP) and local(label) in GENERIC_LABELS:
             found.append(finding("WARNING", "generic-label", f"label {label} is generic; use the domain class"))
     for row in run(TYPES):
         if local(row["type"]) in GENERIC_TYPES:
@@ -130,7 +133,7 @@ def review(run, key_label="Resource", key_property="uri", max_degree=100000, fac
 
 def options(argv):
     opts, numbers = {}, {"--max-degree": 100000, "--factor": 10, "--min-degree": 50, "--limit": 100}
-    known = {"--uri", "--env", "--report", "--key-label", "--key-property", "--query-timeout", *numbers}
+    known = {"--uri", "--env", "--report", "--key-label", "--key-property", "--query-timeout", "--separator", *numbers}
     i = 0
     while i < len(argv):
         flag = argv[i]
@@ -183,6 +186,8 @@ def main(argv):
     try:
         opts, numbers = options(argv)
         uri, auth, database = connection(opts)
+        global SEP
+        SEP = lv.separator(opts)
     except (OSError, ValueError) as exc:
         print(f"ERROR {q(error_line('the arguments or the --env file could not be read', exc))}", file=sys.stderr)
         return 2

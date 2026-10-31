@@ -45,6 +45,7 @@ A JSON object. Paths are relative to the configuration's own folder, so it can s
 | `rdf_store` | `jena`, `databricks`, `explore`, `rebuild` | The `rdf-store` skill folder; by default `../rdf-store` beside this skill. |
 | `neo4j`, `jena`, `explore_fuseki`, `triplestore_fuseki` | optional | `{"compose_project", "bolt_port"}` or `{"compose_project", "port"}` for each container. The defaults are `lpg-local` on Bolt 17711, `lpg-jena` on 13031, `lpg-explore` on 13032 and `lpg-triplestore` on 13030. |
 | `keep_neo4j` | optional | `true` leaves the local Neo4j running at the end; otherwise it is removed. |
+| `separator` | `load`, `review`, `tags`, optional | What sits between a prefix and a local name in the kept graph: `"_"` for one underscore. n10s writes two; with another value every check runs on n10s's names first, then every label, relationship type and property key is renamed, the rename is proven lossless (`rename_lossless` in the report), and the hashes are of the renamed graph. |
 
 A step whose key is missing is skipped and says so: no `target_env`, no `copy`; no `databricks`, no Databricks round trip. A step that needs an earlier one's output or the local Neo4j stops with a message when it isn't there. Run `load` in the same run as the steps that read the local graph.
 
