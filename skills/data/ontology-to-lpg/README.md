@@ -6,6 +6,8 @@ The skill is version 2.3 of the Ontology-to-LPG Conversion Playbook. Version 2.2
 
 This README is for people. Agents read `SKILL.md` and the files it points to.
 
+**Where it fits.** The `ontology` skill's guide (`references/playbook.md` and `references/ontology-build-playbook.html` in that skill) is the method for building the ontology, and its Step 12 hands over to this skill. This playbook is the method for projecting the releases: the Turtle release stays the master copy, the checks prove the projection lost nothing, and `references/multi-store.md` covers another graph beside the projection and keeping the stores in step. The ontology guide's "The documents around this guide" lists what a project keeps beside these two methods. Both stay company-neutral.
+
 ## How to use it
 
 1. Install the skill where your agent finds skills, and ask the agent to project your ontology into Neo4j, or to check whether it is ready for a projection.

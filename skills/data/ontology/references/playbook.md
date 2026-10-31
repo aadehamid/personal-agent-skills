@@ -26,6 +26,19 @@ turn a business's processes, parties and measures into a governed,
 machine-readable model. You need to know what a triple is. Section 4 explains
 each standard the method uses.
 
+**The documents around this guide.** Each has one job, so a reader can follow a build from the business to the running stores without two documents competing.
+
+| Document | Its job |
+|---|---|
+| This guide | The method for building the ontology, Steps 0 to 12 |
+| The `ontology-to-lpg` skill's playbook (`references/ontology-to-neo4j-playbook.html` in that skill) | The method for Step 12: projecting the releases into a graph store with nothing lost, keeping other graphs beside them, and keeping the stores in step |
+| A project's process record | How its business processes and their written definitions were decided |
+| A project's worklog | What its build did at each step, and when |
+| A project's guide | What its finished ontology holds, and why |
+| A project's walkthrough | The whole story for a newcomer, from the business and its gaps to the stores, with the steps to rebuild it |
+
+The two method documents stay company-neutral. A project's documents point to them, and they do not point back.
+
 **How to read it.**
 
 | Section | What it gives you | When to read it |
