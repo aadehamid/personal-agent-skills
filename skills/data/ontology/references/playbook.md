@@ -32,7 +32,7 @@ each standard the method uses.
 |---|---|
 | This guide | The method for building the ontology, Steps 0 to 12 |
 | The `ontology-to-lpg` skill's playbook (`references/ontology-to-neo4j-playbook.html` in that skill) | The method for Step 12: projecting the releases into a graph store with nothing lost, keeping other graphs beside them, and keeping the stores in step |
-| A project's process record | How its business processes and their definitions were decided, before and during Steps 2 and 3 |
+| A project's process record | How its business processes and their written definitions were decided |
 | A project's worklog | What its build did at each step, and when |
 | A project's guide | What its finished ontology holds, and why |
 | A project's walkthrough | The whole story for a newcomer, from the business and its gaps to the stores, with the steps to rebuild it |
