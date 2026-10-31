@@ -14,12 +14,14 @@ The agent starts by sorting what you have into six kinds of input, and it stops 
 |---|---|---|
 | Purpose | Who will use the ontology, for what, and what is in and out of scope | Staff and a lending system need one meaning of "loan" |
 | Competency questions | The questions it must answer. Draft them at intake; you lock them at Step 1 | "Which events start and end a loan?" |
-| Representative data | **The backbone:** a hierarchy of the business's processes or concepts, plus the tables and lists that sit beside it | A process map, value streams, a measure list |
+| Representative data | **The backbone:** a hierarchy of the business's processes or concepts. Tables and lists beside it, such as value streams and measure lists, return as overlays at Step 7 | A process map |
 | Reusable vocabularies | Frameworks, public ontologies and code lists to check against or map to | A published process framework, a code list |
-| Semantic evidence | Sources that say what things mean | Glossaries, policies, filings, regulations |
+| Semantic evidence | Sources that say what things mean | Glossaries, policies, filings, definitions |
 | Constraints | What limits the work | Licences, privacy, hosting, deadlines |
 
-**The backbone is what Steps 2 and 3 turn into identities and a taxonomy.** A file of any format works if each node has at least an ID, a level, a name, a parent and, where one exists, a description. Without one, the owner's process documents or a published framework can seed a draft, which the owner reviews as a proposal. Step 3 then writes the missing definitions with the owner. Nodes need no definitions on day one.
+**The backbone is what Steps 2 and 3 turn into identities and a taxonomy.** A file of any format works if each node has a name and exactly one parent, except the top nodes, which have none. An ID is kept when a node has one, and Step 2 mints a slug when it does not. Levels and descriptions help. Nodes need no definitions on day one: Step 3 writes the missing ones with the owner.
+
+If you have no hierarchy, the agent records it as missing, says how that limits the design, and stops for your answer. It does not build one for you. A published framework checks your hierarchy at Step 0; it does not replace it.
 
 ## Where it starts
 

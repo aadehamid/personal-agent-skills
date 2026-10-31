@@ -39,7 +39,7 @@ inputs:
     note: "Drafted by the agent and not yet locked by the owner, so Step 1 cannot close."
   representative_data:
     status: thin
-    note: "One loans export and no holds export, so holds stay out of the first release."
+    note: "The circulation procedure list is the hierarchy. One loans export and no holds export, so holds stay out of the first release."
   reusable_vocabularies:
     status: missing
     note: "Not surveyed yet; Step 0 does it."
