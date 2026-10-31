@@ -29,7 +29,7 @@ The steps stay the same and their gates still apply. What changes is their scope
 | 11, regression | The new questions, plus the full suite (`regression.md`, rule 13) |
 | 12, projection | Design rules are already met from Step 1. Add the module to the projection's inputs, and rerun it |
 
-This table says what each step covers, and `SKILL.md` holds its gate. A step can have little to do for a module, but no step is skipped: meet each gate as `SKILL.md` and the reference it names state it, and record why a step holds little.
+This table says what each step covers, and `SKILL.md` holds its gate. A step can have little to do for a module, but no required step is skipped, and Step 12 applies when policy 10 says the ontology is projected: meet each gate as `SKILL.md` and the reference it names state it, and record why a step holds little.
 
 ## Releasing it beside the others
 
