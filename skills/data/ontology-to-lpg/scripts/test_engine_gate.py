@@ -311,8 +311,9 @@ class FailClosedReport(unittest.TestCase):
                 "--merged", MODULE, "--loadable", MODULE, "--inferred", MODULE, "--report", self.path, *extra, MODULE]
         patch = mock.patch.object(lv, "run", side_effect=run_error) if run_error else \
             mock.patch.object(lv, "run", return_value=run_result)
+        self.neo4j = mock.MagicMock()
         with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "x"}), \
-                mock.patch.dict(sys.modules, {"neo4j": mock.MagicMock()}), patch as run:
+                mock.patch.dict(sys.modules, {"neo4j": self.neo4j}), patch as run:
             code, out = run_main(lv.main, args)
         return code, out, run
 
@@ -341,6 +342,7 @@ class FailClosedReport(unittest.TestCase):
         self.assertFalse(os.path.exists(self.path))
         self.assertFalse(os.path.exists(self.path + ".failed"))
         run.assert_not_called()
+        self.neo4j.GraphDatabase.driver.assert_not_called()
 
     def test_a_prefix_holding_the_separator_is_refused_before_any_driver(self):
         with open(CONFIG, encoding="utf-8") as f:
@@ -351,13 +353,15 @@ class FailClosedReport(unittest.TestCase):
             json.dump(raw, f)
         args = ["--config", config, "--shapes", SHAPES, "--bolt", "bolt://127.0.0.1:1", "--import-dir", self.tmp,
                 "--merged", MODULE, "--loadable", MODULE, "--inferred", MODULE, "--report", self.path, MODULE]
+        neo4j = mock.MagicMock()
         with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "x"}), \
-                mock.patch.dict(sys.modules, {"neo4j": mock.MagicMock()}), mock.patch.object(lv, "run") as run:
+                mock.patch.dict(sys.modules, {"neo4j": neo4j}), mock.patch.object(lv, "run") as run:
             code, out = run_main(lv.main, args + ["--separator", "_"])
             self.assertEqual(code, 2, out)
             self.assertIn("inside 1 of the configured prefixes", out)
             self.assertNotIn("my_ns", out)
             run.assert_not_called()
+            neo4j.GraphDatabase.driver.assert_not_called()
             # n10s's own separator renames nothing, so the same prefix is fine
             run.return_value = self.report(True)
             code, out = run_main(lv.main, args)
@@ -618,11 +622,19 @@ GATE_BREAKS = [
     ("a lost triple", {"roundtrip_lost": 1}),
     ("an added triple", {"roundtrip_added": 1}),
     ("two hashes", {"determinism_hash_shuffled": "other"}),
+]
+# The separator and rename-proof clauses, one rule for the producer and every consumer (build.rename_proof_problems).
+PROOF_BREAKS = [
     ("a rename not proven lossless", {"separator": "_", "rename_lossless": False}),
     ("a renamed graph without its proof", {"separator": "_"}),
     ("a proof that is not the boolean true", {"separator": "_", "rename_lossless": "true"}),
     ("an unrenamed graph that states a false proof", {"rename_lossless": False}),
+    ("renamed counts without the proof", {"renamed": {"labels": 1}}),
+    ("renamed that is not an object of counts", {"renamed": {"labels": "1"}, "rename_lossless": True}),
+    ("a separator that is not underscores", {"separator": "x", "rename_lossless": True}),
+    ("a separator that is not a string", {"separator": None, "rename_lossless": True}),
 ]
+GATE_BREAKS += PROOF_BREAKS
 
 
 class GateClauses(unittest.TestCase):
@@ -640,11 +652,11 @@ class GateClauses(unittest.TestCase):
         self.assertEqual(build.report_earned(good), [])                                            # before the field existed
         self.assertEqual(build.report_earned(dict(good, separator=lv.N10S_SEP, rename_lossless=True)), [])
         self.assertEqual(build.report_earned(dict(good, separator="_", rename_lossless=True)), [])
-        for name, change in GATE_BREAKS[-4:] + [("a separator that is not underscores", {"separator": "x"}),
-                                                 ("a separator that is not a string", {"separator": None})]:
+        for name, change in PROOF_BREAKS:
             with self.subTest(name):
                 fails = build.report_earned(dict(good, **change))
-                self.assertTrue(any("rename_lossless" in f or "separator" in f for f in fails), fails)
+                self.assertTrue(any("rename_lossless" in f or "separator" in f or "renamed" in f for f in fails), fails)
+                self.assertEqual(fails, build.rename_proof_problems(dict(good, **change)))
 
     def test_check_report_fails_on_each_field(self):
         man = {"input_fingerprint": "f", "shapes_fingerprint": "s"}
@@ -697,15 +709,19 @@ class FakeEngine:
     graph for the queries that read names, dump the graph, rename it with APOC and hash it. statements
     records every query in order. damage makes the label rename also drop a property."""
 
-    def __init__(self, listed, export_rows, fire=True, damage=False):
+    def __init__(self, listed, export_rows, fire=True, damage=False, second_load_extra=False):
         self.listed, self.export_rows, self.fire, self.damage = listed, export_rows, fire, damage
+        self.second_load_extra, self.loads = second_load_extra, 0
         self.rollbacks, self.removed = 0, False
         self.statements, self.nodes = [], []
         self.paths = sorted({LIB + local for local in ("notInTheShape",)} |
                             {str(lv.iri_of(r["path"], cfg())) for r in listed if r["path"]})
 
     def load_graph(self):
+        self.loads += 1
         self.nodes = [{"id": n["id"], "labels": list(n["labels"]), "props": dict(n["props"])} for n in LOADED_NODES]
+        if self.second_load_extra and self.loads == 2:   # the shuffled load holds a name the sorted one did not
+            self.nodes.append({"id": "4:x:2", "labels": ["Resource", "lib" + SEP + "Extra"], "props": {"uri": "w"}})
 
     def resource_rows(self):
         return [{"uri": n["props"]["uri"], "labels": n["labels"], "props": n["props"]} for n in self.nodes if "Resource" in n["labels"]]
@@ -770,6 +786,7 @@ class FakeEngine:
         return Tx()
 
     def run(self, query, **params):
+        query = getattr(query, "text", query)   # the driver's neo4j.Query, when the driver is installed
         self.statements.append(query)
         answered = self.graph_query(query, params)
         if answered is not None:
@@ -860,7 +877,7 @@ class RunWiring(unittest.TestCase):
         report = self.run_with(engine, sep="_")
         self.assertTrue(report["passed"], report.get("fail_cases", [])[:3])
         self.assertEqual((report["separator"], report["rename_lossless"]), ("_", True))
-        self.assertEqual(report["renamed"], {"labels": 1, "rels": 0, "node_keys": 1, "rel_keys": 0})
+        self.assertEqual(report["renamed"], {"labels": 1, "rels": 0, "node_keys": 1, "rel_keys": 0, "keys": 1})
         s = engine.statements
         first_rename = next(i for i, q in enumerate(s) if q.startswith("CALL apoc.refactor"))
         last_rename = max(i for i, q in enumerate(s) if q.startswith("CALL apoc.refactor"))
@@ -884,6 +901,13 @@ class RunWiring(unittest.TestCase):
         self.assertEqual(engine.nodes[0]["labels"], ["Resource", "lib_Work"])
         self.assertIn("lib_title", engine.nodes[0]["props"])
         self.assertEqual(report["determinism_hash_sorted"], report["determinism_hash_shuffled"])
+
+    def test_a_shuffled_load_that_renames_other_names_stops_the_run_and_empties_the_graph(self):
+        engine = FakeEngine(self.rows, self.export, second_load_extra=True)
+        with self.assertRaisesRegex(lv.Failed, "the shuffled load renamed a different set of names.*the graph was emptied"):
+            self.run_with(engine, sep="_")
+        self.assertEqual(engine.nodes, [])
+        self.assertEqual(sum(q.startswith("CALL apoc.refactor") for q in engine.statements), 5)   # 2, then 3
 
     def test_a_rename_that_loses_a_value_stops_the_run_with_no_report(self):
         engine = FakeEngine(self.rows, self.export, damage=True)
@@ -1329,6 +1353,7 @@ class AddedCoverage(unittest.TestCase):
                 self.empty_keys = empty_keys
 
             def run(self, query, **kw):
+                query = getattr(query, "text", query)
                 if "RETURN n.uri AS uri, n.`" in query and any(f"n.`{k}` IS NOT NULL" in query for k in self.empty_keys):
                     return FakeResult([])
                 return super().run(query, **kw)

@@ -724,17 +724,41 @@ def _rename(session, procedure, old, new):
         raise Failed(f"{procedure} failed {row['failedOperations']} operation(s): {list(row['errorMessages'] or {})[:3]}")
 
 
-def rename_separator(session, sep):
+EMPTY_BY_HAND = "MATCH (n) DETACH DELETE n"
+
+
+def emptied_after_failure(session, fresh_session=None, timeout=None):
+    """Empties the graph after a failed rename: with the session, then, when that fails (the session may
+    be gone with its connection), once more in a fresh session from fresh_session(), a context manager
+    the driver gives. True when wipe confirmed the database empty, False when neither attempt did."""
+    try:
+        wipe(session)
+        return True
+    except Exception:  # noqa: BLE001 (any failure; the fresh session is the second attempt)
+        pass
+    if fresh_session is None:
+        return False
+    try:
+        with fresh_session() as raw:
+            wipe(Timed(raw, timeout or DEFAULT_QUERY_TIMEOUT))
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def rename_separator(session, sep, expected=None, fresh_session=None, timeout=None):
     """After every check has run on n10s's names: rename each label, relationship type, node property
     key and relationship property key from the n10s form to the sep form with APOC, and prove it
     lossless: the dump of the whole graph before, with the plan applied, must equal the dump after,
-    property types included. Returns {kind: count renamed}. A collision in the plan raises Failed before
-    anything is renamed; any failure after that raises Failed after an attempt to empty the graph, so a
-    part-renamed graph never stays where a verified one is expected (the next run empties the database
-    itself anyway)."""
-    plan = rename_plan(names_in_use(session), sep)
-    before = dump(session)
+    property types included. Returns {kind: count renamed} (keys is the distinct property keys over
+    both kinds); with expected, those counts must equal it (the shuffled load must rename what the
+    sorted load did). Every step of the stage, reading the names and planning included, is under one
+    boundary: any failure raises Failed after the graph is emptied (emptied_after_failure), so a
+    part-renamed or unverified graph never stays where a verified one is expected; when even that
+    fails, the message says so and names the statement to run by hand."""
     try:
+        plan = rename_plan(names_in_use(session), sep)
+        before = dump(session)
         for kind in RENAME_KINDS:
             for old, new in plan[kind].items():
                 _rename(session, RENAME_PROCEDURES[kind], old, new)
@@ -743,16 +767,20 @@ def rename_separator(session, sep):
             raise Failed(f"the rename to the separator {sep!r} was not lossless: of the expected rows, {differ[0]} node "
                          f"and {differ[2]} relationship row(s) are missing, and {differ[1]} node and {differ[3]} "
                          "relationship row(s) are present that were not expected")
+        counts = {kind: len(plan[kind]) for kind in RENAME_KINDS}
+        counts["keys"] = len(set(plan["node_keys"]) | set(plan["rel_keys"]))
+        if expected is not None and counts != expected:
+            raise Failed("the shuffled load renamed a different set of names from the sorted load")
     except Exception as exc:
-        try:
-            wipe(session)
+        if emptied_after_failure(session, fresh_session, timeout):
             where = "the graph was emptied"
-        except Exception:  # the session itself may be gone; the next run empties the database
-            where = "the graph could not be emptied; the next run of this command does it"
+        else:
+            where = (f"the graph was NOT emptied and holds an unverified, part-renamed load: run {EMPTY_BY_HAND} on "
+                     "it, or rerun this command, which empties the database before it loads")
         if isinstance(exc, Failed):
             raise Failed(f"{exc}; {where}") from exc
         raise Failed(f"the rename to the separator {sep!r} stopped part-way ({type(exc).__name__}); {where}") from exc
-    return {kind: len(plan[kind]) for kind in RENAME_KINDS}
+    return counts
 
 
 def plugin_checksums(folder):
@@ -808,6 +836,7 @@ def query_timeout(opts):
 
 def run(driver, cfg, data_paths, shape_paths, import_dir, merged, loadable, inferred, plugins_dir=None, manual=(),
         timeout=DEFAULT_QUERY_TIMEOUT, sep=N10S_SEP):
+    sep = build.separator({"--separator": sep})   # the one rule, for a caller that skips main()
     data, shapes = build.parse(data_paths), build.parse(shape_paths)
     safe, left_out = igs.subset(shapes)
     safe.serialize(os.path.join(import_dir, "shapes-in-graph.ttl"), format="turtle")
@@ -860,7 +889,7 @@ def run(driver, cfg, data_paths, shape_paths, import_dir, merged, loadable, infe
         # case every check above ran on n10s's names and the kept graph, hashed here, carries the renamed
         # ones. rename_separator raises on anything short of a proven lossless rename, so rename_lossless
         # is true in every report this run writes; passed() and build.report_earned still require it.
-        renamed = {} if sep == N10S_SEP else rename_separator(session, sep)
+        renamed = {} if sep == N10S_SEP else rename_separator(session, sep, fresh_session=driver.session, timeout=timeout)
         report.update({"separator": sep, "renamed": renamed, "rename_lossless": True})
         sorted_hash, nodes, rels, schema = hash_graph(session, sep)
         report.update({"determinism_hash_sorted": sorted_hash, "nodes": nodes, "relationships": rels,
@@ -871,9 +900,8 @@ def run(driver, cfg, data_paths, shape_paths, import_dir, merged, loadable, infe
             with open(target_file, "w", encoding="utf-8") as f:
                 f.write(shuffled(loadable_text))
             load(session, statements)
-            if sep != N10S_SEP and rename_separator(session, sep) != renamed:
-                # the same data under the same plan renames the same names; the kept graph is this one
-                raise Failed("the shuffled load renamed a different set of names from the sorted load")
+            if sep != N10S_SEP:   # the same data renames the same names, or the stage fails and empties the graph
+                rename_separator(session, sep, expected=renamed, fresh_session=driver.session, timeout=timeout)
             report["determinism_hash_shuffled"] = hash_graph(session, sep)[0]
         finally:
             shutil.copyfile(loadable, target_file)
@@ -892,11 +920,9 @@ def predicate_counts(g):
 
 
 def passed(report):
-    # A renamed graph (a separator other than n10s's) needs its proof stated; a report that states the
-    # field must state true. A report with neither field is n10s's names, unrenamed.
-    unrenamed = report.get("separator", N10S_SEP) == N10S_SEP
+    # The separator and the rename proof under the rule every consumer applies (build.rename_proof_problems).
     return (report["shacl_violations_in_graph"] == 0 and report["in_graph_mutant_violations"] > 0
-            and report.get("rename_lossless", unrenamed) is True
+            and not build.rename_proof_problems(report)
             and report["mutant"]["after_restore"] == 0
             and report["roundtrip_lost"] == 0 and report["roundtrip_added"] == 0
             and report["determinism_hash_sorted"] == report["determinism_hash_shuffled"]

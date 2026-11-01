@@ -170,10 +170,12 @@ def read_config(path):
     if not isinstance(graphs, list) or not all(isinstance(g, str) and g and "/" not in g for g in graphs):
         raise Refusal("release_graphs must be a list of file names without .ttl, such as shapes")
     if "separator" in cfg:
-        # The same rule as load_verify.py --separator, checked here so --plan and every step refuse it first.
-        sep = cfg["separator"]
-        if not isinstance(sep, str) or not sep or any(c != "_" for c in sep):
-            raise Refusal("separator must be a non-empty string of underscores only, such as \"_\"")
+        # The rule the scripts apply (build.separator), checked here so --plan and every step refuse it first.
+        import build
+        try:
+            build.separator({"--separator": cfg["separator"]})
+        except Refusal:
+            raise Refusal("separator must be a non-empty string of underscores only, such as \"_\"") from None
     for key, default in DEFAULTS.items():
         cfg[key] = {**default, **cfg.get(key, {})}
     cfg.setdefault("rdf_store", os.path.join(os.path.dirname(SKILL), "rdf-store"))

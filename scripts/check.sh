@@ -77,6 +77,9 @@ echo "== ontology skill scripts =="
 echo
 echo "== ontology-to-lpg skill scripts =="
 (cd skills/data/ontology-to-lpg/scripts && uv run --no-project --with rdflib --with pyshacl --with mcp-neo4j-data-modeling==0.8.2 python3 -m unittest -q test_projection test_engine_gate test_modeling test_explore test_run_projection)
+# Once more with the neo4j driver, which run_projection.py installs for the scripts it runs: with it,
+# load_verify.Timed wraps every statement in neo4j.Query, and the fakes must read that as the driver does.
+(cd skills/data/ontology-to-lpg/scripts && uv run --no-project --with rdflib --with pyshacl --with neo4j --with mcp-neo4j-data-modeling==0.8.2 python3 -m unittest -q test_projection test_engine_gate test_modeling test_explore test_run_projection)
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
   (cd skills/data/ontology-to-lpg/docker && LPG_RUN=/tmp/lpg-run NEO4J_PASSWORD=check \
     docker compose --profile neo4j --profile fuseki config -q) && echo "  ok  ontology-to-lpg docker/compose.yaml parses"

@@ -33,8 +33,9 @@ Run with: uv run --no-project --with rdflib python3 build.py <command> ...
 
 graph-type and data-model name labels, relationship types and property keys as the kept graph does:
 n10s's prefix, two underscores, local name, or with --separator (underscores only) the separator a
-load_verify.py run renamed them to, so the artifacts describe the graph that exists. The load script
-(cypher) always uses n10s's names.
+load_verify.py run renamed them to, so the artifacts describe the graph that exists. Both refuse a
+prefix the rename could not handle (check_prefixes), as the load does. The load script (cypher) always
+uses n10s's names.
 
 Definitions (references/pipeline.md, rule 5):
   sorted            lines ordered by their UTF-8 bytes, duplicates removed (the order of LC_ALL=C sort -u)
@@ -130,22 +131,46 @@ def separator(opts):
 
 
 def prefixes_holding(prefixes, sep):
-    """The configured prefixes that contain the separator. A renamed name made from one of them could
-    not be split back into prefix and local name at the first separator (my_ns_x reads as my, ns_x),
-    so the scripts refuse the pair before anything is loaded. With n10s's own separator nothing is
-    renamed, so nothing is refused."""
+    """The configured prefixes a rename to sep cannot handle: those that contain the separator (a renamed
+    name could not be split back into prefix and local name at the first separator: my_ns_x reads as
+    my, ns_x) and those that contain n10s's own delimiter (the rename replaces the first one it finds,
+    which would sit inside the prefix: my__ns__x would become my___ns__x). The scripts refuse the pair
+    before anything is loaded. With n10s's own separator nothing is renamed, so nothing is refused."""
     if sep == SEPARATOR:
         return []
-    return sorted(p for p in prefixes if sep in p)
+    return sorted(p for p in prefixes if sep in p or SEPARATOR in p)
 
 
 def check_prefixes(prefixes, sep):
     """Refuses when prefixes_holding finds any; the count, never the prefix (a configured value)."""
     clash = prefixes_holding(prefixes, sep)
     if clash:
-        raise Refusal(f"the separator appears inside {len(clash)} of the configured prefixes, so a renamed name "
-                      "could not be split back into prefix and local name; use a separator no prefix holds, "
-                      "or rename that prefix")
+        raise Refusal(f"the separator, or two underscores, appears inside {len(clash)} of the configured prefixes, "
+                      "so a renamed name could not be split back into prefix and local name; use a separator "
+                      "no prefix holds, or rename that prefix")
+
+
+def rename_proof_problems(rep):
+    """The failures of a report's separator and rename proof: the one rule load_verify.passed (the
+    producer) and report_earned (every consumer) apply. separator, when present, is a string of
+    underscores (absent means n10s's own); renamed, when present, is an object of counts; and
+    rename_lossless is exactly true whenever the separator is not n10s's, renamed counts anything, or
+    the field is stated at all. A report that names none of the three is from before the fields
+    existed: n10s's names, unrenamed."""
+    fails = []
+    sep = rep.get("separator", SEPARATOR)
+    if not isinstance(sep, str) or not sep or any(c != "_" for c in sep):
+        fails.append(f"report separator is not a string of underscores ({sep!r})")
+    renamed = rep.get("renamed", {})
+    counts = isinstance(renamed, dict) and all(isinstance(v, int) and not isinstance(v, bool) and v >= 0
+                                               for v in renamed.values())
+    if not counts:
+        fails.append("report renamed is not an object of counts")
+    renames = not counts or any(renamed.values())
+    if (fails or sep != SEPARATOR or renames or "rename_lossless" in rep) and rep.get("rename_lossless") is not True:
+        fails.append("report rename_lossless is not true: the rename of the graph's names was not proven lossless, "
+                     "so the graph's names are not the verified ones")
+    return fails
 
 
 def shorten(iri, cfg, sep=SEPARATOR):
@@ -518,15 +543,7 @@ def report_earned(rep):
         fails.append("report in_graph_shape_constraints is missing or differs from shapes_import_rows")
     if rep.get("passed") is not True:
         fails.append("report does not say passed: true (load_verify.py writes a report only when every check passed)")
-    # A run that renamed the graph's names (a separator other than n10s's) must have proven the rename
-    # lossless; a report that states the field must state true. A report from before the field exists
-    # names no separator and is read as n10s's names, unrenamed.
-    sep = rep.get("separator", SEPARATOR)
-    if not isinstance(sep, str) or not sep or any(c != "_" for c in sep):
-        fails.append(f"report separator is not a string of underscores ({sep!r})")
-    elif (sep != SEPARATOR or "rename_lossless" in rep) and rep.get("rename_lossless") is not True:
-        fails.append(f"report rename_lossless is not true: the rename to the separator {sep!r} was not proven "
-                     "lossless, so the graph's names are not the verified ones")
+    fails += rename_proof_problems(rep)
     cases = rep.get("fail_cases")
     if not isinstance(cases, list) or not cases:
         fails.append("report has no fail cases (pipeline.md, rule 14)")
@@ -662,8 +679,9 @@ def main(argv):
             need(opts, "--config", "--output")
             if not data:
                 raise ValueError("give the data files: the property types follow the load's multivalued list")
-            statement, left_out = graph_type(load_config(opts["--config"]), parse(opts.get("--shapes", [])),
-                                             parse(data), separator(opts))
+            cfg, sep = load_config(opts["--config"]), separator(opts)
+            check_prefixes(cfg.prefixes, sep)   # as the load refuses it: such names could not be read back
+            statement, left_out = graph_type(cfg, parse(opts.get("--shapes", [])), parse(data), sep)
             # The statement goes to a file, never to the terminal; each left-out line is one quoted
             # Cypher comment, so a shapes term cannot break out of it.
             write(opts["--output"], statement + "\n" + "".join(comment("left out: " + line) + "\n" for line in left_out))
@@ -672,8 +690,9 @@ def main(argv):
             need(opts, "--config", "--output")
             if not data:
                 raise ValueError("give the data files: the property types follow the load's multivalued list")
-            model = data_model(load_config(opts["--config"]), parse(opts.get("--shapes", [])), parse(data),
-                               separator(opts))
+            cfg, sep = load_config(opts["--config"]), separator(opts)
+            check_prefixes(cfg.prefixes, sep)
+            model = data_model(cfg, parse(opts.get("--shapes", [])), parse(data), sep)
             problems = data_model_problems(model)
             for message in problems:
                 print(f"FAIL {q(message)}")
