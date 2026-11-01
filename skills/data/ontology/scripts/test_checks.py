@@ -1157,6 +1157,16 @@ class CheckScriptWithoutGit(CheckScriptSkeleton):
                       result.stderr)
         self.assertNotIn("all checks passed", result.stdout)
 
+    def test_a_broken_git_directory_stops_the_guard(self):
+        # git says "not a git repository" here too, but names the path: this is a broken checkout, not a plain folder.
+        self.edit_script(self.drop_todos)
+        with open(os.path.join(self.tmp, ".git"), "w") as f:
+            f.write("gitdir: /no/such/folder\n")
+        result = self.run_script()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("git rev-parse failed, so the guard cannot tell whether this is a checkout", result.stderr)
+        self.assertNotIn("all checks passed", result.stdout)
+
     def test_a_folder_that_cannot_be_listed_stops_the_guard(self):
         if os.geteuid() == 0:
             self.skipTest("root can list any folder")

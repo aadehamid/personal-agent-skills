@@ -659,8 +659,11 @@ def main(argv):
             text = dump(manifest(load_config(opts["--config"]), data, opts.get("--shapes", []),
                                  opts["--loadable"], opts["--inferred"], root))
             if opts.get("--verify"):
-                current = open(opts["--output"], encoding="utf-8").read() if os.path.exists(opts["--output"]) else ""
-                if current != text:
+                current = b""
+                if os.path.exists(opts["--output"]):
+                    with open(opts["--output"], "rb") as f:  # bytes, so a changed line ending is a difference too
+                        current = f.read()
+                if current != text.encode("utf-8"):
                     print(f"FAIL {q(opts['--output'])} is not current: rerun build.py manifest and commit it")
                     return 1
                 print(f"{q(opts['--output'])} is current")

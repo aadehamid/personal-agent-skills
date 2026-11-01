@@ -8,16 +8,23 @@ A property is any subject the data types owl:ObjectProperty, owl:DatatypePropert
 owl:AnnotationProperty. Its cardinality is stated by a property shape (a node whose sh:path is the
 property's IRI) holding sh:minCount or sh:maxCount, and counts only when a validator applies that
 shape to the property's own subjects:
-  applied   the property shape is reached from a root shape through sh:property, sh:node, sh:and,
-            sh:or or sh:xone, with no deactivated shape on the way (sh:deactivated true). A root
-            shape has a target (sh:targetClass, sh:targetNode, sh:targetSubjectsOf,
-            sh:targetObjectsOf, a SHACL-SPARQL sh:target) or is itself a class (the implicit class
-            target), as the ontology-to-lpg skill's check_projection_rules.py reads applied shapes.
-  its own   the root's target covers the property's subjects: sh:targetSubjectsOf the property, or
-            sh:targetClass (or the implicit class) equal to the property's rdfs:domain or a class the
-            domain is rdfs:subClassOf, directly or through other classes in the data. A property with
-            no domain (an annotation property) is covered by any root. A SHACL-SPARQL target selects
-            what its query says, which this check does not read, so it counts as covering any property.
+  applied   the property shape is reached from a root shape with the root's focus nodes kept: through
+            sh:property, sh:node, sh:and, sh:or or sh:xone from a node shape, with no deactivated shape
+            on the way (sh:deactivated true). Below a property shape the focus moves to that property's
+            values, so a shape reached from there says nothing about the root's nodes. A root shape has
+            a target (sh:targetClass, sh:targetNode, sh:targetSubjectsOf, sh:targetObjectsOf, a
+            SHACL-SPARQL sh:target) or is itself a class (the implicit class target).
+  its own   the root's target covers the property's subjects:
+              - sh:targetSubjectsOf the property, always;
+              - sh:targetClass or the implicit class, when it is an rdfs:domain of the property or a
+                class that domain is rdfs:subClassOf, directly or through other classes in the data;
+              - sh:targetNode, when a type the data gives that node is the domain or a subclass of it;
+              - sh:targetObjectsOf or sh:targetSubjectsOf another property, when that property's
+                rdfs:range or rdfs:domain is the domain or a subclass of it.
+            A property with no domain (an annotation property) is covered only by sh:targetSubjectsOf
+            the property, since nothing else says which things carry it. A SHACL-SPARQL target covers
+            no property, because this check does not run its query and cannot show what it selects;
+            state the cardinality on a Core target (shacl.md, rule 6).
 
 Checks:
   cardinality  every property has an applied property shape of its own stating sh:minCount or
@@ -62,11 +69,14 @@ def roots(shapes):
 
 
 def reached(shapes, root):
-    """Every shape reached from the root through sh:property, sh:node, sh:and, sh:or and sh:xone,
-    stopping at a deactivated shape."""
+    """Every shape that applies to the root's own focus nodes: through sh:property, sh:node, sh:and,
+    sh:or and sh:xone, stopping at a deactivated shape and below a property shape, whose reuse applies
+    to its values."""
     seen, frontier = {root}, [root]
     while frontier:
         shape = frontier.pop()
+        if (shape, SH.path, None) in shapes:
+            continue
         nxt = [o for p in (SH.property, SH.node) for o in shapes.objects(shape, p)]
         for p in LISTS:
             for head in shapes.objects(shape, p):
@@ -90,17 +100,32 @@ def superclasses(data, cls):
     return out
 
 
+def selected_types(shapes, data, root):
+    """The classes the nodes of the root's instance targets are known to be in."""
+    types = {t for node in shapes.objects(root, SH.targetNode) for t in data.objects(node, RDF.type)}
+    types |= {t for q in shapes.objects(root, SH.targetObjectsOf) for t in data.objects(q, RDFS.range)}
+    types |= {t for q in shapes.objects(root, SH.targetSubjectsOf) for t in data.objects(q, RDFS.domain)}
+    return types
+
+
 def covers(shapes, data, root, prop):
     """Whether the root's target covers the property's subjects."""
-    if (root, SH.targetSubjectsOf, prop) in shapes or (root, SH.target, None) in shapes:
-        return True
-    domain = data.value(prop, RDFS.domain)
-    if domain is None:
+    if (root, SH.targetSubjectsOf, prop) in shapes:
         return True
     classes = set(shapes.objects(root, SH.targetClass))
     if is_class(shapes, root):
         classes.add(root)
-    return bool(classes & superclasses(data, domain))
+    types = selected_types(shapes, data, root)
+    for domain in data.objects(prop, RDFS.domain):
+        if classes & superclasses(data, domain) or any(domain in superclasses(data, t) for t in types):
+            return True
+    return False
+
+
+def applied_property_shapes(shapes):
+    """(path, property shape) for every property shape a root applies to its own focus nodes."""
+    return {(shapes.value(n, SH.path), n) for root in roots(shapes) for n in reached(shapes, root)
+            if (n, SH.path, None) in shapes}
 
 
 def states(shapes, node, prop):

@@ -195,6 +195,20 @@ class Catalog(unittest.TestCase):
         self.assertIn("FAIL core 1.0.0: distribution https://id.example.org/library/core/releases/1.0.0/shapes.ttl downloads missing.ttl, "
                       "which the manifest does not list", out)
 
+    def test_every_download_url_of_a_distribution_is_checked(self):
+        # A second URL beside the good one, so the result cannot depend on which one the graph hands back.
+        good = "dcat:downloadURL <https://id.example.org/library/core/releases/1.0.0/shapes.ttl>"
+        record = os.path.join(self.releases, "core", "1.0.0", "catalog.ttl")
+        with open(record, encoding="utf-8") as f:
+            original = f.read()
+        for extra, message in ((", <https://id.example.org/library/core/releases/1.0.0/missing.ttl>", "downloads missing.ttl"),
+                               (', "https://id.example.org/library/core/releases/1.0.0/core.ttl"', "is not described")):
+            with self.subTest(extra=extra):
+                self.edit_record("core", lambda _: original.replace(good, good + extra))
+                code, out = self.build()
+                self.assertEqual(code, 1, out)
+                self.assertIn(message, out)
+
     def test_a_distribution_not_described_fails(self):
         self.edit_record("core", lambda t: t.replace(
             "<https://id.example.org/library/core/releases/1.0.0/shapes.ttl> a dcat:Distribution ;\n"

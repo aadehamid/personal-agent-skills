@@ -37,12 +37,13 @@ lib:LoanShape-loanState a sh:PropertyShape ;
     sh:message "A loan has exactly one state from the loan-state list."@en .
 
 # The annotation property gets a type and a cardinality too (domain-model.md, rule 7; shacl.md, rule 5):
-# a concept has at most one maintenance note, language-tagged text.
+# a term has at most one maintenance note, language-tagged text. It has no domain, so the shape targets
+# its subjects.
 lib:ConceptShape a sh:NodeShape ;
-    sh:targetClass skos:Concept ;
+    sh:targetSubjectsOf lib:maintenanceNote ;
     sh:property lib:ConceptShape-maintenanceNote .
 
 lib:ConceptShape-maintenanceNote a sh:PropertyShape ;
     sh:path lib:maintenanceNote ; sh:datatype rdf:langString ;
     sh:maxCount 1 ;
-    sh:message "A concept has at most one maintenance note, in language-tagged text."@en .
+    sh:message "A term has at most one maintenance note, in language-tagged text."@en .

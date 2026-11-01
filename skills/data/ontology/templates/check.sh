@@ -36,16 +36,18 @@ BUILD_OUTPUT = {".git", ".venv", "__pycache__", ".pytest_cache"}
 
 def in_git():
     """True in a checkout, False with no git or outside any repository. Any other answer from git (a
-    dubious owner, a broken repository) stops the snapshot, so the index and status are never left out
-    in silence."""
+    dubious owner, a .git file naming a missing folder) stops the snapshot, so the index and status are
+    never left out in silence. Git says "(or any of the parent directories)" only after it searched
+    upward and found nothing; about a broken .git it names the path instead."""
     try:
-        r = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], capture_output=True)
+        r = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], capture_output=True,
+                           env=dict(os.environ, LC_ALL="C"))
     except FileNotFoundError:
         return False
     if r.returncode == 0 and r.stdout.strip() == b"true":
         return True
     err = r.stderr.decode(errors="replace").strip()
-    if r.returncode == 0 or "not a git repository" in err:
+    if r.returncode != 0 and "not a git repository (or any" in err:
         return False
     raise SystemExit("git rev-parse failed, so the guard cannot tell whether this is a checkout: " + err)
 

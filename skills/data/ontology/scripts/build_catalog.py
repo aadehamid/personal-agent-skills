@@ -20,9 +20,9 @@ Checks, before anything is written or compared (one FAIL line each):
                  of a package that names another)
   one-dataset    each package's catalog.ttl holds exactly one dcat:Dataset, which is the package's
                  own release (the manifest's version_iri) and which the catalog lists
-  distribution   every distribution a dataset links to is described (typed dcat:Distribution, with a
-                 dcat:downloadURL that is an IRI) and the download URL's last path segment names a
-                 file the package's manifest lists
+  distribution   every distribution a dataset links to is described (typed dcat:Distribution, with at
+                 least one dcat:downloadURL, every one an IRI) and the last path segment of each
+                 download URL names a file the package's manifest lists
 
 Exit 0 when the catalog is written or equals a fresh build, 1 when a check fails (an unreadable
 manifest or record included) or the written catalog differs, 2 when the arguments are wrong or <dir>
@@ -75,13 +75,14 @@ def check_record(where, g, manifest):
     files = set(manifest.get("files") or {})
     for ds in datasets:
         for dist in sorted(g.objects(ds, DCAT.distribution), key=str):
-            url = g.value(dist, DCAT.downloadURL)
-            if (dist, RDF.type, DCAT.Distribution) not in g or not isinstance(url, URIRef):
+            urls = sorted(g.objects(dist, DCAT.downloadURL), key=str)
+            if (dist, RDF.type, DCAT.Distribution) not in g or not urls or not all(isinstance(u, URIRef) for u in urls):
                 fails.append(f"{where}: distribution {dist} is not described (dcat:Distribution with a dcat:downloadURL IRI)")
                 continue
-            name = str(url).rstrip("/").rsplit("/", 1)[-1]
-            if name not in files:
-                fails.append(f"{where}: distribution {dist} downloads {name}, which the manifest does not list")
+            for url in urls:
+                name = str(url).rstrip("/").rsplit("/", 1)[-1]
+                if name not in files:
+                    fails.append(f"{where}: distribution {dist} downloads {name}, which the manifest does not list")
     return fails
 
 

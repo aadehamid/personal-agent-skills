@@ -676,6 +676,15 @@ class Build(unittest.TestCase):
                     "--inferred", inferred_path, "--output", out, MODULE]
             self.assertEqual(run_main(build.main, args)[0], 0)
             self.assertEqual(run_main(build.main, args + ["--verify"])[0], 0)
+            with open(out, "rb") as f:
+                lf = f.read()
+            with open(out, "wb") as f:  # only the line endings change
+                f.write(lf.replace(b"\n", b"\r\n"))
+            code, text = run_main(build.main, args + ["--verify"])
+            self.assertEqual(code, 1, text)
+            self.assertIn("is not current", text)
+            with open(out, "wb") as f:
+                f.write(lf)
             with open(inferred_path, "w") as f:
                 f.write(f"<{LIB}work/W-0043> <{RDF.type}> <{LIB}Work> .\n")
             code, text = run_main(build.main, args + ["--verify"])
