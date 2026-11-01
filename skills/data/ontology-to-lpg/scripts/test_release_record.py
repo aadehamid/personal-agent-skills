@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import os
+import pathlib
 import shutil
 import sys
 import tempfile
@@ -178,6 +179,14 @@ class Records(unittest.TestCase):
             rr.build_records([self.path], earned_report(), "t", manifest(self.tmp))
         for name in ("m.ttl", "shapes.ttl", "catalog.ttl"):
             self.assertEqual(opened.count(name), 1, name)
+
+    def test_a_relative_iri_resolves_against_its_own_file(self):
+        body = b"<> <https://x.org/p> <1.2.0> ."
+        g = rr.parsed(os.path.join(self.tmp, "m.ttl"), body)
+        s, _, o = next(iter(g))
+        self.assertEqual(str(s), pathlib.Path(os.path.abspath(os.path.join(self.tmp, "m.ttl"))).as_uri())
+        self.assertTrue(str(o).endswith("/1.2.0"))
+        self.assertIn(os.path.basename(self.tmp), str(o))
 
     def test_a_manifest_without_catalogs_is_refused(self):
         with self.assertRaisesRegex(rr.Refusal, "lists no catalogs"):

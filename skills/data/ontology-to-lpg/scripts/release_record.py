@@ -38,6 +38,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import pathlib
 import sys
 
 from rdflib import Graph, URIRef
@@ -66,6 +67,11 @@ def checked_bytes(path, recorded, where):
     return body, digest
 
 
+def parsed(path, body):
+    """Turtle bytes as the file at path means them: a relative IRI resolves against that file."""
+    return Graph().parse(data=body, format="turtle", publicID=pathlib.Path(os.path.abspath(path)).as_uri())
+
+
 def one(values, what, where):
     found = sorted({str(v) for v in values})
     if len(found) != 1:
@@ -78,11 +84,12 @@ def record(path, report, loaded_at, loaded):
     run manifest (data, shapes, catalogs) to {real path: the SHA-256 that run read}."""
     folder, name = os.path.split(path)
     where = name
-    data = Graph().parse(data=checked_bytes(path, loaded["data"], where)[0], format="turtle")
+    data = parsed(path, checked_bytes(path, loaded["data"], where)[0])
     shapes_digest = checked_bytes(os.path.join(folder, "shapes.ttl"), loaded["shapes"], where)[1]
     ontology = one(data.subjects(RDF.type, OWL.Ontology), "owl:Ontology", where)
     version_iri = one(data.objects(URIRef(ontology), OWL.versionIRI), "owl:versionIRI", where)
-    catalog = Graph().parse(data=checked_bytes(os.path.join(folder, "catalog.ttl"), loaded["catalogs"], where)[0], format="turtle")
+    catalog_path = os.path.join(folder, "catalog.ttl")
+    catalog = parsed(catalog_path, checked_bytes(catalog_path, loaded["catalogs"], where)[0])
     dataset = URIRef(version_iri)
     if (dataset, RDF.type, DCAT.Dataset) not in catalog:
         raise Refusal(f"{where}: its catalog.ttl has no dcat:Dataset named by its owl:versionIRI")
