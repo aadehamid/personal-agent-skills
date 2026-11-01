@@ -110,6 +110,15 @@ class BuildTabular(unittest.TestCase):
         self.edit("loan-states.nt", '"LS-1"', '"LS-9"')
         self.assertEqual(run(self.args("--verify"))[0], 1)
 
+    def test_a_line_ending_edit_to_the_output_fails_verify(self):
+        with open(self.out, "rb") as f:
+            text = f.read()
+        with open(self.out, "wb") as f:
+            f.write(text.replace(b"\n", b"\r\n"))
+        code, out = run(self.args("--verify"))
+        self.assertEqual(code, 1, out)
+        self.assertIn("holds the same triples in another order or layout", out)
+
     def test_a_missing_mapping_is_an_input_error(self):
         code, _ = run(["--engine", ENGINE, "--mapping", os.path.join(self.dir, "missing"), "--out", self.out])
         self.assertEqual(code, 2)

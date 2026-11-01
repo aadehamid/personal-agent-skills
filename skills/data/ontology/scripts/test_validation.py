@@ -1,4 +1,4 @@
-"""Tests for run_regression.py, check_shapes.py, check_packages.py and check_code_lists.py.
+"""Tests for run_regression.py, check_shapes.py, check_cardinality.py, check_packages.py and check_code_lists.py.
 
 Run from this folder:
   uv run --no-project --with rdflib --with pyyaml --with pyshacl python3 -m unittest test_validation
@@ -9,14 +9,19 @@ The fixtures are a small library ontology, as in the templates.
 """
 import contextlib
 import hashlib
+import importlib
 import io
 import json
 import os
 import shutil
+import sys
 import tempfile
 import textwrap
 import unittest
 
+from rdflib import Graph
+
+import check_cardinality
 import check_code_lists
 import check_packages
 import check_shapes
@@ -256,6 +261,230 @@ class WholeGraph(Files):
     def test_a_malformed_shape_is_a_usage_error(self):
         bad = SHAPES.replace("sh:minCount 1", 'sh:minCount "one"')
         self.assertEqual(self.gate([self.write("books.ttl", BOOKS)], [self.write("shapes.ttl", bad)])[0], 2)
+
+
+DECLARED = """\
+    @prefix owl: <http://www.w3.org/2002/07/owl#> .
+    lib:Book a owl:Class . lib:Copy a owl:Class .
+    lib:genre a owl:ObjectProperty ; rdfs:domain lib:Book ; rdfs:range skos:Concept .
+    lib:pages a owl:DatatypeProperty ; rdfs:domain lib:Book ; rdfs:range xsd:integer .
+    lib:note a owl:AnnotationProperty .
+    """
+CARDINALITIES = """\
+    lib:BookShape a sh:NodeShape ; sh:targetClass lib:Book ; sh:property lib:BookShape-genre, lib:BookShape-pages .
+    lib:BookShape-genre a sh:PropertyShape ; sh:path lib:genre ; sh:minCount 1 .
+    lib:BookShape-pages a sh:PropertyShape ; sh:path lib:pages ; sh:maxCount 1 .
+    lib:NoteShape a sh:NodeShape ; sh:targetSubjectsOf lib:note ; sh:property [ sh:path lib:note ; sh:maxCount 1 ] .
+    """
+
+
+class Cardinality(Files):
+    def check(self, data, shapes):
+        return run_main(check_cardinality.main, ["--shapes", self.write("shapes.ttl", shapes),
+                                                 "--data", self.write("data.ttl", data)])
+
+    def test_every_property_shaped_passes(self):
+        code, out = self.check(DECLARED, CARDINALITIES)
+        self.assertEqual(code, 0, out)
+        self.assertIn("(3 properties)", out)
+
+    def test_the_skill_skeletons_pass(self):
+        templates = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates")
+        code, out = run_main(check_cardinality.main, ["--shapes", os.path.join(templates, "shapes-skeleton.ttl"),
+                                                      "--data", os.path.join(templates, "ontology-skeleton.ttl")])
+        self.assertEqual(code, 0, out)
+        self.assertIn("(5 properties)", out)
+
+    def test_a_property_with_no_cardinality_fails(self):
+        shapes = CARDINALITIES.replace("sh:path lib:pages ; sh:maxCount 1", "sh:path lib:pages ; sh:datatype xsd:integer")
+        code, out = self.check(DECLARED, shapes)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL cardinality: https://id.example.org/library/pages has no applied property shape", out)
+        self.assertNotIn("library/genre", out)
+
+    def test_a_declared_unused_property_still_needs_one(self):
+        shapes = CARDINALITIES.replace("lib:NoteShape a sh:NodeShape ; sh:targetSubjectsOf lib:note ; sh:property [ sh:path lib:note ; sh:maxCount 1 ] .\n", "")
+        code, out = self.check(DECLARED, shapes)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL cardinality: https://id.example.org/library/note has no applied property shape", out)
+
+    def test_a_shape_for_another_class_does_not_count(self):
+        # pages has domain Book; its only cardinality sits under a shape that targets Copy, so no Book is checked.
+        shapes = CARDINALITIES.replace("sh:property lib:BookShape-genre, lib:BookShape-pages", "sh:property lib:BookShape-genre") \
+            + "lib:CopyShape a sh:NodeShape ; sh:targetClass lib:Copy ; sh:property lib:BookShape-pages .\n"
+        code, out = self.check(DECLARED, shapes)
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL cardinality: https://id.example.org/library/pages", out)
+
+    def test_a_shape_for_a_superclass_of_the_domain_counts(self):
+        data = DECLARED + "lib:Item a owl:Class . lib:Book rdfs:subClassOf lib:Item .\n"
+        shapes = CARDINALITIES.replace("sh:targetClass lib:Book", "sh:targetClass lib:Item")
+        self.assertEqual(self.check(data, shapes)[0], 0)
+        shapes = CARDINALITIES.replace("sh:targetClass lib:Book", "sh:targetClass lib:Copy")
+        self.assertEqual(self.check(data, shapes)[0], 1)
+
+    def test_an_implicit_class_target_counts(self):
+        shapes = "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n" + CARDINALITIES.replace(
+            "lib:BookShape a sh:NodeShape ; sh:targetClass lib:Book ;", "lib:Book a sh:NodeShape, owl:Class ;")
+        code, out = self.check(DECLARED, shapes)
+        self.assertEqual(code, 0, out)
+
+    def test_a_shape_reached_through_node_and_or_counts(self):
+        # The cardinalities sit in shapes nothing targets; the targeted shape reaches them through sh:node and sh:and.
+        for reuse in ("sh:node lib:Inner", "sh:and ( lib:Inner )", "sh:or ( lib:Inner )", "sh:xone ( lib:Inner )"):
+            with self.subTest(reuse=reuse):
+                shapes = CARDINALITIES.replace("lib:BookShape a sh:NodeShape ; sh:targetClass lib:Book ; sh:property lib:BookShape-genre, lib:BookShape-pages .",
+                                               f"lib:BookShape a sh:NodeShape ; sh:targetClass lib:Book ; {reuse} .\n"
+                                               "lib:Inner a sh:NodeShape ; sh:property lib:BookShape-genre, lib:BookShape-pages .")
+                code, out = self.check(DECLARED, shapes)
+                self.assertEqual(code, 0, out)
+
+    def test_a_shape_below_a_property_shape_does_not_count(self):
+        # Inner applies to the values of genre, not to books, so it says nothing about a book's genre or pages.
+        shapes = CARDINALITIES.replace("sh:property lib:BookShape-genre, lib:BookShape-pages .",
+                                       "sh:property [ sh:path lib:other ; sh:node lib:Inner ] .\n"
+                                       "lib:Inner a sh:NodeShape ; sh:property lib:BookShape-genre, lib:BookShape-pages .")
+        code, out = self.check(DECLARED, shapes)
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL cardinality: https://id.example.org/library/genre", out)
+        self.assertIn("FAIL cardinality: https://id.example.org/library/pages", out)
+
+    def test_a_sparql_target_counts_for_no_property(self):
+        # The query selects copies here; the check does not run queries, so neither query can count.
+        for cls in ("Book", "Copy"):
+            with self.subTest(cls=cls):
+                shapes = CARDINALITIES.replace("sh:targetClass lib:Book", "sh:target [ a sh:SPARQLTarget ; sh:select "
+                                               f"\"SELECT ?this WHERE {{ ?this a <https://id.example.org/library/{cls}> }}\" ]")
+                code, out = self.check(DECLARED, shapes)
+                self.assertEqual(code, 1, out)
+                self.assertIn("FAIL cardinality: https://id.example.org/library/pages", out)
+
+    def test_an_instance_target_counts_only_for_its_own_class(self):
+        target = CARDINALITIES.replace("sh:targetClass lib:Book", "sh:targetNode lib:dune")
+        self.assertEqual(self.check(DECLARED + "lib:dune a lib:Book .\n", target)[0], 0)
+        code, out = self.check(DECLARED + "lib:dune a lib:Copy .\n", target)
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL cardinality: https://id.example.org/library/pages", out)
+        self.assertEqual(self.check(DECLARED, target)[0], 1)  # a node the data does not type shows nothing
+        # One paperback does not stand in for every book, as sh:targetClass lib:Paperback does not.
+        paperback = DECLARED + "lib:Paperback a owl:Class ; rdfs:subClassOf lib:Book .\nlib:dune a lib:Paperback .\n"
+        code, out = self.check(paperback, target)
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL cardinality: https://id.example.org/library/pages", out)
+
+    def test_an_objects_or_subjects_target_counts_only_for_its_own_class(self):
+        for kind, good, bad in (("sh:targetObjectsOf", {"d": "Copy", "r": "Book"}, {"d": "Book", "r": "Copy"}),
+                                ("sh:targetSubjectsOf", {"d": "Book", "r": "Copy"}, {"d": "Copy", "r": "Book"})):
+            with self.subTest(kind=kind):
+                target = CARDINALITIES.replace("sh:targetClass lib:Book", f"{kind} lib:shelved")
+                declared = DECLARED + "lib:shelved a owl:ObjectProperty ; rdfs:domain lib:{d} ; rdfs:range lib:{r} .\n"
+                shelved = "lib:ShelvedShape a sh:NodeShape ; sh:targetSubjectsOf lib:shelved ; sh:property [ sh:path lib:shelved ; sh:maxCount 1 ] .\n"
+                code, out = self.check(declared.format(**good), target + shelved)
+                self.assertEqual(code, 0, out)
+                for wrong in (bad, {**good, "r" if kind == "sh:targetObjectsOf" else "d": "Paperback"}):
+                    subclass = "lib:Paperback a owl:Class ; rdfs:subClassOf lib:Book .\n"
+                    code, out = self.check(declared.format(**wrong) + subclass, target + shelved)
+                    self.assertEqual(code, 1, out)
+                    self.assertIn("FAIL cardinality: https://id.example.org/library/pages", out)
+
+    def test_a_property_with_no_domain_needs_its_subjects_targeted(self):
+        # The annotation is used on a book and its only cardinality sits under a shape on copies.
+        shapes = CARDINALITIES.replace("lib:NoteShape a sh:NodeShape ; sh:targetSubjectsOf lib:note ;",
+                                       "lib:NoteShape a sh:NodeShape ; sh:targetClass lib:Copy ;")
+        code, out = self.check(DECLARED + 'lib:dune a lib:Book ; lib:note "x"@en, "y"@en .\n', shapes)
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL cardinality: https://id.example.org/library/note", out)
+
+    def test_an_empty_node_shape_fails(self):
+        # A class with no properties gets no node shape (shapes-skeleton.ttl); one that holds nothing can never fail.
+        code, out = self.check(DECLARED, CARDINALITIES + "lib:CopyShape a sh:NodeShape ; sh:targetClass lib:Copy .\n")
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL empty-shape: https://id.example.org/library/CopyShape holds no property shape and no constraint", out)
+
+    def test_a_node_shape_with_a_constraint_but_no_property_shape_passes(self):
+        code, out = self.check(DECLARED, CARDINALITIES + "lib:CopyShape a sh:NodeShape ; sh:targetClass lib:Copy ; sh:closed true .\n")
+        self.assertEqual(code, 0, out)
+
+    def test_a_deactivated_shape_is_not_applied(self):
+        for dead in ("lib:BookShape-pages a sh:PropertyShape ; sh:deactivated true ;",
+                     "lib:BookShape a sh:NodeShape ; sh:deactivated true ;"):
+            with self.subTest(dead=dead):
+                shapes = CARDINALITIES.replace(dead.replace(" sh:deactivated true ;", ""), dead)
+                code, out = self.check(DECLARED, shapes)
+                self.assertEqual(code, 1, out)
+                self.assertIn("FAIL cardinality: https://id.example.org/library/pages", out)
+
+    def test_a_property_shape_nothing_targets_is_not_applied(self):
+        shapes = CARDINALITIES.replace("sh:property lib:BookShape-genre, lib:BookShape-pages", "sh:property lib:BookShape-genre")
+        code, out = self.check(DECLARED, shapes)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL cardinality: https://id.example.org/library/pages", out)
+
+    def test_a_property_shape_with_its_own_target_is_applied(self):
+        loose = CARDINALITIES.replace("sh:property lib:BookShape-genre, lib:BookShape-pages", "sh:property lib:BookShape-genre")
+        own = loose.replace("lib:BookShape-pages a sh:PropertyShape ;", "lib:BookShape-pages a sh:PropertyShape ; sh:targetClass lib:Book ;")
+        self.assertEqual(self.check(DECLARED, own)[0], 0)
+        other = loose.replace("lib:BookShape-pages a sh:PropertyShape ;", "lib:BookShape-pages a sh:PropertyShape ; sh:targetClass lib:Copy ;")
+        self.assertEqual(self.check(DECLARED, other)[0], 1)
+
+    def test_an_unreadable_file_is_a_usage_error(self):
+        self.assertEqual(self.check("lib:x a .\n", CARDINALITIES)[0], 2)
+        self.assertEqual(run_main(check_cardinality.main, ["--shapes", os.path.join(self.dir, "none.ttl"),
+                                                           "--data", self.write("d.ttl", DECLARED)])[0], 2)
+
+
+class AppliedShapeParity(Files):
+    """check_cardinality.py and ontology-to-lpg's check_projection_rules.py read the same shapes as applied.
+    The two stay separate code because a project copies this skill's scripts without the other skill."""
+
+    @classmethod
+    def setUpClass(cls):
+        folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "ontology-to-lpg", "scripts")
+        sys.path.append(folder)
+        try:
+            cls.projection = importlib.import_module("check_projection_rules")
+        finally:
+            sys.path.remove(folder)
+
+    def paths(self, shapes):
+        g = Graph().parse(data=PREFIXES + "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n" + textwrap.dedent(shapes), format="turtle")
+        return ({str(p).rsplit("/", 1)[-1] for p, _ in check_cardinality.applied_property_shapes(g)},
+                {str(p).rsplit("/", 1)[-1] for p, _ in self.projection.applied_property_shapes(g)})
+
+    def test_both_read_the_same_shapes_as_applied(self):
+        inner = "lib:Inner a sh:NodeShape ; sh:property [ sh:path lib:pages ; sh:maxCount 1 ] .\n"
+        own = "sh:property [ sh:path lib:pages ; sh:maxCount 1 ]"
+        cases = {
+            "class target": (f"lib:S a sh:NodeShape ; sh:targetClass lib:Book ; {own} .", {"pages"}),
+            "instance target": (f"lib:S a sh:NodeShape ; sh:targetNode lib:dune ; {own} .", {"pages"}),
+            "subjects target": (f"lib:S a sh:NodeShape ; sh:targetSubjectsOf lib:pages ; {own} .", {"pages"}),
+            "objects target": (f"lib:S a sh:NodeShape ; sh:targetObjectsOf lib:item ; {own} .", {"pages"}),
+            "implicit class": (f"lib:Book a sh:NodeShape, owl:Class ; {own} .", {"pages"}),
+            "no target": (f"lib:S a sh:NodeShape ; {own} .", set()),
+            "deactivated root": (f"lib:S a sh:NodeShape ; sh:targetClass lib:Book ; sh:deactivated true ; {own} .", set()),
+            "deactivated property shape": ("lib:S a sh:NodeShape ; sh:targetClass lib:Book ; "
+                                           "sh:property [ sh:path lib:pages ; sh:maxCount 1 ; sh:deactivated true ] .", set()),
+            "sh:node": ("lib:S a sh:NodeShape ; sh:targetClass lib:Book ; sh:node lib:Inner .\n" + inner, {"pages"}),
+            "sh:and": ("lib:S a sh:NodeShape ; sh:targetClass lib:Book ; sh:and ( lib:Inner ) .\n" + inner, {"pages"}),
+            "sh:or": ("lib:S a sh:NodeShape ; sh:targetClass lib:Book ; sh:or ( lib:Inner ) .\n" + inner, {"pages"}),
+            "sh:xone": ("lib:S a sh:NodeShape ; sh:targetClass lib:Book ; sh:xone ( lib:Inner ) .\n" + inner, {"pages"}),
+            "deactivated sh:node": ("lib:S a sh:NodeShape ; sh:targetClass lib:Book ; sh:node lib:Inner .\n"
+                                    + inner.replace("sh:NodeShape ;", "sh:NodeShape ; sh:deactivated true ;"), set()),
+        }
+        for name, (shapes, expected) in cases.items():
+            with self.subTest(name):
+                self.assertEqual(self.paths(shapes), (expected, expected))
+
+    def test_the_two_recorded_differences(self):
+        # Rule 2 asks whether any node's value is checked, and the loader's list reads that, so a shape below a
+        # property shape counts there; here it says nothing about the root's own nodes.
+        below = ("lib:S a sh:NodeShape ; sh:targetClass lib:Book ; sh:property [ sh:path lib:item ; sh:node lib:Inner ] .\n"
+                 "lib:Inner a sh:NodeShape ; sh:property [ sh:path lib:pages ; sh:maxCount 1 ] .\n")
+        self.assertEqual(self.paths(below), ({"item"}, {"item", "pages"}))
+        # A property shape with its own target applies to its target's nodes; the projection reads property shapes
+        # only through a node shape's sh:property.
+        self.assertEqual(self.paths("lib:P a sh:PropertyShape ; sh:path lib:pages ; sh:maxCount 1 ; sh:targetClass lib:Book .\n"),
+                         ({"pages"}, set()))
 
 
 CORE_V1 = """\
@@ -619,6 +848,63 @@ class CodeLists(Files):
     def test_an_unreadable_file_is_a_usage_error(self):
         self.assertEqual(run_main(check_code_lists.main, ["--shapes", self.write("s.ttl", GENRE_SHAPE),
                                                           "--data", self.write("d.ttl", "lib:x a .\n")])[0], 2)
+
+    def test_definitions_alone_do_not_pass(self):
+        # The module declares its lists and no instance (domain-model.md, rule 9), so no property takes a value:
+        # the run must fail, not pass over nothing.
+        definitions = "\n".join(l for l in CODED.split("\n") if "lib:dune" not in l)
+        code, out = self.check(definitions, GENRE_SHAPE + FORMAT_SHAPE)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL covered: no property takes a value from any code list (https://id.example.org/library/Format, "
+                      "https://id.example.org/library/Genre); pass the shapes tests' illustration file as --data too", out)
+
+    def test_the_skeleton_alone_does_not_pass(self):
+        templates = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates")
+        code, out = run_main(check_code_lists.main, ["--shapes", os.path.join(templates, "shapes-skeleton.ttl"),
+                                                      "--data", os.path.join(templates, "ontology-skeleton.ttl"),
+                                                      "--not-code-list=https://id.example.org/library/lending"])
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL covered: no property takes a value from any code list (https://id.example.org/library/loan-state)", out)
+
+    def test_a_shaped_property_no_value_exercises_fails(self):
+        # genre is illustrated; format has a membership shape (deactivated, so it would never bite) and no value.
+        data = CODED.replace(" ; lib:format lib:hardback", "")
+        dead = FORMAT_SHAPE.replace("lib:InFormat a sh:NodeShape ;", "lib:InFormat a sh:NodeShape ; sh:deactivated true ;")
+        code, out = self.check(data, GENRE_SHAPE + dead)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL unexercised: https://id.example.org/library/format has a membership shape but no value in the data takes it", out)
+        self.assertNotIn("library/genre", out)
+        self.assertEqual(self.check(data, GENRE_SHAPE + FORMAT_SHAPE)[0], 1)
+
+    def test_a_shaped_property_whose_value_is_in_no_list_fails_same_list(self):
+        # The value exists, so this is not "unexercised": same-list must name it.
+        data = CODED.replace("lib:format lib:hardback", "lib:format lib:notAConcept")
+        code, out = self.check(data, GENRE_SHAPE + FORMAT_SHAPE)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL same-list: https://id.example.org/library/format on https://id.example.org/library/dune is "
+                      "https://id.example.org/library/notAConcept", out)
+        self.assertNotIn("unexercised", out)
+
+    def test_with_no_code_list_declared_same_list_and_unexercised_still_run(self):
+        in_list = ("lib:BookGenre a sh:NodeShape ; sh:targetClass lib:Book ;\n"
+                   "    sh:property [ sh:path lib:genre ; sh:in ( lib:fiction lib:poetry ) ] .\n")
+        code, out = self.check("lib:dune a lib:Book ; lib:genre lib:notAConcept .\n", in_list)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL same-list: https://id.example.org/library/genre on https://id.example.org/library/dune is "
+                      "https://id.example.org/library/notAConcept", out)
+        code, out = self.check("lib:dune a lib:Book .\n", in_list)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL unexercised: https://id.example.org/library/genre", out)
+        code, out = self.check("lib:dune a lib:Book ; lib:genre lib:fiction .\n", in_list)
+        self.assertEqual(code, 0, out)  # a good value: no second list exists, so no bite test applies
+
+    def test_a_module_with_no_code_list_passes_with_no_property(self):
+        code, out = self.check("lib:dune a lib:Book ; rdfs:label \"Dune\"@en .\n", "")
+        self.assertEqual(code, 0, out)
+        self.assertIn("(0 properties)", out)
+        code, out = self.check(CODED.replace("lib:genre lib:fiction ; lib:format lib:hardback", "rdfs:label \"Dune\"@en"), "",
+                               "--not-code-list=https://id.example.org/library/Genre", "--not-code-list=https://id.example.org/library/Format")
+        self.assertEqual(code, 0, out)
 
 
 if __name__ == "__main__":

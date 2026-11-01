@@ -105,11 +105,15 @@ mechanical, and `foundations.md` lists how each part maps.
 
 Follow the steps in order. Each step has a purpose, the reference that holds
 its rules, and a "done when" gate in `SKILL.md`. Do not start a step until
-the previous gate is met. The order matters: identity before taxonomy,
-taxonomy before relationships, relationships before responsibilities,
-responsibilities before interfaces, integration before validation, and
-validation before publication. The one exception is Step 8, the scope
-review. Do it early, right after Step 0.
+the previous gate is met, unless the gate itself says what may go on while
+it stays open: an answer the owner has not given yet (`governance.md`, rule
+3), or a registry search that cannot run offline (`external-ontologies.md`,
+"Offline"), which leaves Step 0 open and lets Step 1 start. The order
+matters: identity before taxonomy, taxonomy before relationships,
+relationships before responsibilities, responsibilities before interfaces,
+integration before validation, and validation before publication. The one
+exception to the order is Step 8, the scope review. Do it early, right after
+Step 0.
 
 Two principles run through every step:
 
@@ -118,7 +122,8 @@ Two principles run through every step:
   regression tests (Step 11). A question the model cannot answer is a
   modeling gap, not a bad question.
 - **One step at a time, with a gate.** Finish a step before you start the
-  next. Record each decision as you make it, and change the source of truth
+  next, except where the gate names what may go on while it stays open.
+  Record each decision as you make it, and change the source of truth
   with one consolidated proposal per step, not one change per decision.
 
 ### Step 0. Align the reference framework and survey existing ontologies
@@ -601,7 +606,7 @@ that holds it; the rule, not this list, is the source.
 6. **The sweep, then the check script.** Every claim the change makes is
    searched for in all its wordings, then the project's full check script
    runs (`quality.md`, "Soundness checks on every change"). The check script
-   runs every check the build has, each builder's `--verify` among them
+   runs every check the build has, each builder's verify command among them
    (`governance.md`, rule 15; `release.md`, rule 9), and the whole suite runs
    before a review, not only the module's tests (`regression.md`, rule 14).
 7. **The projection and the stores.** In the property graph, SHACL runs

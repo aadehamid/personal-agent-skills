@@ -8,6 +8,8 @@
 module: lending                                   # Q1: the module's short name
 version: 1.0.0                                    # Q2: MAJOR.MINOR.PATCH; a candidate is 1.0.0-rc.1
 ontology_iri: https://id.example.org/library/lending   # Q3: the module's IRI; versions sit under it
+# catalog_iri: https://id.example.org/library/catalog  # Q3: only when modules sit under different parents;
+                                                  #     the default is the parent of ontology_iri plus "catalog"
 title: Library lending                            # Q4: a title for the header and the catalog
 description: Lending activities, loan states, and the classes and properties a loan needs.
 sources:                                          # Q5: the Turtle files that make the module

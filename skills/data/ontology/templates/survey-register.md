@@ -28,7 +28,7 @@ Checked <YYYY-MM-DD>.
 
 ## Registry searches
 
-<!-- One row per registry in references/external-ontologies.md, "The registries to search", and one per further search you ran. These cells record what you did, not a publisher's fact: the date, the exact query terms, and the hits by name as the registry listed them. "no hits" is a complete answer for a search that found nothing; never leave the row out. A search you could not run is "not run", with the reason, and the gate stays open. -->
+<!-- One row per registry in references/external-ontologies.md, "The registries to search", and one per further search you ran. These cells record what you did, not a publisher's fact: the date, the exact query terms, and the hits by name as the registry listed them. "no hits" is a complete answer for a search that found nothing; never leave the row out. A search you could not run is "not run (offline)", or "not run" with another reason, dated the day you recorded it, with the terms you would use; Step 0 then stays open and Step 1 may start (external-ontologies.md, "Offline"). -->
 
 | Registry | Date | Query terms | Hits (names), or "no hits" |
 |---|---|---|---|

@@ -94,13 +94,13 @@ def main(argv):
         return 2
     if args.verify:
         try:
-            with open(args.out, encoding="utf-8") as f:
+            with open(args.out, "rb") as f:  # bytes, so a changed line ending is a difference too
                 written = f.read()
         except OSError as exc:
             print(f"ERROR cannot read {args.out}: {exc}", file=sys.stderr)
             return 2
-        if written != text:
-            old, new = set(written.splitlines()), set(text.splitlines())
+        if written != text.encode("utf-8"):
+            old, new = set(written.decode("utf-8", "replace").splitlines()), set(text.splitlines())
             for line in sorted(old - new):
                 print(f"FAIL verify: only in {args.out}: {line}")
             for line in sorted(new - old):

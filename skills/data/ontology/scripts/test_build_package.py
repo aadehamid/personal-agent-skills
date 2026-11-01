@@ -140,6 +140,18 @@ class Build(Workspace):
         self.assertEqual(code, 1)
         self.assertIn("CHANGELOG.md differs from a fresh build", out)
 
+    def test_a_crlf_edit_to_the_package_fails_verify(self):
+        path = self.write_answers()
+        run(["build", path, "--releases", self.releases])
+        ttl = os.path.join(self.releases, "lending", "1.0.0", "lending.ttl")
+        with open(ttl, "rb") as f:
+            text = f.read()
+        with open(ttl, "wb") as f:
+            f.write(text.replace(b"\n", b"\r\n"))
+        code, out = run(["verify", path, "--releases", self.releases])
+        self.assertEqual(code, 1)
+        self.assertIn("lending.ttl differs from a fresh build", out)
+
     def test_a_released_package_is_never_overwritten(self):
         self.assertEqual(self.build()[0], 0)
         before = self.manifest()
@@ -293,6 +305,25 @@ class Git(Workspace):
         code, out = run(["verify", path, "--releases", self.releases])
         self.assertEqual(code, 1)
         self.assertIn("lending.ttl differs from the copy tagged lending-v1.0.0", out)
+
+    def test_verify_finds_a_tagged_copy_that_differs_only_in_line_endings(self):
+        git("init", "-q", cwd=self.root)
+        git("config", "core.autocrlf", "false", cwd=self.root)
+        path = self.write_answers()
+        self.assertEqual(run(["build", path, "--releases", self.releases])[0], 0)
+        ttl = os.path.join(self.releases, "lending", "1.0.0", "lending.ttl")
+        with open(ttl, "rb") as f:
+            lf = f.read()
+        with open(ttl, "wb") as f:
+            f.write(lf.replace(b"\n", b"\r\n"))
+        self.commit_all()
+        self.assertEqual(run(["tag", path, "--releases", self.releases])[0], 0)
+        with open(ttl, "wb") as f:  # the working file now equals a fresh build; only the tag's copy differs
+            f.write(lf)
+        code, out = run(["verify", path, "--releases", self.releases])
+        self.assertEqual(code, 1)
+        self.assertIn("lending.ttl differs from the copy tagged lending-v1.0.0", out)
+        self.assertNotIn("differs from a fresh build", out)
 
     def test_the_tag_goes_on_the_package_commit_not_a_later_one(self):
         git("init", "-q", cwd=self.root)

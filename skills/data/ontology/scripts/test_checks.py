@@ -1065,6 +1065,125 @@ class CheckScriptSkeleton(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("no data Turtle under modules/", result.stderr)
 
+    def inject(self, command):
+        """Run `command` between the two snapshots, with every TODO dropped."""
+        self.edit_script(lambda t: self.drop_todos(t).replace('after="$(snapshot)"', command + '\nafter="$(snapshot)"', 1))
+        self.commit()
+
+    def test_write_guard_catches_a_new_file(self):
+        self.inject("echo made > made.txt")
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("the checks changed the working tree", result.stderr)
+
+    def test_write_guard_catches_a_changed_file(self):
+        with open(os.path.join(self.tmp, "note.txt"), "w") as f:
+            f.write("before\n")
+        self.inject("echo after > note.txt")
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("the checks changed the working tree", result.stderr)
+
+    def test_write_guard_ignores_build_output(self):
+        # In a checkout the repository's own ignore file keeps build output out of git's listing; in a plain
+        # folder the guard's own list does.
+        with open(os.path.join(self.tmp, ".gitignore"), "w") as f:
+            f.write("__pycache__/\n.pytest_cache/\n")
+        self.inject("mkdir -p __pycache__ .pytest_cache && echo x > __pycache__/a.pyc && echo y > .pytest_cache/b")
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class CheckScriptWithoutGit(CheckScriptSkeleton):
+    """The same script in a plain folder: releases need no git (release.md, "Without a remote"), so the guard
+    snapshots every file under the folder instead of git's listing. Every test above runs again here."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        os.makedirs(os.path.join(self.tmp, "scripts"))
+        shutil.copy(os.path.join(TEMPLATES, "check.sh"), os.path.join(self.tmp, "scripts", "check.sh"))
+
+    def git(self, *args):
+        raise AssertionError("no git in this folder")
+
+    def commit(self):
+        pass
+
+    def test_the_folder_is_not_a_repository(self):
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, ".git")))
+        probe = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], cwd=self.tmp, env=self.env,
+                               stdin=subprocess.DEVNULL, capture_output=True)
+        self.assertNotEqual(probe.returncode, 0, "the temporary folder sits inside a repository")
+
+    def without_git(self):
+        """An environment whose PATH holds only what the filled script runs, so `git` is not found."""
+        bin_dir = os.path.join(os.path.dirname(self.tmp), f"bin-{os.path.basename(self.tmp)}")
+        os.makedirs(bin_dir, exist_ok=True)
+        self.addCleanup(shutil.rmtree, bin_dir)
+        for tool in ("bash", "dirname", "grep", "python3", "uv", "find", "mkdir", "chmod"):
+            found = shutil.which(tool)
+            if found:
+                os.symlink(found, os.path.join(bin_dir, tool))
+        return dict(self.env, PATH=bin_dir)
+
+    def test_the_guard_runs_with_no_git_installed(self):
+        self.edit_script(self.drop_todos)
+        env = self.without_git()
+        self.assertIsNone(shutil.which("git", path=env["PATH"]))
+        result = subprocess.run(["bash", "scripts/check.sh"], cwd=self.tmp, env=env,
+                                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=300)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("all checks passed", result.stdout)
+        self.inject("echo made > made.txt")
+        result = subprocess.run(["bash", "scripts/check.sh"], cwd=self.tmp, env=env,
+                                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=300)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("the checks changed the working tree", result.stderr)
+
+    def test_a_git_that_fails_stops_the_guard(self):
+        # git is present but cannot answer (a dubious owner, a broken repository): the guard must not fall
+        # back to the plain-folder snapshots, which would leave out the index and status it was asked for.
+        self.edit_script(self.drop_todos)
+        env = self.without_git()
+        fake = os.path.join(env["PATH"], "git")
+        with open(fake, "w") as f:
+            f.write("#!/bin/sh\necho 'fatal: detected dubious ownership in repository' >&2\nexit 128\n")
+        os.chmod(fake, 0o755)
+        result = subprocess.run(["bash", "scripts/check.sh"], cwd=self.tmp, env=env,
+                                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=300)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("git rev-parse failed, so the guard cannot tell whether this is a checkout: fatal: detected dubious ownership",
+                      result.stderr)
+        self.assertNotIn("all checks passed", result.stdout)
+
+    def test_a_broken_git_directory_stops_the_guard(self):
+        # git says "not a git repository" here too, but names the path: this is a broken checkout, not a plain folder.
+        self.edit_script(self.drop_todos)
+        with open(os.path.join(self.tmp, ".git"), "w") as f:
+            f.write("gitdir: /no/such/folder\n")
+        result = self.run_script()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("git rev-parse failed, so the guard cannot tell whether this is a checkout", result.stderr)
+        self.assertNotIn("all checks passed", result.stdout)
+
+    def test_a_folder_that_cannot_be_listed_stops_the_guard(self):
+        if os.geteuid() == 0:
+            self.skipTest("root can list any folder")
+        self.edit_script(self.drop_todos)
+        locked = os.path.join(self.tmp, "locked")
+        os.makedirs(locked)
+        with open(os.path.join(locked, "inside.txt"), "w") as f:
+            f.write("x\n")
+        os.chmod(locked, 0o100)
+        try:
+            result = self.run_script()
+        finally:
+            os.chmod(locked, 0o755)  # before tearDown removes the folder
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("PermissionError", result.stderr)
+        self.assertNotIn("all checks passed", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

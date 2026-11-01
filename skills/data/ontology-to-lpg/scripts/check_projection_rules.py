@@ -16,7 +16,7 @@ Checks (references/design-rules.md and references/inputs.md):
              range is not a datatype
   rule-2     every own property the data uses as a predicate is the sh:path of a property shape that
              an applied shape uses, and that property shape states sh:minCount or sh:maxCount. A shape
-             is applied when it has any target (sh:targetClass, sh:targetNode, sh:targetSubjectsOf,
+             is applied when it is not deactivated and has any target (sh:targetClass, sh:targetNode, sh:targetSubjectsOf,
              sh:targetObjectsOf, a SPARQL sh:target), is itself a class, or is reached from an applied
              shape through sh:node, sh:and, sh:or or sh:xone. A declared property the data never
              uses loads nothing, so Rule 2 skips it; Rule 1 still checks it
@@ -179,17 +179,22 @@ class Config:
         return term.n3()
 
 
+def deactivated(shapes, shape):
+    return shapes.value(shape, SH.deactivated) == Literal(True)
+
+
 def applied_node_shapes(shapes):
     """Shapes a SHACL validator applies: those with any target (sh:targetClass, sh:targetNode,
     sh:targetSubjectsOf, sh:targetObjectsOf, or a SHACL-SPARQL sh:target), those that are themselves
     a class (the implicit class target), and every shape reached from one of these through sh:node,
-    sh:and, sh:or or sh:xone. This is what pySHACL validates, not what n10s runs in the graph: Rule 2
+    sh:and, sh:or or sh:xone; a deactivated shape (sh:deactivated true) is none of these. This is what pySHACL validates, not what n10s runs in the graph: Rule 2
     and the multivalued list follow SHACL, which runs before the load on every shape. What n10s runs
     is what n10s.validation.shacl.listShapes() lists after the import (load_verify.py reads it)."""
     from rdflib.collection import Collection
     applied = {s for p in TARGET_PREDICATES for s in shapes.subjects(p, None)}
     applied |= {s for kind in CLASS_KINDS for s in shapes.subjects(RDF.type, kind)
                 if (s, RDF.type, SH.NodeShape) in shapes or (s, SH.property, None) in shapes}
+    applied = {s for s in applied if not deactivated(shapes, s)}
     frontier = list(applied)
     while frontier:
         shape = frontier.pop()
@@ -198,9 +203,10 @@ def applied_node_shapes(shapes):
             for head in shapes.objects(shape, p):
                 reached += list(Collection(shapes, head))
         for ps in shapes.objects(shape, SH.property):
-            reached += [o for p in REUSE_PREDICATES for o in shapes.objects(ps, p)]
+            if not deactivated(shapes, ps):
+                reached += [o for p in REUSE_PREDICATES for o in shapes.objects(ps, p)]
         for r in reached:
-            if r not in applied:
+            if r not in applied and not deactivated(shapes, r):
                 applied.add(r)
                 frontier.append(r)
     return applied
@@ -219,7 +225,7 @@ def applied_property_shapes(shapes):
     for ns in applied_node_shapes(shapes):
         for ps in shapes.objects(ns, SH.property):
             path = shapes.value(ps, SH.path)
-            if path is not None:
+            if path is not None and not deactivated(shapes, ps):
                 out.append((path, ps))
     return out
 

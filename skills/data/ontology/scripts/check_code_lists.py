@@ -19,13 +19,20 @@ sh:class skos:Concept is not one: it lets a value from the wrong list through. T
 property both apply, as they do in SHACL.
 
 Checks:
-  covered     every code-list property has at least one membership constraint
+  covered     every code-list property has at least one membership constraint; and when the data
+              declares a code list, at least one property takes a value from one (the modules hold no
+              instance, so pass the shapes tests' illustration file as data too: domain-model.md, rule 9)
+  unexercised every property a membership constraint names takes at least one value in the data, of
+              any kind, so
+              the constraint runs; a property with neither a value nor a constraint is outside this
+              check (check_cardinality.py asks every declared property for a shape)
   same-list   every value of the property (literals and blank nodes too) meets every constraint on it
   bites       for each constraint, moving one value to a concept that sits in a code list but meets none
               of the property's constraints makes that constraint's own shape report a result (its
               sh:sourceShape and sh:sourceConstraintComponent, so another shape firing, or another
               constraint on the same shape, proves nothing); with no such concept in the data,
-              the check fails, because the shape cannot be shown to fail
+              the check fails, because the shape cannot be shown to fail; when the data declares no
+              code list at all, this check does not run
 
 Prints one FAIL line per failure. Exit 0 when nothing fails, 1 when anything fails, 2 when a file cannot
 be read or parsed, a shape is not valid SHACL, or the arguments are wrong.
@@ -118,7 +125,21 @@ def check(data, shapes, excluded=frozenset()):
     coded = coded_properties(data, lists)
     shaped = constraints(shapes)
     fails = []
-    for prop in sorted(coded, key=str):
+    used = {p for p in shaped if (None, p, None) in data}
+    if lists and not coded:
+        # The modules alone hold definitions and no instance (domain-model.md, rule 9), so without the
+        # shapes tests' illustration file no property ever takes a code-list value, and every check
+        # below would pass over nothing.
+        fails.append(("covered", f"no property takes a value from any code list ({', '.join(sorted(map(str, lists)))}); "
+                                 "pass the shapes tests' illustration file as --data too, or name each scheme that is "
+                                 "a taxonomy with --not-code-list"))
+    for prop in sorted(set(shaped) - used, key=str):
+        # A membership shape on a property no value exercises never runs, so neither same-list nor bites
+        # could see it break.
+        fails.append(("unexercised", f"{prop} has a membership shape but no value in the data takes it, so the shape is "
+                                     "untested; give the illustration file an instance that uses it"))
+    # A shaped property whose value sits in no list is checked too: same-list is what reports that value.
+    for prop in sorted(set(coded) | used, key=str):
         cons = shaped.get(prop)
         if not cons:
             fails.append(("covered", f"{prop} takes values from {sorted(map(str, coded[prop]))} and no shape pins its list"))
@@ -130,6 +151,8 @@ def check(data, shapes, excluded=frozenset()):
                 fails.append(("same-list", f"{prop} on {s} is {o}, which is not in {', '.join(label(c) for c in broken)}"))
             else:
                 good.append((s, o))
+        if not lists:
+            continue  # no list to move a value to: the bite test does not apply, and same-list has run
         witnesses = sorted((c for c, sch in data.subject_objects(SKOS.inScheme)
                             if sch in lists and not isinstance(c, Literal) and not any(meets(data, c, k) for k in cons)),
                            key=str)

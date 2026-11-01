@@ -358,8 +358,8 @@ def verify(answers, releases):
         if not os.path.isfile(path):
             fails.append(f"{name} is missing")
             continue
-        with open(path, encoding="utf-8") as f:
-            if f.read() != body:
+        with open(path, "rb") as f:  # bytes, so a changed line ending is a difference too
+            if f.read() != body.encode("utf-8"):
                 fails.append(f"{name} differs from a fresh build")
     setup, top, _ = git_setup(releases)
     if setup != "none":
@@ -369,8 +369,8 @@ def verify(answers, releases):
         else:
             rel = os.path.relpath(os.path.realpath(folder), os.path.realpath(top))
             for name in sorted(present):
-                shown = git("show", f"{tag}:{rel}/{name}", cwd=top)
-                with open(os.path.join(folder, name), encoding="utf-8") as f:
+                shown = subprocess.run(["git", "show", f"{tag}:{rel}/{name}"], cwd=top, capture_output=True)
+                with open(os.path.join(folder, name), "rb") as f:
                     if shown.returncode != 0 or shown.stdout != f.read():
                         fails.append(f"{name} differs from the copy tagged {tag}")
     return [f"{a['module']} {a['version']}: {m}" for m in fails]
