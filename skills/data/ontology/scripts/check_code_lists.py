@@ -22,7 +22,8 @@ Checks:
   covered     every code-list property has at least one membership constraint; and when the data
               declares a code list, at least one property takes a value from one (the modules hold no
               instance, so pass the shapes tests' illustration file as data too: domain-model.md, rule 9)
-  unexercised every property a membership constraint names takes at least one value in the data, so
+  unexercised when the data declares a code list, every property a membership constraint names takes
+              at least one value in the data, of any kind, so
               the constraint runs; a property with neither a value nor a constraint is outside this
               check (check_cardinality.py asks every declared property for a shape)
   same-list   every value of the property (literals and blank nodes too) meets every constraint on it
@@ -123,6 +124,9 @@ def check(data, shapes, excluded=frozenset()):
     coded = coded_properties(data, lists)
     shaped = constraints(shapes)
     fails = []
+    # With no code list declared there is nothing to test against, so these two sets stay out of it.
+    used = {p for p in shaped if (None, p, None) in data} if lists else set()
+    unused = set(shaped) - used if lists else set()
     if lists and not coded:
         # The modules alone hold definitions and no instance (domain-model.md, rule 9), so without the
         # shapes tests' illustration file no property ever takes a code-list value, and every check
@@ -130,12 +134,13 @@ def check(data, shapes, excluded=frozenset()):
         fails.append(("covered", f"no property takes a value from any code list ({', '.join(sorted(map(str, lists)))}); "
                                  "pass the shapes tests' illustration file as --data too, or name each scheme that is "
                                  "a taxonomy with --not-code-list"))
-    for prop in sorted(set(shaped) - set(coded), key=str):
+    for prop in sorted(unused, key=str):
         # A membership shape on a property no value exercises never runs, so neither same-list nor bites
         # could see it break.
         fails.append(("unexercised", f"{prop} has a membership shape but no value in the data takes it, so the shape is "
                                      "untested; give the illustration file an instance that uses it"))
-    for prop in sorted(coded, key=str):
+    # A shaped property whose value sits in no list is checked too: same-list is what reports that value.
+    for prop in sorted(set(coded) | used, key=str):
         cons = shaped.get(prop)
         if not cons:
             fails.append(("covered", f"{prop} takes values from {sorted(map(str, coded[prop]))} and no shape pins its list"))

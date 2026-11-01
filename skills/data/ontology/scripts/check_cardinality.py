@@ -18,9 +18,11 @@ shape to the property's own subjects:
               - sh:targetSubjectsOf the property, always;
               - sh:targetClass or the implicit class, when it is an rdfs:domain of the property or a
                 class that domain is rdfs:subClassOf, directly or through other classes in the data;
-              - sh:targetNode, when a type the data gives that node is the domain or a subclass of it;
+              - sh:targetNode, when the data types that node as the domain itself;
               - sh:targetObjectsOf or sh:targetSubjectsOf another property, when that property's
-                rdfs:range or rdfs:domain is the domain or a subclass of it.
+                rdfs:range or rdfs:domain is the domain itself.
+            A target on a subclass of the domain leaves the domain's other members out, so it does not
+            count.
             A property with no domain (an annotation property) is covered only by sh:targetSubjectsOf
             the property, since nothing else says which things carry it. A SHACL-SPARQL target covers
             no property, because this check does not run its query and cannot show what it selects;
@@ -117,7 +119,7 @@ def covers(shapes, data, root, prop):
         classes.add(root)
     types = selected_types(shapes, data, root)
     for domain in data.objects(prop, RDFS.domain):
-        if classes & superclasses(data, domain) or any(domain in superclasses(data, t) for t in types):
+        if classes & superclasses(data, domain) or domain in types:
             return True
     return False
 

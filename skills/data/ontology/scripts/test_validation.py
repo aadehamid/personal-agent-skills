@@ -366,6 +366,11 @@ class Cardinality(Files):
         self.assertEqual(code, 1, out)
         self.assertIn("FAIL cardinality: https://id.example.org/library/pages", out)
         self.assertEqual(self.check(DECLARED, target)[0], 1)  # a node the data does not type shows nothing
+        # One paperback does not stand in for every book, as sh:targetClass lib:Paperback does not.
+        paperback = DECLARED + "lib:Paperback a owl:Class ; rdfs:subClassOf lib:Book .\nlib:dune a lib:Paperback .\n"
+        code, out = self.check(paperback, target)
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL cardinality: https://id.example.org/library/pages", out)
 
     def test_an_objects_or_subjects_target_counts_only_for_its_own_class(self):
         for kind, good, bad in (("sh:targetObjectsOf", {"d": "Copy", "r": "Book"}, {"d": "Book", "r": "Copy"}),
@@ -376,9 +381,11 @@ class Cardinality(Files):
                 shelved = "lib:ShelvedShape a sh:NodeShape ; sh:targetSubjectsOf lib:shelved ; sh:property [ sh:path lib:shelved ; sh:maxCount 1 ] .\n"
                 code, out = self.check(declared.format(**good), target + shelved)
                 self.assertEqual(code, 0, out)
-                code, out = self.check(declared.format(**bad), target + shelved)
-                self.assertEqual(code, 1, out)
-                self.assertIn("FAIL cardinality: https://id.example.org/library/pages", out)
+                for wrong in (bad, {**good, "r" if kind == "sh:targetObjectsOf" else "d": "Paperback"}):
+                    subclass = "lib:Paperback a owl:Class ; rdfs:subClassOf lib:Book .\n"
+                    code, out = self.check(declared.format(**wrong) + subclass, target + shelved)
+                    self.assertEqual(code, 1, out)
+                    self.assertIn("FAIL cardinality: https://id.example.org/library/pages", out)
 
     def test_a_property_with_no_domain_needs_its_subjects_targeted(self):
         # The annotation is used on a book and its only cardinality sits under a shape on copies.
@@ -868,6 +875,19 @@ class CodeLists(Files):
         self.assertIn("FAIL unexercised: https://id.example.org/library/format has a membership shape but no value in the data takes it", out)
         self.assertNotIn("library/genre", out)
         self.assertEqual(self.check(data, GENRE_SHAPE + FORMAT_SHAPE)[0], 1)
+
+    def test_a_shaped_property_whose_value_is_in_no_list_fails_same_list(self):
+        # The value exists, so this is not "unexercised": same-list must name it.
+        data = CODED.replace("lib:format lib:hardback", "lib:format lib:notAConcept")
+        code, out = self.check(data, GENRE_SHAPE + FORMAT_SHAPE)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL same-list: https://id.example.org/library/format on https://id.example.org/library/dune is "
+                      "https://id.example.org/library/notAConcept", out)
+        self.assertNotIn("unexercised", out)
+
+    def test_a_shape_with_no_code_list_declared_is_not_unexercised(self):
+        code, out = self.check('lib:dune a lib:Book ; rdfs:label "Dune"@en .\n', GENRE_SHAPE)
+        self.assertEqual(code, 0, out)
 
     def test_a_module_with_no_code_list_passes_with_no_property(self):
         code, out = self.check("lib:dune a lib:Book ; rdfs:label \"Dune\"@en .\n", "")
