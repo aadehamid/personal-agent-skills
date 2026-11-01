@@ -2,17 +2,22 @@
 """Add-on F: tag every node and relationship of a loaded projection with the package it came from,
 check the tags, and build the module graph.
 
-    uv run --no-project --with rdflib --with neo4j python3 module_tags.py tag     --config <config> (--uri U | --env E) [--inferred inferred.nt] [--graph FILE=IRI]... <package.ttl>...
-    uv run --no-project --with rdflib --with neo4j python3 module_tags.py check   --config <config> (--uri U | --env E) [--inferred inferred.nt] <package.ttl>...
-    uv run --no-project --with rdflib --with neo4j python3 module_tags.py modules (--uri U | --env E) <package.ttl>...
+    uv run --no-project --with rdflib --with neo4j python3 module_tags.py tag     --config <config> (--uri U | --env E) [--inferred inferred.nt] [--graph FILE=IRI]... [--separator _] <package.ttl>...
+    uv run --no-project --with rdflib --with neo4j python3 module_tags.py check   --config <config> (--uri U | --env E) [--inferred inferred.nt] [--separator _] <package.ttl>...
+    uv run --no-project --with rdflib --with neo4j python3 module_tags.py modules (--uri U | --env E) [--separator _] <package.ttl>...
     uv run --no-project --with rdflib python3 module_tags.py construct --output <module-map.rq>
+
+--separator (underscores only) is what the graph puts between a prefix and a local name: n10s's two
+underscores unless the load renamed the names (load_verify.py --separator); give the same value here. A
+prefix that holds it is refused (exit 2), as the load refuses it.
 
 Each package file is one released package: its owl:Ontology header names the package by its
 owl:versionIRI, the same IRI the rdf-store skill names the package's named graph by. --graph FILE=IRI
 (repeatable) makes a plain file a package named IRI, with no requirements, whatever header it has: the
 files mode of run_projection.py names a file without an owl:versionIRI that way, as it names its graph. The tag is that
 version IRI, stored on the reserved property `graph` (add-on F's name); the projection's own keys are
-always prefixed (SHORTEN gives prefix__local), so a bare `graph` cannot collide with ontology data.
+always prefixed (n10s joins prefix and local name with two underscores, and after the optional rename the kept
+graph uses the configured separator), so a bare `graph` cannot collide with ontology data.
 load_verify.graph_hash leaves `graph` out, so tagging after step 6 keeps the report's hash, and
 copy_graph.py still copies the tags; `check` proves them on any target.
 
@@ -24,7 +29,7 @@ The tag rules, applied to the package files, never to the graph:
   an edge    the first package in dependency order whose file holds the triple; an inferred triple
              (--inferred, not in any package) takes its subject's tag.
 An edge is read back from the graph as (source uri, type, target uri); its predicate is the type's
-prefix expanded with the configuration's prefixes. A relationship whose type starts with n4sch__ is
+prefix expanded with the configuration's prefixes. A relationship whose type starts with n4sch and the separator is
 schema that n10s.onto.import derives from the ontology (SCO, SPO, DOMAIN, RANGE, EQC and the
 *_RESTRICTION types, some of which point at a restriction's filler and repeat no single triple): it is
 tagged with the tag of the node it starts from, and checked against that, never matched to a triple.
@@ -56,8 +61,16 @@ import load_verify as lv
 from shell import Refusal, error_line, q
 
 TAG = lv.MODULE_TAG
-# n10s.onto.import's schema relationships: tagged by the node they start from (module docstring).
-SCHEMA_PREFIX = "n4sch__"
+SEP = lv.N10S_SEP   # n10s's separator; --separator names another when the graph was renamed (load_verify.py)
+
+
+def schema_prefix(sep=None):
+    """What n10s.onto.import's schema relationship types start with: n4sch and the graph's separator.
+    They are tagged by the node they start from (module docstring)."""
+    return "n4sch" + (sep or SEP)
+
+
+SCHEMA_PREFIX = schema_prefix()
 LPG = "https://w3id.org/ontology-to-lpg/module#"
 
 Package = namedtuple("Package", "path ontology version requires graph")
@@ -158,19 +171,21 @@ def expected_tags(packages, inferred=None):
     return nodes, edges
 
 
-def predicate(rel_type, prefixes):
-    """The predicate IRI of a relationship type: SHORTEN's prefix__local expanded, or a schema type."""
-    if rel_type.startswith(SCHEMA_PREFIX):
+def predicate(rel_type, prefixes, sep=None):
+    """The predicate IRI of a relationship type: the prefixed name expanded, or a schema type. The split is
+    at the first separator, which is right because no prefix holds it (build.check_prefixes)."""
+    if rel_type.startswith(schema_prefix(sep)):
         return None
-    prefix, sep, local = rel_type.partition("__")
-    if not sep or prefix not in prefixes:
+    prefix, found, local = rel_type.partition(sep or SEP)
+    if not found or prefix not in prefixes:
         return None
     return prefixes[prefix] + local
 
 
-def compare(graph_nodes, graph_edges, nodes, edges, prefixes):
+def compare(graph_nodes, graph_edges, nodes, edges, prefixes, sep=None):
     """The tag problems of a graph read back as [{uri, tag}] and [{s, t, o, tag}]: counts by kind, and
     up to five examples each, holding IRIs and types only (no property values)."""
+    schema = schema_prefix(sep)
     problems = {"untagged": [], "wrong_tag": [], "not_in_packages": [], "missing_from_graph": [], "parallel": []}
     seen_nodes, seen_edges, seen_rels = set(), set(), set()
     for n in graph_nodes:
@@ -183,10 +198,10 @@ def compare(graph_nodes, graph_edges, nodes, edges, prefixes):
         elif n["tag"] != want:
             problems["wrong_tag"].append(n["uri"])
     for e in graph_edges:
-        schema = e["t"].startswith(SCHEMA_PREFIX)
-        key = (e["s"], predicate(e["t"], prefixes), e["o"])
-        want = nodes.get(e["s"]) if schema else edges.get(key)
-        if not schema:
+        is_schema = e["t"].startswith(schema)
+        key = (e["s"], predicate(e["t"], prefixes, sep), e["o"])
+        want = nodes.get(e["s"]) if is_schema else edges.get(key)
+        if not is_schema:
             seen_edges.add(key)
         label = f"{e['s']} {e['t']} {e['o']}"
         if (e["s"], e["t"], e["o"]) in seen_rels:
@@ -216,15 +231,15 @@ def chunks(rows, size=2000):
         yield rows[i:i + size]
 
 
-def tag(run, nodes, edges, prefixes):
+def tag(run, nodes, edges, prefixes, sep=None):
     graph_nodes, graph_edges = run(NODES), run(EDGES)
     node_rows = [{"uri": n["uri"], "tag": nodes[n["uri"]]} for n in graph_nodes if n["uri"] in nodes]
     edge_rows = []
     for e in graph_edges:
-        if e["t"].startswith(SCHEMA_PREFIX):
+        if e["t"].startswith(schema_prefix(sep)):
             want = nodes.get(e["s"])
         else:
-            want = edges.get((e["s"], predicate(e["t"], prefixes), e["o"]))
+            want = edges.get((e["s"], predicate(e["t"], prefixes, sep), e["o"]))
         if want is not None:
             edge_rows.append({"s": e["s"], "t": e["t"], "o": e["o"], "tag": want})
     for rows in chunks(node_rows):
@@ -234,9 +249,9 @@ def tag(run, nodes, edges, prefixes):
     return len(node_rows), len(edge_rows), len(graph_nodes) - len(node_rows), len(graph_edges) - len(edge_rows)
 
 
-def check(run, nodes, edges, prefixes):
+def check(run, nodes, edges, prefixes, sep=None):
     graph_nodes, graph_edges = run(NODES), run(EDGES)
-    return len(graph_nodes), len(graph_edges), compare(graph_nodes, graph_edges, nodes, edges, prefixes)
+    return len(graph_nodes), len(graph_edges), compare(graph_nodes, graph_edges, nodes, edges, prefixes, sep)
 
 
 def module_rows(packages):
@@ -261,7 +276,7 @@ CLEAR_MODULES = "MATCH (n:Module) DETACH DELETE n"
 
 def options(argv):
     opts, files, i = {"--graph": {}}, [], 0
-    known = {"--config", "--uri", "--env", "--inferred", "--query-timeout"}
+    known = {"--config", "--uri", "--env", "--inferred", "--query-timeout", "--separator"}
     while i < len(argv):
         if argv[i] == "--graph" and i + 1 < len(argv):
             path, sep, iri = argv[i + 1].partition("=")
@@ -306,12 +321,14 @@ def main(argv):
         if command != "modules" and "--config" not in opts:
             raise Refusal("give --config")
         timeout = lv.query_timeout(opts)
+        sep = lv.separator(opts)
         packages = read_packages(files, opts["--graph"])
         inferred = Graph().parse(opts["--inferred"], format="nt") if "--inferred" in opts else None
         prefixes = {}
         if "--config" in opts:
             import build
             prefixes = dict(build.load_config(opts["--config"]).prefixes)
+            build.check_prefixes(prefixes, sep)
         from model_review import connection
         uri, auth, database = connection(opts)
     except (OSError, ValueError) as exc:
@@ -337,14 +354,14 @@ def main(argv):
                 return 0
             nodes, edges = expected_tags(packages, inferred)
             if command == "tag":
-                tagged_nodes, tagged_edges, left_nodes, left_edges = tag(run, nodes, edges, prefixes)
+                tagged_nodes, tagged_edges, left_nodes, left_edges = tag(run, nodes, edges, prefixes, sep)
                 print(f"tagged {q(tagged_nodes)} node(s) and {q(tagged_edges)} relationship(s) with {q(TAG)}")
                 if left_nodes or left_edges:
                     print(f"FAIL {q(left_nodes)} node(s) and {q(left_edges)} relationship(s) match no package triple; "
                           "run check for examples")
                     return 1
                 return 0
-            read_nodes, read_edges, problems = check(run, nodes, edges, prefixes)
+            read_nodes, read_edges, problems = check(run, nodes, edges, prefixes, sep)
     except Exception as exc:  # the driver raises several types; any of them stops the run
         print(f"ERROR {q(error_line('a graph query failed', exc))}", file=sys.stderr)
         return 2

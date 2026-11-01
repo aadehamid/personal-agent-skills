@@ -8,6 +8,7 @@ with its message, so a check that passes vacuously, or fires for the wrong reaso
 No test needs Neo4j or Java.
 """
 import contextlib
+import datetime
 import io
 import json
 import os
@@ -1219,5 +1220,383 @@ class DocsAgreeWithScripts(unittest.TestCase):
         self.assertNotIn("every namespace you own, and every standard namespace", skill_text("SKILL.md"))
         self.assertNotIn("The rules cover every namespace you own**", skill_text("references", "versions.md"))
 
+    def test_the_separator_is_in_the_report_template_the_field_table_and_every_command_that_takes_it(self):
+        with open(os.path.join(TEMPLATES, "projection-report.json"), encoding="utf-8") as f:
+            template = json.load(f)
+        self.assertEqual((template["separator"], template["renamed"], template["rename_lossless"]), (lv.N10S_SEP, {}, True))
+        running = skill_text("references", "running.md")
+        self.assertIn("| `separator`, `renamed`, `rename_lossless` |", running)
+        self.assertIn("`rename_lossless: true`", running)
+        self.assertIn("| `separator` | `load`, `review`, `tags`, `graph-type`, `copy`, `explore`, `rebuild`, optional |",
+                      skill_text("references", "run-config.md"))
+        self.assertIn("apoc.periodic.iterate", skill_text("references", "pipeline.md"))
+        for script in ("load_verify.py", "model_review.py", "module_tags.py", "explore.py", "build.py"):
+            self.assertIn("--separator", skill_text("scripts", script).split('"""')[1], script)   # the docstring
+        add_ons = skill_text("references", "add-ons.md")
+        self.assertIn("It takes no `--separator`", add_ons)                        # copy_graph.py, add-on I
+        self.assertIn("`copy_graph.py` takes none", skill_text("references", "pipeline.md"))
+        self.assertNotIn("copy_graph.py --separator", add_ons)
+        for command in ("module_tags.py tag --config", "module_tags.py modules (--uri", "explore.py walk --config",
+                        "build.py graph-type --config", "build.py data-model --config",
+                        "model_review.py --env <target.env>"):
+            lines = [ln for ln in add_ons.splitlines() if command in ln]
+            self.assertTrue(lines and all("--separator" in ln for ln in lines), command)
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class GraphResult:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def data(self):
+        return [dict(r) for r in self.rows]
+
+    def single(self):
+        return self.rows[0] if self.rows else None
+
+    def value(self):
+        return [next(iter(r.values())) for r in self.rows]
+
+    def consume(self):
+        return None
+
+
+class FakeGraph:
+    """A session over an in-memory graph: it answers names_in_use, dump, wipe and the four APOC renames,
+    records each rename, and can fail one of them (fail: raise, or report a failed batch), fail any one
+    query (fail_query), damage the graph after a rename (damage: a function of the graph) or refuse the
+    first wipe_fails wipes. It is its own context manager and driver (session()), for the fresh-session
+    retry of the wipe."""
+
+    def __init__(self, nodes, edges, fail=None, failed_batch=None, damage=None, fail_query=None, wipe_fails=0):
+        self.nodes = [{"id": n["id"], "labels": list(n["labels"]), "props": dict(n["props"])} for n in nodes]
+        self.edges = [{"s": e["s"], "t": e["t"], "o": e["o"], "props": dict(e["props"])} for e in edges]
+        self.fail, self.failed_batch, self.damage, self.fail_query = fail, failed_batch, damage, fail_query
+        self.wipe_fails, self.wipe_attempts, self.sessions = wipe_fails, 0, 0
+        self.calls, self.wiped = [], False
+
+    def session(self):
+        self.sessions += 1
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def run(self, query, **params):
+        query = getattr(query, "text", query)   # the driver's neo4j.Query, when the driver is installed
+        if query == self.fail_query:
+            raise RuntimeError("the connection dropped")
+        if query == lv.NAMES_IN_USE["labels"]:
+            return GraphResult([{"l": sorted({lb for n in self.nodes for lb in n["labels"]})}])
+        if query == lv.NAMES_IN_USE["rels"]:
+            return GraphResult([{"l": sorted({e["t"] for e in self.edges})}])
+        if query == lv.NAMES_IN_USE["node_keys"]:
+            return GraphResult([{"l": sorted({k for n in self.nodes for k in n["props"]})}])
+        if query == lv.NAMES_IN_USE["rel_keys"]:
+            return GraphResult([{"l": sorted({k for e in self.edges for k in e["props"]})}])
+        if query == lv.DUMP_NODES:
+            return GraphResult(self.nodes)
+        if query == lv.DUMP_EDGES:
+            return GraphResult(self.edges)
+        if query.startswith("CALL apoc.refactor.rename."):
+            procedure = query.split("(")[0][len("CALL "):]
+            old, new = params["o"], params["n"]
+            self.calls.append((procedure, old, new))
+            if procedure == self.fail:
+                raise RuntimeError("the connection dropped")
+            if procedure == self.failed_batch:
+                return GraphResult([{"failedOperations": 1, "errorMessages": {"deadlock": 1}}])
+            self.rename(procedure, old, new)
+            if self.damage and procedure == self.damage[0]:   # once, after the first call of that procedure
+                self.damage[1](self)
+                self.damage = None
+            return GraphResult([{"failedOperations": 0, "errorMessages": {}}])
+        if "DETACH DELETE" in query:
+            self.wipe_attempts += 1
+            if self.wipe_attempts <= self.wipe_fails:
+                raise RuntimeError("the connection dropped")
+            self.wiped, self.nodes, self.edges = True, [], []
+            return GraphResult([])
+        if "SHOW CONSTRAINTS YIELD name RETURN name" in query:
+            return GraphResult([])
+        if "count(n) AS n" in query or "count(*) AS n" in query:
+            return GraphResult([{"n": 0}])
+        raise AssertionError("unexpected statement " + query)
+
+    def rename(self, procedure, old, new):
+        if procedure == "apoc.refactor.rename.label":
+            for n in self.nodes:
+                n["labels"] = [new if lb == old else lb for lb in n["labels"]]
+        elif procedure == "apoc.refactor.rename.type":
+            # as APOC does: a new relationship with the properties, the old one deleted
+            self.edges = [dict(e, t=new) if e["t"] == old else e for e in self.edges]
+        elif procedure == "apoc.refactor.rename.nodeProperty":
+            for n in self.nodes:
+                if old in n["props"]:
+                    n["props"][new] = n["props"].pop(old)
+        elif procedure == "apoc.refactor.rename.typeProperty":
+            for e in self.edges:
+                if old in e["props"]:
+                    e["props"][new] = e["props"].pop(old)
+
+
+S = lv.N10S_SEP
+# Resource nodes with prefixed labels and keys, one of n10s's configuration nodes (no Resource label, its
+# own prefixed label and key), a relationship between a Resource and that node, a typed value, and two
+# relationships alike in ends, type and properties.
+NODES = [{"id": "4:a:0", "labels": ["Resource", "lib" + S + "Work"], "props": {"uri": "u", "lib" + S + "title": "t", "lib" + S + "on": datetime.date(2020, 1, 1)}},
+         {"id": "4:a:1", "labels": ["Resource", "lib" + S + "Person"], "props": {"uri": "v", "lib" + S + "name": "n"}},
+         {"id": "4:a:2", "labels": ["_GraphConfig", "cfg" + S + "Thing"], "props": {"_handleVocabUris": "SHORTEN", "cfg" + S + "key": 1}}]
+EDGES = [{"s": "4:a:0", "t": "lib" + S + "createdBy", "o": "4:a:1", "props": {"uri": "e", "lib" + S + "since": 2}},
+         {"s": "4:a:0", "t": "lib" + S + "createdBy", "o": "4:a:1", "props": {"uri": "e", "lib" + S + "since": 2}},
+         {"s": "4:a:1", "t": "lib" + S + "uses", "o": "4:a:2", "props": {}},
+         {"s": "4:a:0", "t": "n4sch" + S + "SCO", "o": "4:a:1", "props": {}}]
+
+
+def graph(**change):
+    return FakeGraph(NODES, EDGES, **change)
+
+
+class Separator(unittest.TestCase):
+    """The separator: n10s's two underscores by default; another value renames after the checks, and the
+    rename is proven lossless on a dump of the whole graph or the run fails with the graph emptied."""
+
+    def test_the_plan_renames_every_prefixed_name_of_each_kind_and_nothing_else(self):
+        plan = lv.rename_plan(lv.names_in_use(graph()), "_")
+        self.assertEqual(plan, {"labels": {"cfg" + S + "Thing": "cfg_Thing", "lib" + S + "Person": "lib_Person", "lib" + S + "Work": "lib_Work"},
+                                "rels": {"lib" + S + "createdBy": "lib_createdBy", "lib" + S + "uses": "lib_uses", "n4sch" + S + "SCO": "n4sch_SCO"},
+                                "node_keys": {"cfg" + S + "key": "cfg_key", "lib" + S + "name": "lib_name", "lib" + S + "on": "lib_on",
+                                              "lib" + S + "title": "lib_title"},
+                                "rel_keys": {"lib" + S + "since": "lib_since"}})
+
+    def test_a_collision_of_either_kind_stops_the_rename_in_every_name_kind(self):
+        empty = {k: [] for k in lv.RENAME_KINDS}
+        for kind in lv.RENAME_KINDS:
+            for names in (["lib" + S + "Work", "lib_Work"],            # the new name is already in use
+                          ["a" + S + "b_c", "a_b" + S + "c"]):          # two old names would become one
+                with self.subTest(kind=kind, names=names), self.assertRaisesRegex(lv.Failed, kind):
+                    lv.rename_plan({**empty, kind: names}, "_")
+            with self.subTest(kind=kind, names="no collision"):
+                lv.rename_plan({**empty, kind: ["lib" + S + "Work", "lib" + S + "Copy"]}, "_")
+
+    def test_the_rename_runs_the_four_procedures_in_order_per_entity_kind_and_is_lossless(self):
+        g = graph()
+        renamed = lv.rename_separator(g, "_")
+        self.assertEqual(renamed, {"labels": 3, "rels": 3, "node_keys": 4, "rel_keys": 1, "keys": 5})
+        procedures = [c[0] for c in g.calls]
+        self.assertEqual(procedures, ["apoc.refactor.rename.label"] * 3 + ["apoc.refactor.rename.type"] * 3
+                         + ["apoc.refactor.rename.nodeProperty"] * 4 + ["apoc.refactor.rename.typeProperty"])
+        # a key is renamed with the procedure of the entity kind that holds it, never with both
+        self.assertIn(("apoc.refactor.rename.nodeProperty", "lib" + S + "title", "lib_title"), g.calls)
+        self.assertNotIn(("apoc.refactor.rename.typeProperty", "lib" + S + "title", "lib_title"), g.calls)
+        self.assertIn(("apoc.refactor.rename.typeProperty", "lib" + S + "since", "lib_since"), g.calls)
+        self.assertNotIn(("apoc.refactor.rename.nodeProperty", "lib" + S + "since", "lib_since"), g.calls)
+        self.assertFalse(g.wiped)
+        self.assertEqual(sorted(g.nodes[2]["labels"]), ["_GraphConfig", "cfg_Thing"])
+        self.assertEqual(g.nodes[0]["props"]["lib_on"], datetime.date(2020, 1, 1))
+        self.assertEqual(sorted(e["t"] for e in g.edges), ["lib_createdBy", "lib_createdBy", "lib_uses", "n4sch_SCO"])
+
+    def test_the_dump_covers_every_node_and_relationship_in_a_total_order(self):
+        nodes, edges = lv.dump(graph())
+        self.assertEqual([n["id"] for n in nodes], ["4:a:0", "4:a:1", "4:a:2"])
+        self.assertEqual(len(edges), 4)
+        self.assertEqual(nodes[0]["props"]["lib" + S + "on"], {"type": "datetime.date", "value": "2020-01-01"})
+        self.assertEqual(edges, sorted(edges, key=lv._row_key))
+        # two relationships alike in every field are two rows, so losing one shows
+        self.assertEqual(lv.dump_differences((nodes, edges), (nodes, edges[1:])), (0, 0, 1, 0))
+        self.assertEqual(lv.dump_differences((nodes, edges), (nodes[1:], edges)), (1, 0, 0, 0))
+        changed = [dict(nodes[0], labels=["Resource"])] + nodes[1:]
+        self.assertEqual(lv.dump_differences((nodes, edges), (changed, edges)), (1, 1, 0, 0))
+
+    def test_the_expected_dump_applies_the_plan_per_kind(self):
+        g = graph()
+        plan = lv.rename_plan(lv.names_in_use(g), "_")
+        expected = lv.apply_plan(*lv.dump(g), plan)
+        lv.rename_separator(g, "_")
+        self.assertEqual(expected, lv.dump(g))
+        self.assertEqual(expected[0][2]["labels"], ["_GraphConfig", "cfg_Thing"])
+        self.assertEqual(expected[1][0]["props"], {"lib_since": 2, "uri": "e"})
+
+    def test_a_relationship_lost_in_the_rename_fails_closed_and_empties_the_graph(self):
+        g = graph(damage=("apoc.refactor.rename.type", lambda f: f.edges.pop(0)))
+        with self.assertRaisesRegex(lv.Failed, r"not lossless: of the expected rows, 0 node and 1 relationship row\(s\) are "
+                                               r"missing, and 0 node and 0 relationship.*the graph was emptied"):
+            lv.rename_separator(g, "_")
+        self.assertTrue(g.wiped)
+
+    def test_a_date_turned_into_its_text_is_not_lossless(self):
+        def to_text(f):
+            f.nodes[0]["props"]["lib_on"] = "2020-01-01"
+        g = graph(damage=("apoc.refactor.rename.typeProperty", to_text))   # after every key is renamed
+        with self.assertRaisesRegex(lv.Failed, r"not lossless: of the expected rows, 1 node and 0 relationship row\(s\) are "
+                                               r"missing, and 1 node and 0 relationship"):
+            lv.rename_separator(g, "_")
+        self.assertTrue(g.wiped)
+
+    def test_a_property_dropped_from_a_configuration_node_is_not_lossless(self):
+        def drop(f):
+            f.nodes[2]["props"].pop("_handleVocabUris")
+        g = graph(damage=("apoc.refactor.rename.label", drop))
+        with self.assertRaisesRegex(lv.Failed, "not lossless"):
+            lv.rename_separator(g, "_")
+
+    def test_a_batch_apoc_reports_as_failed_fails_closed(self):
+        g = graph(failed_batch="apoc.refactor.rename.type")
+        with self.assertRaisesRegex(lv.Failed, r"apoc\.refactor\.rename\.type failed 1 operation.*the graph was emptied"):
+            lv.rename_separator(g, "_")
+        self.assertTrue(g.wiped)
+
+    def test_a_driver_error_part_way_fails_closed_and_empties_the_graph(self):
+        g = graph(fail="apoc.refactor.rename.nodeProperty")
+        with self.assertRaisesRegex(lv.Failed, r"stopped part-way \(RuntimeError\); the graph was emptied"):
+            lv.rename_separator(g, "_")
+        self.assertTrue(g.wiped)
+        self.assertEqual([c[0] for c in g.calls][-1], "apoc.refactor.rename.nodeProperty")
+
+    def test_every_failure_of_the_stage_empties_the_graph_the_plan_and_the_first_dump_included(self):
+        colliding = FakeGraph(NODES + [{"id": "4:a:3", "labels": ["lib_Work"], "props": {}}], EDGES)
+        with self.assertRaisesRegex(lv.Failed, "collides in labels.*the graph was emptied"):
+            lv.rename_separator(colliding, "_")
+        self.assertTrue(colliding.wiped)
+        self.assertEqual(colliding.calls, [])
+        for query, name in ((lv.NAMES_IN_USE["rels"], "a names query"), (lv.DUMP_NODES, "the first dump")):
+            g = graph(fail_query=query)
+            with self.subTest(name), self.assertRaisesRegex(lv.Failed, r"stopped part-way \(RuntimeError\); the graph was emptied"):
+                lv.rename_separator(g, "_")
+            self.assertTrue(g.wiped)
+            self.assertEqual(g.calls, [])
+        g = graph()
+        with self.assertRaisesRegex(lv.Failed, "the shuffled load renamed a different set of names.*the graph was emptied"):
+            lv.rename_separator(g, "_", expected={"labels": 0, "rels": 0, "node_keys": 0, "rel_keys": 0, "keys": 0})
+        self.assertTrue(g.wiped)
+
+    def test_a_failed_wipe_is_retried_in_a_fresh_session_and_a_second_failure_is_said(self):
+        g = graph(failed_batch="apoc.refactor.rename.type", wipe_fails=1)
+        with self.assertRaisesRegex(lv.Failed, "failed 1 operation.*; the graph was emptied"):
+            lv.rename_separator(g, "_", fresh_session=g.session, timeout=5)
+        self.assertTrue(g.wiped)
+        self.assertEqual((g.wipe_attempts, g.sessions), (2, 1))
+        g = graph(failed_batch="apoc.refactor.rename.type", wipe_fails=2)
+        with self.assertRaisesRegex(lv.Failed, "the graph was NOT emptied and holds an unverified, part-renamed load: "
+                                               "run MATCH \(n\) DETACH DELETE n on it, or rerun this command"):
+            lv.rename_separator(g, "_", fresh_session=g.session, timeout=5)
+        self.assertFalse(g.wiped)
+        self.assertEqual((g.wipe_attempts, g.sessions), (2, 1))
+        # without a fresh session there is one attempt
+        g = graph(failed_batch="apoc.refactor.rename.type", wipe_fails=1)
+        with self.assertRaisesRegex(lv.Failed, "NOT emptied"):
+            lv.rename_separator(g, "_")
+        self.assertEqual(g.wipe_attempts, 1)
+
+    def test_the_option_takes_underscores_only(self):
+        self.assertEqual(lv.separator({}), lv.N10S_SEP)
+        self.assertEqual(lv.separator({"--separator": "_"}), "_")
+        self.assertEqual(lv.separator({"--separator": "___"}), "___")
+        for bad in ("", "-", "x", "_x", None, 1):
+            with self.subTest(bad=bad), self.assertRaises(lv.Refusal):
+                lv.separator({"--separator": bad})
+
+    def test_a_prefix_holding_the_separator_or_n10s_delimiter_is_refused_before_anything_loads(self):
+        prefixes = {"lib": "https://example.org/lib/", "my_ns": "https://example.org/my/"}
+        self.assertEqual(build.prefixes_holding(prefixes, "_"), ["my_ns"])
+        self.assertEqual(build.prefixes_holding(prefixes, lv.N10S_SEP), [])
+        # a longer separator: a prefix holding n10s's delimiter would be renamed inside (my__ns__x -> my___ns__x)
+        double = {"lib": "https://example.org/lib/", "my__ns": "https://example.org/my/"}
+        self.assertEqual(build.prefixes_holding(double, "___"), ["my__ns"])
+        self.assertEqual(build.prefixes_holding(double, "_"), ["my__ns"])
+        self.assertEqual(build.prefixes_holding(double, lv.N10S_SEP), [])
+        self.assertEqual(build.prefixes_holding(prefixes, "___"), [])
+        with self.assertRaises(lv.Refusal):
+            build.check_prefixes(double, "___")
+        with self.assertRaisesRegex(lv.Refusal, "inside 1 of the configured prefixes") as caught:
+            build.check_prefixes(prefixes, "_")
+        self.assertNotIn("my_ns", str(caught.exception))   # a configured value is counted, never printed
+        build.check_prefixes(prefixes, lv.N10S_SEP)
+        build.check_prefixes({"lib": "https://example.org/lib/"}, "_")
+
+    def test_passed_needs_a_lossless_rename(self):
+        report = {"shacl_violations_in_graph": 0, "in_graph_mutant_violations": 1, "mutant": {"after_restore": 0},
+                  "roundtrip_lost": 0, "roundtrip_added": 0, "determinism_hash_sorted": "h", "determinism_hash_shuffled": "h",
+                  "fail_cases": []}
+        self.assertTrue(lv.passed(report))                                                 # before the field existed
+        self.assertTrue(lv.passed({**report, "separator": S, "rename_lossless": True}))
+        self.assertTrue(lv.passed({**report, "separator": "_", "rename_lossless": True}))
+        self.assertFalse(lv.passed({**report, "rename_lossless": False}))
+        self.assertFalse(lv.passed({**report, "separator": "_"}))                          # renamed, no proof
+        self.assertFalse(lv.passed({**report, "separator": "_", "rename_lossless": "yes"}))
+
+    def test_the_artifacts_name_the_kept_graph_and_the_load_script_keeps_n10s_names(self):
+        cfg, shp, data = config(), shapes(), module()
+        statement, _ = build.graph_type(cfg, shp, data, "_")
+        self.assertIn("(:`lib_Person` => {`lib_name` :: STRING NOT NULL})", statement)
+        self.assertIn("(:`lib_Copy`)-[:`lib_copyOf` =>]->(:`lib_Work`)", statement)
+        self.assertNotIn(S, statement)
+        model = build.data_model(cfg, shp, data, "_")
+        self.assertEqual([n["label"] for n in model["nodes"]], ["lib_Authorship", "lib_Copy", "lib_Person", "lib_Work"])
+        self.assertEqual(model["relationships"][0], {"type": "lib_authorshipAgent", "start_node_label": "lib_Authorship",
+                                                     "end_node_label": "lib_Person"})
+        self.assertIn("n.`lib" + S + "altTitle`", build.cypher(cfg, data, shp))   # n10s reads this one
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "graph-type.cypher")
+            code, printed = run_main(build.main, ["graph-type", "--config", CONFIG, "--shapes", SHAPES, "--output", out,
+                                                  "--separator", "_", MODULE])
+            self.assertEqual(code, 0, printed)
+            with open(out, encoding="utf-8") as f:
+                self.assertIn("`lib_Copy`", f.read())
+            model_out = os.path.join(tmp, "data-model.json")
+            code, printed = run_main(build.main, ["data-model", "--config", CONFIG, "--shapes", SHAPES, "--output", model_out,
+                                                  "--separator", "_", MODULE])
+            self.assertEqual(code, 0, printed)
+            with open(model_out, encoding="utf-8") as f:
+                self.assertEqual(json.load(f)["nodes"][0]["label"], "lib_Authorship")
+            for command in ("graph-type", "data-model"):
+                code, printed = run_main(build.main, [command, "--config", CONFIG, "--shapes", SHAPES, "--output", out,
+                                                      "--separator", "x", MODULE])
+                self.assertEqual(code, 2, printed)
+            # a prefix the rename could not handle is refused by both commands, as the load refuses it, and nothing is written
+            raw = raw_config()
+            raw["prefixes"]["my_ns"] = "https://example.org/my-ns/"
+            clashing = os.path.join(tmp, "config.json")
+            with open(clashing, "w", encoding="utf-8") as f:
+                json.dump(raw, f)
+            for command in ("graph-type", "data-model"):
+                target = os.path.join(tmp, command + ".out")
+                code, printed = run_main(build.main, [command, "--config", clashing, "--shapes", SHAPES, "--output", target,
+                                                      "--separator", "_", MODULE])
+                self.assertEqual(code, 2, printed)
+                self.assertIn("inside 1 of the configured prefixes", printed)
+                self.assertNotIn("my_ns", printed)
+                self.assertFalse(os.path.exists(target))
+                code, printed = run_main(build.main, [command, "--config", clashing, "--shapes", SHAPES, "--output", target, MODULE])
+                self.assertEqual(code, 0, printed)   # n10s's own separator renames nothing
+
+    def test_the_producer_and_every_consumer_apply_one_proof_rule(self):
+        report = {"shacl_violations_in_graph": 0, "in_graph_mutant_violations": 1, "mutant": {"violations": 1, "after_restore": 0},
+                  "roundtrip_lost": 0, "roundtrip_added": 0, "determinism_hash_sorted": "h", "determinism_hash_shuffled": "h",
+                  "fail_cases": [], "in_graph_shape_constraints": 1, "shapes_import_rows": 1, "passed": True,
+                  "compiled": [{"target": "T", "path": "p", "param": "sh:minCount", "value": 1}]}
+        report["fail_cases"] = [dict(report["compiled"][0], status="passed")]
+        self.assertTrue(lv.passed(report))
+        self.assertEqual(build.report_earned(report), [])
+        for change in ({"renamed": {"labels": 1}},                                   # counts, no proof, no separator
+                       {"renamed": {"labels": 1}, "separator": lv.N10S_SEP},
+                       {"separator": "x", "rename_lossless": True},                   # not underscores
+                       {"separator": "", "rename_lossless": True},
+                       {"renamed": {"labels": "1"}, "rename_lossless": True},         # not counts
+                       {"renamed": [1], "rename_lossless": True},
+                       {"separator": "_"}, {"rename_lossless": False}):
+            with self.subTest(change=change):
+                self.assertFalse(lv.passed({**report, **change}))
+                self.assertTrue(build.report_earned({**report, **change}))
+        for change in ({"renamed": {}}, {"renamed": {"labels": 0, "keys": 0}},
+                       {"separator": "_", "renamed": {"labels": 1, "keys": 1}, "rename_lossless": True}):
+            with self.subTest(change=change):
+                self.assertTrue(lv.passed({**report, **change}))
+                self.assertEqual(build.report_earned({**report, **change}), [])
+        with self.assertRaises(lv.Refusal):   # run() itself applies the rule, for a caller that skips main()
+            lv.run(None, None, [], [], "", "", "", "", sep="x")

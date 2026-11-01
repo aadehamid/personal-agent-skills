@@ -6,18 +6,21 @@ a style or convention point).
 
 Run after step 6 (or after a copy, add-on I), against any Neo4j:
     NEO4J_PASSWORD=... uv run --no-project --with rdflib --with neo4j python3 model_review.py \
-        --uri bolt://127.0.0.1:<port> [--report model-review.json] [options]
+        --uri bolt://127.0.0.1:<port> [--report model-review.json] [--separator _] [options]
     uv run --no-project --with rdflib --with neo4j python3 model_review.py --env <target.env> [...]
 
 --env names a file of NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD and optionally NEO4J_DATABASE (the
 format copy_graph.py reads). An error prints a fixed context and the exception's type, never its
-text (shell.error_line), so no password or credential-bearing URI is printed.
+text (shell.error_line), so no password or credential-bearing URI is printed. --separator (underscores
+only) is what the graph puts between a prefix and a local name: n10s's two underscores unless the load
+renamed the names (load_verify.py --separator); give the same value here, or every local name and the
+schema labels are read wrongly.
 
 The rules, from the skill, each one finding per offender:
   missing-key-constraint  ERROR    no uniqueness or node-key constraint on --key-label(--key-property),
                                    by default n10s's Resource(uri) (default 4: every node type used in
                                    MERGE has one; the table: "Duplicate nodes silently created")
-  generic-label           WARNING  a label whose local name (after the SHORTEN "prefix__") is Entity,
+  generic-label           WARNING  a label whose local name (after the prefix and the separator) is Entity,
                                    Node or Thing (default 6 and the table: no filtering benefit)
   generic-type            WARNING  a relationship type whose local name is RELATED_TO, HAS or
                                    CONNECTED_TO, in any case, with or without "_" or "-"
@@ -32,7 +35,7 @@ and one local heuristic, not from the skill (design-rules.md says why):
                                    property stated both ways
 
 Degree is total degree, both directions. Only domain labels count: n10s's own (Resource, the
-configuration labels, n4sch__*) are left out before any degree rule, and a node with no domain label
+configuration labels, the n4sch schema labels under the graph's separator) are left out before any degree rule, and a node with no domain label
 is not reviewed. Medians, offenders and reciprocal pairs are computed in Cypher, so only label
 statistics, offenders and reciprocal pairs (each at most --limit, default 100) come back. Every statement carries a
 server-side timeout, --query-timeout seconds (default 120).
@@ -52,7 +55,8 @@ SKIPPED_LABELS = ["Resource", "_GraphConfig", "_NsPrefDef", "_n10sValidatorConfi
 GENERIC_LABELS = {"entity", "node", "thing"}
 GENERIC_TYPES = {"relatedto", "has", "connectedto"}
 
-DOMAIN = "[l IN labels(n) WHERE NOT l IN $skipped AND NOT l STARTS WITH 'n4sch__']"
+# $schema_prefix is n4sch plus the graph's separator: the schema labels n10s.onto.import writes.
+DOMAIN = "[l IN labels(n) WHERE NOT l IN $skipped AND NOT l STARTS WITH $schema_prefix]"
 LABELS = "CALL db.labels() YIELD label RETURN label"
 TYPES = "CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType AS type"
 CONSTRAINTS = ("SHOW CONSTRAINTS YIELD type, entityType, labelsOrTypes, properties "
@@ -80,18 +84,25 @@ RECIPROCAL = ("MATCH (a)-[r]->(b) "
               "RETURN t AS type, x AS a, y AS b ORDER BY type, a, b LIMIT $limit")
 
 
-def local(name):
-    """The local part of a SHORTEN name (lib__Work -> Work), squashed for comparison."""
-    return name.split("__", 1)[-1].replace("_", "").replace("-", "").lower()
+SEP = lv.N10S_SEP   # n10s's separator; --separator names another when the graph was renamed (load_verify.py)
+
+
+def local(name, sep=None):
+    """The local part of a prefixed name (prefix, separator, Work -> work), squashed for comparison."""
+    return name.split(sep or SEP, 1)[-1].replace("_", "").replace("-", "").lower()
 
 
 def finding(severity, rule, message):
     return {"severity": severity, "rule": rule, "message": message}
 
 
-def review(run, key_label="Resource", key_property="uri", max_degree=100000, factor=10, min_degree=50, limit=100):
+def review(run, key_label="Resource", key_property="uri", max_degree=100000, factor=10, min_degree=50, limit=100,
+           sep=None):
     """(findings most severe first, whether the offender list reached limit) for the graph behind
-    run(statement, **parameters) -> list of row dicts."""
+    run(statement, **parameters) -> list of row dicts. sep is the graph's separator (SEP unless given):
+    it splits each local name and names the schema labels every Cypher analysis leaves out."""
+    sep = sep or SEP
+    schema = "n4sch" + sep
     found = []
     unique = [c for c in run(CONSTRAINTS)
               if c.get("type") in ("UNIQUENESS", "NODE_KEY") and c.get("entityType", "NODE") == "NODE"
@@ -102,14 +113,14 @@ def review(run, key_label="Resource", key_property="uri", max_degree=100000, fac
                              f"add CREATE CONSTRAINT IF NOT EXISTS FOR (n:{key_label}) REQUIRE n.{key_property} IS UNIQUE"))
     for row in run(LABELS):
         label = row["label"]
-        if label not in SKIPPED_LABELS and not label.startswith("n4sch__") and local(label) in GENERIC_LABELS:
+        if label not in SKIPPED_LABELS and not label.startswith(schema) and local(label, sep) in GENERIC_LABELS:
             found.append(finding("WARNING", "generic-label", f"label {label} is generic; use the domain class"))
     for row in run(TYPES):
-        if local(row["type"]) in GENERIC_TYPES:
+        if local(row["type"], sep) in GENERIC_TYPES:
             found.append(finding("WARNING", "generic-type",
                                  f"relationship type {row['type']} is generic; use the domain property"))
-    medians = {row["label"]: row["median"] for row in run(LABEL_MEDIANS, skipped=SKIPPED_LABELS)}
-    offenders = run(OFFENDERS, skipped=SKIPPED_LABELS, max_degree=max_degree, min_degree=min_degree,
+    medians = {row["label"]: row["median"] for row in run(LABEL_MEDIANS, skipped=SKIPPED_LABELS, schema_prefix=schema)}
+    offenders = run(OFFENDERS, skipped=SKIPPED_LABELS, schema_prefix=schema, max_degree=max_degree, min_degree=min_degree,
                     factor=factor, medians=medians, limit=limit)
     for row in offenders:
         who = row.get("uri") or ":".join(row["labels"])
@@ -120,7 +131,7 @@ def review(run, key_label="Resource", key_property="uri", max_degree=100000, fac
         found.append(finding("WARNING", "supernode-candidate",
                              f"{who} has {row['degree']} relationships, {factor}x or more the median "
                              f"{medians[label]:g} of {label}"))
-    for row in run(RECIPROCAL, skipped=SKIPPED_LABELS, limit=limit):
+    for row in run(RECIPROCAL, skipped=SKIPPED_LABELS, schema_prefix=schema, limit=limit):
         found.append(finding("INFO", "reciprocal-type",
                              f"{row['type']} runs from {row['a']} to {row['b']} and from {row['b']} to {row['a']}; "
                              "check whether the ontology states one property both ways (local heuristic)"))
@@ -130,7 +141,7 @@ def review(run, key_label="Resource", key_property="uri", max_degree=100000, fac
 
 def options(argv):
     opts, numbers = {}, {"--max-degree": 100000, "--factor": 10, "--min-degree": 50, "--limit": 100}
-    known = {"--uri", "--env", "--report", "--key-label", "--key-property", "--query-timeout", *numbers}
+    known = {"--uri", "--env", "--report", "--key-label", "--key-property", "--query-timeout", "--separator", *numbers}
     i = 0
     while i < len(argv):
         flag = argv[i]
@@ -183,6 +194,7 @@ def main(argv):
     try:
         opts, numbers = options(argv)
         uri, auth, database = connection(opts)
+        sep = lv.separator(opts)
     except (OSError, ValueError) as exc:
         print(f"ERROR {q(error_line('the arguments or the --env file could not be read', exc))}", file=sys.stderr)
         return 2
@@ -194,7 +206,7 @@ def main(argv):
                                    key_label=opts.get("--key-label", "Resource"),
                                    key_property=opts.get("--key-property", "uri"), max_degree=numbers["--max-degree"],
                                    factor=numbers["--factor"], min_degree=numbers["--min-degree"],
-                                   limit=numbers["--limit"])
+                                   limit=numbers["--limit"], sep=sep)
     except Exception as exc:  # the driver raises several types; any of them stops the review
         print(f"ERROR {q(error_line('the review query failed', exc))}", file=sys.stderr)
         return 2

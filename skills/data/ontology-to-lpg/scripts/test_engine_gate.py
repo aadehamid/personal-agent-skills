@@ -311,8 +311,9 @@ class FailClosedReport(unittest.TestCase):
                 "--merged", MODULE, "--loadable", MODULE, "--inferred", MODULE, "--report", self.path, *extra, MODULE]
         patch = mock.patch.object(lv, "run", side_effect=run_error) if run_error else \
             mock.patch.object(lv, "run", return_value=run_result)
+        self.neo4j = mock.MagicMock()
         with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "x"}), \
-                mock.patch.dict(sys.modules, {"neo4j": mock.MagicMock()}), patch as run:
+                mock.patch.dict(sys.modules, {"neo4j": self.neo4j}), patch as run:
             code, out = run_main(lv.main, args)
         return code, out, run
 
@@ -333,6 +334,45 @@ class FailClosedReport(unittest.TestCase):
         code, out, _ = self.main(run_error=OSError("connection refused"))
         self.assertEqual(code, 1, out)
         self.assertFalse(os.path.exists(self.path))
+
+    def test_a_bad_separator_is_bad_input_before_any_driver(self):
+        code, out, run = self.main(run_result=self.report(True), extra=["--separator", "x"])
+        self.assertEqual(code, 2, out)
+        self.assertIn("underscores only", out)
+        self.assertFalse(os.path.exists(self.path))
+        self.assertFalse(os.path.exists(self.path + ".failed"))
+        run.assert_not_called()
+        self.neo4j.GraphDatabase.driver.assert_not_called()
+
+    def test_a_prefix_holding_the_separator_is_refused_before_any_driver(self):
+        with open(CONFIG, encoding="utf-8") as f:
+            raw = json.load(f)
+        raw["prefixes"]["my_ns"] = "https://example.org/my-ns/"
+        config = os.path.join(self.tmp, "config.json")
+        with open(config, "w", encoding="utf-8") as f:
+            json.dump(raw, f)
+        args = ["--config", config, "--shapes", SHAPES, "--bolt", "bolt://127.0.0.1:1", "--import-dir", self.tmp,
+                "--merged", MODULE, "--loadable", MODULE, "--inferred", MODULE, "--report", self.path, MODULE]
+        neo4j = mock.MagicMock()
+        with mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "x"}), \
+                mock.patch.dict(sys.modules, {"neo4j": neo4j}), mock.patch.object(lv, "run") as run:
+            code, out = run_main(lv.main, args + ["--separator", "_"])
+            self.assertEqual(code, 2, out)
+            self.assertIn("inside 1 of the configured prefixes", out)
+            self.assertNotIn("my_ns", out)
+            run.assert_not_called()
+            neo4j.GraphDatabase.driver.assert_not_called()
+            # n10s's own separator renames nothing, so the same prefix is fine
+            run.return_value = self.report(True)
+            code, out = run_main(lv.main, args)
+            self.assertEqual(code, 0, out)
+
+    def test_the_separator_reaches_run(self):
+        import inspect
+        code, out, run = self.main(run_result=self.report(True), extra=["--separator", "_"])
+        self.assertEqual(code, 0, out)
+        bound = inspect.signature(lv.run).bind(*run.call_args.args, **run.call_args.kwargs)
+        self.assertEqual(bound.arguments["sep"], "_")
 
     def test_a_failed_check_writes_only_the_failed_file(self):
         code, out, _ = self.main(run_result=self.report(False))
@@ -448,8 +488,35 @@ class CopyGraph(unittest.TestCase):
         copy.assert_not_called()
         self.assertIsNotNone(session)
 
+    def test_refuses_a_report_whose_rename_was_not_proven_lossless(self):
+        path = self.env("NEO4J_URI=bolt://h\nNEO4J_USERNAME=neo4j\nNEO4J_PASSWORD=s3cret\n")
+        fake = mock.MagicMock()
+        for change in ({"separator": "_", "rename_lossless": False}, {"separator": "_"}):
+            with self.subTest(change=change), mock.patch.dict(os.environ, {"NEO4J_PASSWORD": "local"}), \
+                    mock.patch.dict(sys.modules, {"neo4j": fake}), mock.patch.object(cg, "copy") as copy:
+                code, out = run_main(cg.main, ["--source", "bolt://127.0.0.1:1", "--target-env", path,
+                                               "--report", passing_report(self, **change)])
+            self.assertEqual(code, 2, out)
+            self.assertIn("not a verified report", out)
+            copy.assert_not_called()
+            fake.GraphDatabase.driver.assert_not_called()
+
 
 class TripleStore(unittest.TestCase):
+    def test_refuses_a_projection_report_whose_rename_was_not_proven_lossless(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            nt = os.path.join(tmp, "inferred.nt")
+            open(nt, "w").close()
+            for change in ({"separator": "_", "rename_lossless": False}, {"separator": "_"}):
+                with self.subTest(change=change), mock.patch.object(ts.Store, "put_graph") as put:
+                    code, out = run_main(ts.main, ["--gsp", "http://h/ds", "--query", "http://h/q", "--inferred", nt,
+                                                   "--report", os.path.join(tmp, "r.json"),
+                                                   "--projection-report", passing_report(self, **change), MODULE])
+                self.assertEqual(code, 2, out)
+                self.assertIn("not a verified report", out)
+                put.assert_not_called()
+                self.assertFalse(os.path.exists(os.path.join(tmp, "r.json")))
+
     def test_graph_names(self):
         g = Graph()
         g.add((lib("onto"), RDF.type, OWL.Ontology))
@@ -556,6 +623,18 @@ GATE_BREAKS = [
     ("an added triple", {"roundtrip_added": 1}),
     ("two hashes", {"determinism_hash_shuffled": "other"}),
 ]
+# The separator and rename-proof clauses, one rule for the producer and every consumer (build.rename_proof_problems).
+PROOF_BREAKS = [
+    ("a rename not proven lossless", {"separator": "_", "rename_lossless": False}),
+    ("a renamed graph without its proof", {"separator": "_"}),
+    ("a proof that is not the boolean true", {"separator": "_", "rename_lossless": "true"}),
+    ("an unrenamed graph that states a false proof", {"rename_lossless": False}),
+    ("renamed counts without the proof", {"renamed": {"labels": 1}}),
+    ("renamed that is not an object of counts", {"renamed": {"labels": "1"}, "rename_lossless": True}),
+    ("a separator that is not underscores", {"separator": "x", "rename_lossless": True}),
+    ("a separator that is not a string", {"separator": None, "rename_lossless": True}),
+]
+GATE_BREAKS += PROOF_BREAKS
 
 
 class GateClauses(unittest.TestCase):
@@ -563,9 +642,21 @@ class GateClauses(unittest.TestCase):
 
     def test_passed_fails_on_each_clause(self):
         self.assertTrue(lv.passed(dict(GOOD_REPORT)))
+        self.assertTrue(lv.passed(dict(GOOD_REPORT, separator="_", rename_lossless=True)))
         for name, change in GATE_BREAKS:
             with self.subTest(name):
                 self.assertFalse(lv.passed(dict(GOOD_REPORT, **change)))
+
+    def test_report_earned_reads_the_rename_proof_as_load_verify_does(self):
+        good = dict(GOOD_REPORT, in_graph_shape_constraints=3, shapes_import_rows=3, passed=True)
+        self.assertEqual(build.report_earned(good), [])                                            # before the field existed
+        self.assertEqual(build.report_earned(dict(good, separator=lv.N10S_SEP, rename_lossless=True)), [])
+        self.assertEqual(build.report_earned(dict(good, separator="_", rename_lossless=True)), [])
+        for name, change in PROOF_BREAKS:
+            with self.subTest(name):
+                fails = build.report_earned(dict(good, **change))
+                self.assertTrue(any("rename_lossless" in f or "separator" in f or "renamed" in f for f in fails), fails)
+                self.assertEqual(fails, build.rename_proof_problems(dict(good, **change)))
 
     def test_check_report_fails_on_each_field(self):
         man = {"input_fingerprint": "f", "shapes_fingerprint": "s"}
@@ -606,14 +697,63 @@ class FakeResult:
         return None
 
 
-class FakeEngine:
-    """A session that answers run()'s queries from canned rows, keyed by the query text."""
+SEP = lv.N10S_SEP
+# The graph the fake engine holds after a load: one Resource node under n10s's names and one of n10s's
+# own configuration nodes. A wipe empties it and a load fills it again, as the container does.
+LOADED_NODES = [{"id": "4:x:0", "labels": ["Resource", "lib" + SEP + "Work"], "props": {"uri": "u", "lib" + SEP + "title": "t"}},
+                {"id": "4:x:1", "labels": ["_GraphConfig"], "props": {"_handleVocabUris": "SHORTEN"}}]
 
-    def __init__(self, listed, export_rows, fire=True):
-        self.listed, self.export_rows, self.fire = listed, export_rows, fire
+
+class FakeEngine:
+    """A session that answers run()'s queries from canned rows, keyed by the query text, and holds a small
+    graph for the queries that read names, dump the graph, rename it with APOC and hash it. statements
+    records every query in order. damage makes the label rename also drop a property."""
+
+    def __init__(self, listed, export_rows, fire=True, damage=False, second_load_extra=False):
+        self.listed, self.export_rows, self.fire, self.damage = listed, export_rows, fire, damage
+        self.second_load_extra, self.loads = second_load_extra, 0
         self.rollbacks, self.removed = 0, False
+        self.statements, self.nodes = [], []
         self.paths = sorted({LIB + local for local in ("notInTheShape",)} |
                             {str(lv.iri_of(r["path"], cfg())) for r in listed if r["path"]})
+
+    def load_graph(self):
+        self.loads += 1
+        self.nodes = [{"id": n["id"], "labels": list(n["labels"]), "props": dict(n["props"])} for n in LOADED_NODES]
+        if self.second_load_extra and self.loads == 2:   # the shuffled load holds a name the sorted one did not
+            self.nodes.append({"id": "4:x:2", "labels": ["Resource", "lib" + SEP + "Extra"], "props": {"uri": "w"}})
+
+    def resource_rows(self):
+        return [{"uri": n["props"]["uri"], "labels": n["labels"], "props": n["props"]} for n in self.nodes if "Resource" in n["labels"]]
+
+    def graph_query(self, query, params):
+        """The answer to a query about the held graph, or None."""
+        if query == lv.NAMES_IN_USE["labels"]:
+            return [{"l": sorted({lb for n in self.nodes for lb in n["labels"]})}]
+        if query == lv.NAMES_IN_USE["node_keys"]:
+            return [{"l": sorted({k for n in self.nodes for k in n["props"]})}]
+        if query in (lv.NAMES_IN_USE["rels"], lv.NAMES_IN_USE["rel_keys"]):
+            return [{"l": []}]
+        if query == lv.DUMP_NODES:
+            return [dict(n) for n in self.nodes]
+        if query == lv.DUMP_EDGES:
+            return []
+        if query.startswith("CALL apoc.refactor.rename."):
+            procedure, old, new = query.split("(")[0][len("CALL "):], params["o"], params["n"]
+            for n in self.nodes:
+                if procedure.endswith(".label"):
+                    n["labels"] = [new if lb == old else lb for lb in n["labels"]]
+                    if self.damage:
+                        n["props"].pop("lib" + SEP + "title", None)
+                elif procedure.endswith(".nodeProperty") and old in n["props"]:
+                    n["props"][new] = n["props"].pop(old)
+            return [{"failedOperations": 0, "errorMessages": {}}]
+        if "DETACH DELETE" in query:
+            self.nodes = []
+            return []
+        if "onto.import" in query:
+            self.load_graph()
+        return None
 
     def session(self):
         return self
@@ -645,12 +785,17 @@ class FakeEngine:
                 engine.rollbacks += 1
         return Tx()
 
-    def run(self, query, **_):
+    def run(self, query, **params):
+        query = getattr(query, "text", query)   # the driver's neo4j.Query, when the driver is installed
+        self.statements.append(query)
+        answered = self.graph_query(query, params)
+        if answered is not None:
+            return FakeResult(answered)
         if query == lv.VALIDATE:
             return FakeResult([{"focusNode": "u", "propertyShape": str(SH) + "CountConstraintComponent",
                                 "resultPath": "", "resultMessage": ""}] if self.removed else [])
         if "RETURN n.uri AS uri, labels(n)" in query:
-            return FakeResult([{"uri": "u", "labels": ["Resource"], "props": {"uri": "u"}}])
+            return FakeResult(self.resource_rows())
         if "RETURN n.uri AS uri" in query:
             return FakeResult([{"uri": "u", "value": "v"}])
         if " REMOVE n." in query:
@@ -672,8 +817,6 @@ class FakeEngine:
             return FakeResult([{"terminationStatus": "OK"}])
         if query.startswith("CALL n10s.rdf.export"):
             return FakeResult(self.export_rows)
-        if "RETURN n.uri AS uri, labels(n)" in query:
-            return FakeResult([{"uri": "u", "labels": ["Resource"], "props": {"uri": "u"}}])
         if "type(r) AS t" in query:
             return FakeResult([])
         return FakeResult([])
@@ -705,8 +848,9 @@ class RunWiring(unittest.TestCase):
                         "literalType": str(o.datatype) if isinstance(o, Literal) and o.datatype else None,
                         "literalLang": o.language if isinstance(o, Literal) else None} for s, p, o in g]
 
-    def run_with(self, engine):
-        return lv.run(engine, cfg(), [MODULE], [SHAPES], self.tmp, MODULE, self.loadable, self.inferred)
+    def run_with(self, engine, sep=None):
+        extra = {"sep": sep} if sep else {}
+        return lv.run(engine, cfg(), [MODULE], [SHAPES], self.tmp, MODULE, self.loadable, self.inferred, **extra)
 
     def test_run_reads_the_engine_and_tests_every_row(self):
         engine = FakeEngine(self.rows, self.export)
@@ -719,10 +863,58 @@ class RunWiring(unittest.TestCase):
         self.assertEqual(engine.rollbacks, len(tested))
         self.assertEqual((report["roundtrip_lost"], report["roundtrip_added"]), (0, 0))
         self.assertTrue(report["passed"], [c for c in report["fail_cases"] if c["status"] != "passed"][:3])
+        # the default: n10s's names, nothing renamed, no APOC call, the proof stated as true
+        self.assertEqual((report["separator"], report["renamed"], report["rename_lossless"]), (SEP, {}, True))
+        self.assertFalse(any(s.startswith("CALL apoc.refactor") for s in engine.statements))
+        self.assertEqual(engine.nodes[0]["labels"], ["Resource", "lib" + SEP + "Work"])
 
     def test_run_fails_when_a_case_does_not_fire(self):
         report = self.run_with(FakeEngine(self.rows, self.export, fire=False))
         self.assertFalse(report["passed"])
+
+    def test_a_separator_renames_after_every_check_on_both_loads_and_hashes_the_renamed_graph(self):
+        engine = FakeEngine(self.rows, self.export)
+        report = self.run_with(engine, sep="_")
+        self.assertTrue(report["passed"], report.get("fail_cases", [])[:3])
+        self.assertEqual((report["separator"], report["rename_lossless"]), ("_", True))
+        self.assertEqual(report["renamed"], {"labels": 1, "rels": 0, "node_keys": 1, "rel_keys": 0, "keys": 1})
+        s = engine.statements
+        first_rename = next(i for i, q in enumerate(s) if q.startswith("CALL apoc.refactor"))
+        last_rename = max(i for i, q in enumerate(s) if q.startswith("CALL apoc.refactor"))
+        # every check runs on n10s's names: validation, the fail cases (in transactions, so the mutant's
+        # REMOVE marks them), the mutant and the export all come before the first rename
+        for marker in (lv.VALIDATE, " REMOVE n.", lv.EXPORT):
+            self.assertTrue(any(marker in q for q in s[:first_rename]), marker)
+            self.assertFalse(any(marker in q for q in s[first_rename:]), marker)
+        # the dump brackets the renames, and the hash of each load follows its renames
+        dumps = [i for i, q in enumerate(s) if q == lv.DUMP_NODES]
+        self.assertEqual(len(dumps), 4)
+        self.assertLess(dumps[0], first_rename)
+        self.assertGreater(dumps[-1], last_rename)
+        hashes = [i for i, q in enumerate(s) if q == "MATCH (n:Resource) RETURN n.uri AS uri, labels(n) AS labels, properties(n) AS props"]
+        renames = [i for i, q in enumerate(s) if q.startswith("CALL apoc.refactor")]
+        self.assertEqual(len(hashes), 2)
+        self.assertEqual(len(renames), 4)                                            # two per load
+        self.assertLess(renames[1], hashes[0])
+        self.assertLess(hashes[0], renames[2])
+        self.assertLess(renames[3], hashes[1])
+        self.assertEqual(engine.nodes[0]["labels"], ["Resource", "lib_Work"])
+        self.assertIn("lib_title", engine.nodes[0]["props"])
+        self.assertEqual(report["determinism_hash_sorted"], report["determinism_hash_shuffled"])
+
+    def test_a_shuffled_load_that_renames_other_names_stops_the_run_and_empties_the_graph(self):
+        engine = FakeEngine(self.rows, self.export, second_load_extra=True)
+        with self.assertRaisesRegex(lv.Failed, "the shuffled load renamed a different set of names.*the graph was emptied"):
+            self.run_with(engine, sep="_")
+        self.assertEqual(engine.nodes, [])
+        self.assertEqual(sum(q.startswith("CALL apoc.refactor") for q in engine.statements), 5)   # 2, then 3
+
+    def test_a_rename_that_loses_a_value_stops_the_run_with_no_report(self):
+        engine = FakeEngine(self.rows, self.export, damage=True)
+        with self.assertRaisesRegex(lv.Failed, "not lossless"):
+            self.run_with(engine, sep="_")
+        self.assertEqual(engine.nodes, [])                                           # emptied, never hashed
+        self.assertFalse(any("RETURN n.uri AS uri, labels(n) AS labels, properties(n) AS props" == q for q in engine.statements))
 
 
 class RoundEight(unittest.TestCase):
@@ -1161,6 +1353,7 @@ class AddedCoverage(unittest.TestCase):
                 self.empty_keys = empty_keys
 
             def run(self, query, **kw):
+                query = getattr(query, "text", query)
                 if "RETURN n.uri AS uri, n.`" in query and any(f"n.`{k}` IS NOT NULL" in query for k in self.empty_keys):
                     return FakeResult([])
                 return super().run(query, **kw)

@@ -114,7 +114,7 @@ def read_config(path):
 
     known = {"mode", "projection_config", "data", "shapes", "releases", "inputs_script", "files", "graphs", "out",
              "robot_jar", "manual_cases", "release_graphs", "queries", "target_env", "replace_target", "databricks",
-             "rdf_store", "rebuild", "keep_neo4j"} | set(DEFAULTS)
+             "rdf_store", "rebuild", "keep_neo4j", "separator"} | set(DEFAULTS)
     unknown = sorted(set(cfg) - known)
     if unknown:
         raise Refusal("the run configuration has a key it does not know; references/run-config.md lists them")
@@ -169,6 +169,13 @@ def read_config(path):
     graphs = cfg.setdefault("release_graphs", [])
     if not isinstance(graphs, list) or not all(isinstance(g, str) and g and "/" not in g for g in graphs):
         raise Refusal("release_graphs must be a list of file names without .ttl, such as shapes")
+    if "separator" in cfg:
+        # The rule the scripts apply (build.separator), checked here so --plan and every step refuse it first.
+        import build
+        try:
+            build.separator({"--separator": cfg["separator"]})
+        except Refusal:
+            raise Refusal("separator must be a non-empty string of underscores only, such as \"_\"") from None
     for key, default in DEFAULTS.items():
         cfg[key] = {**default, **cfg.get(key, {})}
     cfg.setdefault("rdf_store", os.path.join(os.path.dirname(SKILL), "rdf-store"))
@@ -713,6 +720,7 @@ class Driver:
         self.sleep(5)
         o = self.out_file
         manual = ["--manual-cases", self.cfg["manual_cases"]] if "manual_cases" in self.cfg else []
+        manual += self.sep_args()
         self.py("load_verify.py", "load_verify.py", "--config", self.cfg["projection_config"], *self.shape_args(),
                 "--bolt", f"bolt://127.0.0.1:{self.cfg['neo4j']['bolt_port']}", "--import-dir", os.path.join(run, "import"),
                 "--plugins-dir", os.path.join(run, "plugins"), "--compose-project", self.cfg["neo4j"]["compose_project"],
@@ -721,18 +729,25 @@ class Driver:
         self.py("build.py check-report", "build.py", "check-report", "--manifest", o("projection-manifest.json"),
                 "--report", o("projection-report.json"))
 
+    def sep_args(self):
+        """--separator for every script that reads or describes the kept graph's names (load, review, tags,
+        graph-type, the copy's checks and review, explore, and the rebuild's run of each), when the
+        configuration names one."""
+        return ["--separator", self.cfg["separator"]] if "separator" in self.cfg else []
+
     def step_review(self):
         target, env = self.local()
-        self.py("model_review.py", "model_review.py", *target, "--report", self.out_file("model-review.json"), env=env)
+        self.py("model_review.py", "model_review.py", *target, "--report", self.out_file("model-review.json"),
+                *self.sep_args(), env=env)
 
     def tag_checks(self, target, env, write):
         c, inferred = self.cfg["projection_config"], self.out_file("inferred.nt")
         if write:
             self.py("module_tags.py tag", "module_tags.py", "tag", "--config", c, "--inferred", inferred, *target,
-                    *self.plain(), *self.data, env=env)
+                    *self.plain(), *self.sep_args(), *self.data, env=env)
         self.py("module_tags.py check", "module_tags.py", "check", "--config", c, "--inferred", inferred, *target,
-                *self.plain(), *self.data, env=env)
-        self.py("module_tags.py modules", "module_tags.py", "modules", *target, *self.plain(), *self.data, env=env)
+                *self.plain(), *self.sep_args(), *self.data, env=env)
+        self.py("module_tags.py modules", "module_tags.py", "modules", *target, *self.plain(), *self.sep_args(), *self.data, env=env)
 
     def step_tags(self):
         self.need("inferred.nt")
@@ -741,7 +756,7 @@ class Driver:
 
     def step_graph_type(self):
         self.py("build.py graph-type", "build.py", "graph-type", "--config", self.cfg["projection_config"],
-                *self.shape_args(), "--output", self.out_file("graph-type.cypher"), *self.data)
+                *self.shape_args(), "--output", self.out_file("graph-type.cypher"), *self.sep_args(), *self.data)
 
     def step_triplestore(self):
         self.need("inferred.nt", "projection-report.json")
@@ -764,7 +779,8 @@ class Driver:
         self.copied = True
         target = ["--env", target_env]
         self.tag_checks(target, None, write=False)
-        self.py("model_review.py (target)", "model_review.py", *target, "--report", self.out_file("model-review-target.json"))
+        self.py("model_review.py (target)", "model_review.py", *target, "--report", self.out_file("model-review-target.json"),
+                *self.sep_args())
 
     def step_jena(self):
         ds = self.jena_ds()
@@ -801,7 +817,7 @@ class Driver:
                 report = self.out_file("explore-report.json" if name == "local" else "explore-report-target.json")
                 self.py(f"explore.py compare ({name})", "explore.py", "compare", "--config", self.cfg["projection_config"],
                         *target, "--sparql", ds + "/query", "--queries", self.cfg["queries"], "--report", report,
-                        *(["--files"] if self.files else []), env=env)
+                        *(["--files"] if self.files else []), *self.sep_args(), env=env)
         finally:
             self.remove(lambda b=self.fusekis[-1]: self.fuseki_down(b))
 

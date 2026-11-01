@@ -6,10 +6,16 @@ Run: NEO4J_PASSWORD=... uv run --no-project --with rdflib --with neo4j python3 l
          --import-dir <folder mounted at /import> --merged merged.ttl --loadable loadable.nt \
          --inferred inferred.nt --report projection-report.json [--plugins-dir <folder>]
          [--manual-cases <cases.json>] [--container <name> | --compose-project <name>]
-         [--query-timeout <seconds>] <data.ttl>...
+         [--query-timeout <seconds>] [--separator <underscores>] <data.ttl>...
 
 Every statement runs with a server-side timeout, --query-timeout seconds (default 120); raise it for
 a graph whose import takes longer.
+
+--separator (underscores only; n10s's own is two) is what the kept graph puts between a prefix and a
+local name. With another value, every check below runs on n10s's names, then every label,
+relationship type and property key is renamed with APOC and the rename proven lossless (step 9, and
+pipeline.md, rule 11); the two hashes are of the renamed graph. A prefix that holds the separator is
+refused before the load (exit 2): a renamed name could not be split back into prefix and local name.
 
 The container name only goes into the printed clean-up line: with --compose-project (the -p name the
 services were started under from docker/compose.yaml) it is `docker compose -p <name> ... down -v`;
@@ -40,8 +46,12 @@ The gate is what n10s says it compiled. What it does, in order (references/pipel
      node, restores the value, and requires zero violations again.
   8. Exports the resources, leaves out schema rows, rebuilds tagged literals, normalises values and
      diffs against loadable.nt plus inferred.nt.
-  9. Hashes the graph, empties it, overwrites the import copy of loadable.nt with its lines shuffled
-     (random.Random(12)), loads again, hashes again, and puts the sorted file back.
+  9. With a --separator other than n10s's, renames every label, relationship type and property key
+     (rename_separator: a dump of every node and relationship before, with the planned renames applied,
+     must equal the dump after, property types included; a collision, a failed APOC batch or an unequal
+     dump stops the run with no report and empties the graph). Hashes the graph, empties it, overwrites
+     the import copy of loadable.nt with its lines shuffled (random.Random(12)), loads again, renames
+     again the same way, hashes again, and puts the sorted file back.
  10. Writes the report. It deletes any report at --report when it starts, writes a temporary file,
      and renames it to --report only when every check passed (exit 0). It deletes <report>.failed
      at the start too. Any other outcome leaves no report at --report: a failed check writes its
@@ -78,7 +88,7 @@ import check_projection_rules as cpr
 import in_graph_shapes as igs
 
 SCHEMA_NS = "neo4j://graph.schema#"
-MODULE_TAG = "graph"   # add-on F's tag; never a SHORTEN key, which is always prefix__local
+MODULE_TAG = "graph"   # add-on F's tag; never a SHORTEN key, which always holds the n10s separator
 EXPORT = ("CALL n10s.rdf.export.cypher('MATCH (n:Resource) OPTIONAL MATCH (n)-[r]->(m) RETURN n, r, m') "
           "YIELD subject, predicate, object, isLiteral, literalType, literalLang "
           "RETURN subject, predicate, object, isLiteral, literalType, literalLang")
@@ -607,12 +617,170 @@ def mutant(session, label, key):
     return {"focus": uri, "removed": key, "violations": len(caught), "after_restore": len(after)}
 
 
-def hash_graph(session):
+N10S_SEP = build.SEPARATOR   # what n10s writes between a prefix and a local name (SHORTEN)
+
+
+def hash_graph(session, sep=N10S_SEP):
     nodes = session.run("MATCH (n:Resource) RETURN n.uri AS uri, labels(n) AS labels, properties(n) AS props").data()
     edges = session.run("MATCH (a:Resource)-[r]->(b:Resource) RETURN a.uri AS s, type(r) AS t, b.uri AS o, "
                         "r.uri AS u, properties(r) AS props").data()
-    schema = sum(1 for e in edges if e["t"].startswith("n4sch__"))
+    schema = sum(1 for e in edges if e["t"].startswith("n4sch" + sep))
     return graph_hash(nodes, edges), len(nodes), len(edges), schema
+
+
+# ---------- the separator rename (a run that names a separator other than n10s's) ----------
+#
+# The four APOC procedures run their work in batches through apoc.periodic.iterate, each batch its own
+# transaction (APOC Core documentation 2026.10, "Rename labels, types, and properties": batchSize "run
+# the specified number of operation statements in a single tx"), so no transaction of this script can
+# hold or roll back a rename. The proof is therefore a dump of every node and relationship before, with
+# the plan applied, against a dump after; and any failure (a collision, a batch APOC reports as failed,
+# a driver error, an unequal dump) raises Failed, which writes no report and empties the graph.
+# apoc.refactor.rename.type creates a new relationship and deletes the old one (its reference page says
+# so), so a relationship is identified by its ends, type and properties, never by its own element id.
+
+RENAME_KINDS = ("labels", "rels", "node_keys", "rel_keys")
+RENAME_PROCEDURES = {"labels": "apoc.refactor.rename.label", "rels": "apoc.refactor.rename.type",
+                     "node_keys": "apoc.refactor.rename.nodeProperty", "rel_keys": "apoc.refactor.rename.typeProperty"}
+NAMES_IN_USE = {"labels": "MATCH (n) UNWIND labels(n) AS l RETURN collect(DISTINCT l) AS l",
+                "rels": "MATCH ()-[r]->() RETURN collect(DISTINCT type(r)) AS l",
+                "node_keys": "MATCH (n) UNWIND keys(n) AS k RETURN collect(DISTINCT k) AS l",
+                "rel_keys": "MATCH ()-[r]->() UNWIND keys(r) AS k RETURN collect(DISTINCT k) AS l"}
+DUMP_NODES = "MATCH (n) RETURN elementId(n) AS id, labels(n) AS labels, properties(n) AS props"
+DUMP_EDGES = "MATCH (a)-[r]->(b) RETURN elementId(a) AS s, type(r) AS t, elementId(b) AS o, properties(r) AS props"
+
+
+def names_in_use(session):
+    """{kind: names} for every label, relationship type, node property key and relationship property
+    key the data holds (the token tables keep deleted names, so the data is read, not the tables)."""
+    return {kind: sorted(session.run(query).single()["l"]) for kind, query in NAMES_IN_USE.items()}
+
+
+def rename_plan(names, sep):
+    """What a separator change renames: {kind: {old: new}} for RENAME_KINDS, the first n10s separator of
+    each name replaced. Raises Failed on a collision (two names of one kind that would become one, or
+    a new name already in use for that kind)."""
+    plan = {}
+    for kind in RENAME_KINDS:
+        plan[kind] = {x: x.replace(N10S_SEP, sep, 1) for x in names[kind] if N10S_SEP in x}
+        new = list(plan[kind].values())
+        if len(set(new)) != len(new) or set(new) & set(names[kind]):
+            raise Failed(f"renaming the separator to {sep!r} collides in {kind}: two names would become one, or the "
+                         "new name is already in use")
+    return plan
+
+
+def _row_key(row):
+    return json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def canonical_dump(nodes, edges, value=_plain):
+    """One spelling of a dump: every node as {id, sorted labels, props} sorted by id, every relationship
+    as {s, t, o, props} in a total order (its canonical JSON), each property value through value (_plain
+    for rows read from the database, so a date and the string of the same text differ; the identity for
+    rows that are canonical already). Two relationships alike in all four fields are two rows."""
+    node_rows = sorted(({"id": n["id"], "labels": sorted(n["labels"]), "props": {k: value(v) for k, v in n["props"].items()}}
+                        for n in nodes), key=lambda r: r["id"])
+    edge_rows = sorted(({"s": e["s"], "t": e["t"], "o": e["o"], "props": {k: value(v) for k, v in (e["props"] or {}).items()}}
+                        for e in edges), key=_row_key)
+    return node_rows, edge_rows
+
+
+def apply_plan(nodes, edges, plan):
+    """A canonical dump as it should read after the plan: the expected result of the rename."""
+    L, R, NK, RK = plan["labels"], plan["rels"], plan["node_keys"], plan["rel_keys"]
+    return canonical_dump([{"id": n["id"], "labels": [L.get(x, x) for x in n["labels"]],
+                            "props": {NK.get(k, k): v for k, v in n["props"].items()}} for n in nodes],
+                          [{"s": e["s"], "t": R.get(e["t"], e["t"]), "o": e["o"],
+                            "props": {RK.get(k, k): v for k, v in e["props"].items()}} for e in edges],
+                          value=lambda v: v)
+
+
+def dump(session):
+    """Every node and every relationship, n10s's configuration nodes included, canonical."""
+    return canonical_dump(session.run(DUMP_NODES).data(), session.run(DUMP_EDGES).data())
+
+
+def dump_differences(expected, actual):
+    """Between two canonical dumps, counted as multisets so a lost twin of two alike relationships
+    counts: (expected node rows missing, node rows present but not expected, expected relationship rows
+    missing, relationship rows present but not expected). A changed row is one missing and one not
+    expected."""
+    from collections import Counter
+
+    def counts(a, b):
+        ca, cb = Counter(_row_key(r) for r in a), Counter(_row_key(r) for r in b)
+        return sum((ca - cb).values()), sum((cb - ca).values())
+    (en, ee), (an, ae) = expected, actual
+    return counts(en, an) + counts(ee, ae)
+
+
+def _rename(session, procedure, old, new):
+    """One APOC rename, with the failure count it yields checked: apoc.periodic.iterate reports a failed
+    batch in failedOperations and errorMessages instead of raising."""
+    row = session.run(f"CALL {procedure}($o, $n) YIELD failedOperations, errorMessages "
+                      "RETURN failedOperations, errorMessages", o=old, n=new).single()
+    if row and row["failedOperations"]:
+        raise Failed(f"{procedure} failed {row['failedOperations']} operation(s): {list(row['errorMessages'] or {})[:3]}")
+
+
+EMPTY_BY_HAND = "MATCH (n) DETACH DELETE n"
+
+
+def emptied_after_failure(session, fresh_session=None, timeout=None):
+    """Empties the graph after a failed rename: with the session, then, when that fails (the session may
+    be gone with its connection), once more in a fresh session from fresh_session(), a context manager
+    the driver gives. True when wipe confirmed the database empty, False when neither attempt did."""
+    try:
+        wipe(session)
+        return True
+    except Exception:  # noqa: BLE001 (any failure; the fresh session is the second attempt)
+        pass
+    if fresh_session is None:
+        return False
+    try:
+        with fresh_session() as raw:
+            wipe(Timed(raw, timeout or DEFAULT_QUERY_TIMEOUT))
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def rename_separator(session, sep, expected=None, fresh_session=None, timeout=None):
+    """After every check has run on n10s's names: rename each label, relationship type, node property
+    key and relationship property key from the n10s form to the sep form with APOC, and prove it
+    lossless: the dump of the whole graph before, with the plan applied, must equal the dump after,
+    property types included. Returns {kind: count renamed} (keys is the distinct property keys over
+    both kinds); with expected, those counts must equal it (the shuffled load must rename what the
+    sorted load did). Every step of the stage, reading the names and planning included, is under one
+    boundary: any failure raises Failed after the graph is emptied (emptied_after_failure), so a
+    part-renamed or unverified graph never stays where a verified one is expected; when even that
+    fails, the message says so and names the statement to run by hand."""
+    try:
+        plan = rename_plan(names_in_use(session), sep)
+        before = dump(session)
+        for kind in RENAME_KINDS:
+            for old, new in plan[kind].items():
+                _rename(session, RENAME_PROCEDURES[kind], old, new)
+        differ = dump_differences(apply_plan(*before, plan), dump(session))
+        if any(differ):
+            raise Failed(f"the rename to the separator {sep!r} was not lossless: of the expected rows, {differ[0]} node "
+                         f"and {differ[2]} relationship row(s) are missing, and {differ[1]} node and {differ[3]} "
+                         "relationship row(s) are present that were not expected")
+        counts = {kind: len(plan[kind]) for kind in RENAME_KINDS}
+        counts["keys"] = len(set(plan["node_keys"]) | set(plan["rel_keys"]))
+        if expected is not None and counts != expected:
+            raise Failed("the shuffled load renamed a different set of names from the sorted load")
+    except Exception as exc:
+        if emptied_after_failure(session, fresh_session, timeout):
+            where = "the graph was emptied"
+        else:
+            where = (f"the graph was NOT emptied and holds an unverified, part-renamed load: run {EMPTY_BY_HAND} on "
+                     "it, or rerun this command, which empties the database before it loads")
+        if isinstance(exc, Failed):
+            raise Failed(f"{exc}; {where}") from exc
+        raise Failed(f"the rename to the separator {sep!r} stopped part-way ({type(exc).__name__}); {where}") from exc
+    return counts
 
 
 def plugin_checksums(folder):
@@ -667,7 +835,8 @@ def query_timeout(opts):
 
 
 def run(driver, cfg, data_paths, shape_paths, import_dir, merged, loadable, inferred, plugins_dir=None, manual=(),
-        timeout=DEFAULT_QUERY_TIMEOUT):
+        timeout=DEFAULT_QUERY_TIMEOUT, sep=N10S_SEP):
+    sep = build.separator({"--separator": sep})   # the one rule, for a caller that skips main()
     data, shapes = build.parse(data_paths), build.parse(shape_paths)
     safe, left_out = igs.subset(shapes)
     safe.serialize(os.path.join(import_dir, "shapes-in-graph.ttl"), format="turtle")
@@ -716,7 +885,13 @@ def run(driver, cfg, data_paths, shape_paths, import_dir, merged, loadable, infe
         report.update({"export_rows": len(exported_rows), "schema_rows_skipped": skipped,
                        "roundtrip_lost": len(lost), "roundtrip_added": len(added),
                        "export_predicate_counts": predicate_counts(exported)})
-        sorted_hash, nodes, rels, schema = hash_graph(session)
+        # The separator: the graph keeps n10s's names unless a run asks for another separator, in which
+        # case every check above ran on n10s's names and the kept graph, hashed here, carries the renamed
+        # ones. rename_separator raises on anything short of a proven lossless rename, so rename_lossless
+        # is true in every report this run writes; passed() and build.report_earned still require it.
+        renamed = {} if sep == N10S_SEP else rename_separator(session, sep, fresh_session=driver.session, timeout=timeout)
+        report.update({"separator": sep, "renamed": renamed, "rename_lossless": True})
+        sorted_hash, nodes, rels, schema = hash_graph(session, sep)
         report.update({"determinism_hash_sorted": sorted_hash, "nodes": nodes, "relationships": rels,
                        "schema_relationships": schema})
         wipe(session)
@@ -725,7 +900,9 @@ def run(driver, cfg, data_paths, shape_paths, import_dir, merged, loadable, infe
             with open(target_file, "w", encoding="utf-8") as f:
                 f.write(shuffled(loadable_text))
             load(session, statements)
-            report["determinism_hash_shuffled"] = hash_graph(session)[0]
+            if sep != N10S_SEP:   # the same data renames the same names, or the stage fails and empties the graph
+                rename_separator(session, sep, expected=renamed, fresh_session=driver.session, timeout=timeout)
+            report["determinism_hash_shuffled"] = hash_graph(session, sep)[0]
         finally:
             shutil.copyfile(loadable, target_file)
     report["samples"] = {"violations": found[:5], "lost": lost[:10], "added": added[:10],
@@ -743,7 +920,9 @@ def predicate_counts(g):
 
 
 def passed(report):
+    # The separator and the rename proof under the rule every consumer applies (build.rename_proof_problems).
     return (report["shacl_violations_in_graph"] == 0 and report["in_graph_mutant_violations"] > 0
+            and not build.rename_proof_problems(report)
             and report["mutant"]["after_restore"] == 0
             and report["roundtrip_lost"] == 0 and report["roundtrip_added"] == 0
             and report["determinism_hash_sorted"] == report["determinism_hash_shuffled"]
@@ -756,6 +935,13 @@ def check_report_command(report_path):
 
 
 DEFAULT_CONTAINER = "lpg-projection"
+
+
+def separator(opts):
+    """--separator: what sits between a prefix and a local name in the kept graph. n10s writes two underscores;
+    another value, such as one underscore, renames every label, type and key after the checks (rename_separator).
+    build.separator holds the rule, so every script reads the option alike."""
+    return build.separator(opts)
 
 
 def container_name(opts):
@@ -819,6 +1005,10 @@ def main(argv):
         cfg = build.load_config(opts["--config"])
         manual = read_manual_cases(opts.get("--manual-cases"))
         timeout = query_timeout(opts)
+        # Bad input, so checked here with the other flags, before any driver exists: the value's form,
+        # and a prefix the renamed names could not be split back from.
+        sep = separator(opts)
+        build.check_prefixes(cfg.prefixes, sep)
     except (OSError, ValueError) as exc:
         print(f"ERROR {q(error_line('the arguments, the configuration or the manual cases could not be read', exc))}",
               file=sys.stderr)
@@ -832,7 +1022,8 @@ def main(argv):
         driver = GraphDatabase.driver(opts["--bolt"], auth=("neo4j", password))
         try:
             report = run(driver, cfg, data, opts["--shapes"], opts["--import-dir"], opts["--merged"],
-                         opts["--loadable"], opts["--inferred"], opts.get("--plugins-dir"), manual, timeout)
+                         opts["--loadable"], opts["--inferred"], opts.get("--plugins-dir"), manual, timeout,
+                         sep=sep)
         finally:
             driver.close()
     except Exception as exc:  # Failed, a driver error or a file error: no report

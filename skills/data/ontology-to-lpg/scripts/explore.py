@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Walk any node end to end across modules, in Neo4j and in a SPARQL store, and compare the answers.
 
-    uv run --no-project --with rdflib --with neo4j python3 explore.py walk    --config <config> (--uri U | --env E) --sparql <query URL> --iri <IRI> [--hops N]
-    uv run --no-project --with rdflib --with neo4j python3 explore.py compare --config <config> (--uri U | --env E) --sparql <query URL> --queries <queries.json> [--report out.json]
+    uv run --no-project --with rdflib --with neo4j python3 explore.py walk    --config <config> (--uri U | --env E) --sparql <query URL> --iri <IRI> [--hops N] [--separator _]
+    uv run --no-project --with rdflib --with neo4j python3 explore.py compare --config <config> (--uri U | --env E) --sparql <query URL> --queries <queries.json> [--report out.json] [--separator _]
     uv run --no-project --with rdflib python3 explore.py sparql-walk --output <walk.rq> [--hops N]   (the paste-able SPARQL walk)
 
 The walk (default 2 hops, --hops to change): every relationship within N hops of the start node, in
@@ -10,9 +10,13 @@ both directions, with its predicate and its module tag, and the module tag of ev
 It runs hop by hop: hop k reads every relationship that touches a node reached at hop k-1. In Neo4j a
 relationship is (source uri, type, target uri) between two :Resource nodes, its type expanded to the
 predicate IRI by the configuration's prefixes (module_tags.predicate), leaving out n10s's schema
-relationships (n4sch__*, which n10s derives from the ontology; the triples they repeat are ordinary
-relationships too), its tag the `graph` property
-module_tags.py set, and a node's tag its own `graph`. In the store a relationship is a triple with an
+relationships (n4sch plus the separator, which n10s derives from the ontology; the triples they repeat are ordinary
+relationships too), its tag the `graph` property. --separator (underscores only) is what the graph puts
+between a prefix and a local name: n10s's two underscores unless the load renamed the names
+(load_verify.py --separator); give the same value here, or no type expands and the schema relationships
+are walked. A prefix that holds it is refused (exit 2), as the load refuses it. The paste-able Cypher walks
+in ../queries/ name n10s's schema prefix; edit it for a renamed graph, as their comments say. A
+relationship's tag is the `graph` property module_tags.py set, and a node's tag its own `graph`. In the store a relationship is a triple with an
 IRI subject and object in a named graph; its tag is derived from the store by module_tags's rules (the
 first graph in dependency order that holds it, the subject's tag for a triple only in the inferred
 graph) and a node's tag likewise, so agreement also proves the tags. The inferred graph is the named
@@ -44,8 +48,14 @@ DEFAULT_HOPS = 2
 INFERRED = "urn:ontology-to-lpg:inferred"
 BATCH = 400
 
-CY_EDGES = (f"MATCH (a:Resource)-[r]-(b:Resource) WHERE a.uri IN $frontier AND NOT type(r) STARTS WITH '{mt.SCHEMA_PREFIX}' "
+
+def cy_edges(sep=None):
+    """The edges of one hop, leaving out n10s's schema relationships under the graph's separator."""
+    return (f"MATCH (a:Resource)-[r]-(b:Resource) WHERE a.uri IN $frontier AND NOT type(r) STARTS WITH '{mt.schema_prefix(sep)}' "
             f"RETURN DISTINCT startNode(r).uri AS s, type(r) AS t, endNode(r).uri AS o, r.`{mt.TAG}` AS g")
+
+
+CY_EDGES = cy_edges()
 CY_NODES = f"MATCH (n:Resource) WHERE n.uri IN $uris RETURN n.uri AS uri, n.`{mt.TAG}` AS g"
 CY_MODULES = "MATCH (a:Module)-[r:REQUIRES]->(b:Module) RETURN a.uri AS source, b.uri AS target, r.pin AS pin"
 
@@ -99,14 +109,15 @@ def sparql_walk(hops):
 
 
 class Neo4jSide:
-    def __init__(self, run, prefixes):
-        self.run, self.prefixes = run, prefixes
+    def __init__(self, run, prefixes, sep=None):
+        self.run, self.prefixes, self.sep = run, prefixes, sep
+        self.cy_edges = cy_edges(sep)
 
     def edges(self, frontier):
         out = set()
         for i in range(0, len(frontier), BATCH):
-            for r in self.run(CY_EDGES, frontier=frontier[i:i + BATCH]):
-                out.add((r["s"], mt.predicate(r["t"], self.prefixes), r["o"], r["g"]))
+            for r in self.run(self.cy_edges, frontier=frontier[i:i + BATCH]):
+                out.add((r["s"], mt.predicate(r["t"], self.prefixes, self.sep), r["o"], r["g"]))
         return out
 
     def node_tags(self, uris):
@@ -227,7 +238,7 @@ def http_select(endpoint):
 def options(argv):
     opts, i = {}, 0
     known = {"--config", "--uri", "--env", "--sparql", "--iri", "--hops", "--queries", "--report", "--query-timeout",
-             "--output", "--inferred-graph"}
+             "--output", "--inferred-graph", "--separator"}
     while i < len(argv):
         if argv[i] == "--files":
             opts["--files"], i = True, i + 1
@@ -266,6 +277,8 @@ def main(argv):
             raise Refusal("give exactly one of --uri and --env")
         import build
         prefixes = dict(build.load_config(opts["--config"]).prefixes)
+        sep = lv.separator(opts)
+        build.check_prefixes(prefixes, sep)
         queries = []
         if command == "compare":
             with open(opts["--queries"], encoding="utf-8") as f:
@@ -281,7 +294,7 @@ def main(argv):
         from neo4j import GraphDatabase
         with GraphDatabase.driver(uri, auth=auth) as driver, driver.session(database=database) as raw:
             session = lv.Timed(raw, timeout)
-            neo = Neo4jSide(lambda stmt, **params: session.run(stmt, params).data(), prefixes)
+            neo = Neo4jSide(lambda stmt, **params: session.run(stmt, params).data(), prefixes, sep)
             store = StoreSide(http_select(opts["--sparql"]), opts.get("--inferred-graph"), opts.get("--files", False))
             if command == "walk":
                 results = [compare_walk(neo, store, opts["--iri"], hops)]
