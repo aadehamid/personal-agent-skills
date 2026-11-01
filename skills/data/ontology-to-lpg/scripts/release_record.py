@@ -2,16 +2,18 @@
 """One release record per module in a loaded projection: which release the graph holds, whether it
 passed, and which rules loaded it.
 
-    uv run --no-project --with rdflib python3 release_record.py records --report <projection-report.json> --output <release-records.json> [--loaded-at <time>] <package.ttl>...
+    uv run --no-project --with rdflib python3 release_record.py records --report <projection-report.json> --manifest <run-manifest.json> --output <release-records.json> [--loaded-at <time>] <package.ttl>...
     uv run --no-project --with rdflib --with neo4j python3 release_record.py write --records <release-records.json> (--uri U | --env E)
     uv run --no-project --with rdflib --with neo4j python3 release_record.py check --records <release-records.json> (--uri U | --env E)
 
 Each package file sits beside its release's shapes.ttl and catalog.ttl. `records` reads no database. It
-refuses a report that did not earn its pass (build.report_earned, as copy_graph.py does), then writes one
-record per package, every field taken from the release's own files or the run's report:
+refuses a report that did not earn its pass (build.report_earned, as copy_graph.py does), and any package,
+shapes or catalog file whose SHA-256 is not in the run's run-manifest.json, so a record cannot describe a file
+edited after the load. It then writes one record per package, every field taken from those files or the report:
 
-  module, version, version_iri, ontology   catalog.ttl's dcat:Dataset (dcterms:isVersionOf, owl:versionInfo);
-                                           its IRI must equal the package file's owl:versionIRI
+  ontology, version_iri                    the package file's owl:Ontology and its owl:versionIRI
+  module, version                          catalog.ttl's dcat:Dataset of that version IRI: the last part of its
+                                           dcterms:isVersionOf, which must equal the ontology, and owl:versionInfo
   download_url                             the dcat:downloadURL in catalog.ttl that names the package file
   conforms, in_graph_constraints, violations   the report: these describe the whole load, because the shapes
                                            run over every module together
@@ -19,11 +21,12 @@ record per package, every field taken from the release's own files or the run's 
   projection_version                       the report's versions.method: the rules that loaded the graph
   loaded_at                                --loaded-at, else the time `records` ran, in UTC
 
-`write` replaces every :ModuleRelease node with the file's records and links each to its module's
+`write` replaces every :ModuleRelease node with the file's records, in one transaction, and links each to its module's
 owl:Ontology node with (:ModuleRelease)-[:DESCRIBES]->(:Resource). A record has no :Resource label, so the
 graph hash, the counts, the module tags and the round trip do not read it, nor the link, whose start is not a
 :Resource. No field goes into any hash. `write` proves it: it stops before writing unless the graph hash equals
-the one the file carries (the report's), and fails if the hash moved afterwards.
+the one the file carries (the report's), and rolls back, keeping the earlier records, if a record finds no
+owl:Ontology node or the hash moved.
 
 `check` fails unless the graph holds exactly the file's records, field for field, each with its link, and the
 graph hash still equals the file's.
@@ -65,10 +68,14 @@ def one(values, what, where):
     return found[0]
 
 
-def record(path, report, loaded_at):
-    """The record of one package file, from the files beside it and the report."""
+def record(path, report, loaded_at, loaded):
+    """The record of one package file, from the files beside it and the report. loaded maps a kind of file in the
+    run manifest (data, shapes, catalogs) to the SHA-256s that run read."""
     folder, name = os.path.split(path)
     where = name
+    for kind, file in (("data", path), ("shapes", os.path.join(folder, "shapes.ttl")), ("catalogs", os.path.join(folder, "catalog.ttl"))):
+        if sha256(file) not in loaded[kind]:
+            raise Refusal(f"{where}: {os.path.basename(file)} is not the file the run read; run project and load again")
     data = Graph().parse(path)
     ontology = one(data.subjects(RDF.type, OWL.Ontology), "owl:Ontology", where)
     version_iri = one(data.objects(URIRef(ontology), OWL.versionIRI), "owl:versionIRI", where)
@@ -77,6 +84,8 @@ def record(path, report, loaded_at):
     if (dataset, RDF.type, DCAT.Dataset) not in catalog:
         raise Refusal(f"{where}: its catalog.ttl has no dcat:Dataset named by its owl:versionIRI")
     of = one(catalog.objects(dataset, DCTERMS.isVersionOf), "dcterms:isVersionOf", where)
+    if of != ontology:
+        raise Refusal(f"{where}: its catalog.ttl says it is a version of another module")
     urls = [str(u) for d in catalog.objects(dataset, DCAT.distribution) for u in catalog.objects(d, DCAT.downloadURL)]
     return {"module": of.rstrip("/").rsplit("/", 1)[-1],
             "version": one(catalog.objects(dataset, OWL.versionInfo), "owl:versionInfo", where),
@@ -95,29 +104,43 @@ def now():
     return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def build_records(paths, report, loaded_at):
+def build_records(paths, report, loaded_at, manifest):
     fails = build.report_earned(report)
     if fails:
         raise unverified_report(fails)
-    records = sorted((record(p, report, loaded_at) for p in paths), key=lambda r: r["version_iri"])
-    if len({r["module"] for r in records}) != len(records):
-        raise Refusal("two package files are one module; give one release per module")
+    if "catalogs" not in manifest:
+        raise Refusal("the run manifest lists no catalogs; run project again")
+    loaded = {kind: {e["sha256"] for e in manifest[kind]} for kind in ("data", "shapes", "catalogs")}
+    records = sorted((record(p, report, loaded_at, loaded) for p in paths), key=lambda r: r["version_iri"])
+    for field, what in (("module", "one module"), ("version_iri", "one release")):
+        if len({r[field] for r in records}) != len(records):
+            raise Refusal(f"two package files are {what}; give one release per module")
     return {"graph_hash": report["determinism_hash_sorted"], "records": records}
 
 
 def write(session, content):
-    """Replaces the records, with the graph hash checked before and after. Returns (problems, links written)."""
-    hash_of = lambda: lv.hash_graph(session)[0]   # noqa: E731
-    if hash_of() != content["graph_hash"]:
-        return ["the graph is not the verified graph: its hash differs from the report's; nothing was written"], 0
-    session.run(CLEAR).consume()
-    linked = session.run(WRITE, {"rows": content["records"]}).single()["linked"]
-    problems = []
-    if linked != len(content["records"]):
-        problems.append(f"{linked} of {len(content['records'])} records found their owl:Ontology node")
-    if hash_of() != content["graph_hash"]:
-        problems.append("the graph hash moved when the records were written")
-    return problems, linked
+    """Replaces the records in one transaction, with the graph hash checked before and after; any problem or error
+    rolls back, so the earlier records stay. Returns (problems, links written)."""
+    tx = session.begin_transaction()
+    committed = False
+    try:
+        hash_of = lambda: lv.hash_graph(tx)[0]   # noqa: E731
+        if hash_of() != content["graph_hash"]:
+            return ["the graph is not the verified graph: its hash differs from the report's; nothing was written"], 0
+        tx.run(CLEAR).consume()
+        linked = tx.run(WRITE, {"rows": content["records"]}).single()["linked"]
+        problems = []
+        if linked != len(content["records"]):
+            problems.append(f"{linked} of {len(content['records'])} records found their owl:Ontology node; nothing was written")
+        if hash_of() != content["graph_hash"]:
+            problems.append("the graph hash moved when the records were written; nothing was written")
+        if not problems:
+            tx.commit()
+            committed = True
+        return problems, linked
+    finally:
+        if not committed:
+            tx.rollback()
 
 
 def compare(read, content):
@@ -151,7 +174,7 @@ def check(session, content):
 
 def options(argv):
     opts, files, i = {}, [], 0
-    known = {"--report", "--output", "--loaded-at", "--records", "--uri", "--env", "--query-timeout"}
+    known = {"--report", "--manifest", "--output", "--loaded-at", "--records", "--uri", "--env", "--query-timeout"}
     while i < len(argv):
         if argv[i].startswith("--"):
             if argv[i] not in known or i + 1 >= len(argv):
@@ -172,11 +195,14 @@ def main(argv):
     try:
         opts, files = options(argv[1:])
         if command == "records":
-            build.need(opts, "--report", "--output")
+            build.need(opts, "--report", "--manifest", "--output")
             if not files:
                 raise Refusal("give the package files")
             with open(opts["--report"], encoding="utf-8") as f:
-                content = build_records(files, json.load(f), opts.get("--loaded-at") or now())
+                report = json.load(f)
+            with open(opts["--manifest"], encoding="utf-8") as f:
+                manifest = json.load(f)
+            content = build_records(files, report, opts.get("--loaded-at") or now(), manifest)
             with open(opts["--output"], "w", encoding="utf-8") as f:
                 json.dump(content, f, indent=2, sort_keys=True)
                 f.write("\n")

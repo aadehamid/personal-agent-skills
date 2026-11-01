@@ -242,6 +242,39 @@ class Steps(Base):
         self.assertEqual(d.fusekis, [])
         self.assertEqual(sum("lpg-explore" in cmd for cmd in downs), 2)   # the transient Fuseki still goes
 
+    def test_only_jena_makes_its_output_folder_first_and_keeps_jena_up(self):
+        class Strict(FakeRun):   # as rdfstore.py: the report's folder must exist before any store is touched
+            def __call__(self, cmd, cwd=None, env=None, capture=False):
+                if "--report" in cmd and "roundtrip" in cmd and not os.path.isdir(os.path.dirname(cmd[cmd.index("--report") + 1])):
+                    return 2, ""
+                return super().__call__(cmd, cwd=cwd, env=env, capture=capture)
+        fake = Strict()
+        cfg = self.run_config(keep_jena=True)
+        d = self.driver(cfg, fake)
+        self.assertFalse(os.path.isdir(d.out))
+        d.run_steps(["jena"])
+        self.assertEqual(d.passed, ["jena"])
+        self.assertEqual(d.fusekis, [])
+
+    def test_a_catalog_changed_since_the_run_stops_a_rebuild(self):
+        path = os.path.join(self.tmp, "catalog-copy.ttl")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("# one\n")
+        fake = FakeRun()
+        d = self.driver(self.run_config(), fake)
+        d.run_steps(["project"])
+        manifest = os.path.join(d.out, "run-manifest.json")
+        with open(manifest, encoding="utf-8") as f:
+            ran = json.load(f)
+        ran["catalogs"] = [{"path": path, "sha256": rp.sha256_file(path)}]
+        with open(manifest, "w", encoding="utf-8") as f:
+            json.dump(ran, f)
+        d.same_source()
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("# edited\n")
+        with self.assertRaisesRegex(rp.Failed, "catalog.ttl differs"):
+            d.same_source()
+
     def test_keep_jena_removes_a_fuseki_whose_round_trip_failed(self):
         fake = FakeRun(fail={"rdfstore.py roundtrip": 1})
         d = self.driver(self.run_config(keep_jena=True), fake)
@@ -480,8 +513,14 @@ class Rebuild(Base):
                                   os.path.join(self.tmp, "whole/shapes.ttl")])
         # The release records read the release's own files: an export has no catalog.ttl beside each graph.
         records = [cmd for cmd, _, _ in fake.calls if "records" in cmd][-1]
-        self.assertFalse(any(ttl in part for part in records[records.index("--output") + 2:]))
-        self.assertTrue(records[-1].endswith(".ttl"))
+        first = next(cmd for cmd, _, _ in fake.calls if any(c.endswith("build.py") for c in cmd) and "merge" in cmd)
+        self.assertEqual(records[records.index("--output") + 2:], first[first.index("--output") + 2:])
+        self.assertEqual(records[records.index("--manifest") + 1], os.path.join(self.tmp, "out", "run-manifest.json"))
+        self.assertEqual(records[records.index("--output") + 1], os.path.join(self.tmp, "re", rp.RECORDS))
+        # the rebuilt local graph and its copy target each get those records, written and read back
+        self.assertEqual([n for n in names if n.startswith("release_record.py")][-5:],
+                         ["release_record.py records", "release_record.py write", "release_record.py check",
+                          "release_record.py write", "release_record.py check"])
         copy = [cmd for cmd, _, _ in fake.calls if any(c.endswith("copy_graph.py") for c in cmd)][-1]
         self.assertIn("--replace", copy)
         self.assertEqual(names[-4:], ["explore.py compare", "explore.py compare", "docker down", "docker down"])

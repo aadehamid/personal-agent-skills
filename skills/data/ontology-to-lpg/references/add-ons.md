@@ -95,14 +95,15 @@ Give the file's JSON to the server's tools: `validate_data_model` (it accepted t
 One `:ModuleRelease` node per released module, in the local Neo4j and every copy. It says what the graph holds without bringing the catalog into the graph (`multi-store.md`, "What each store holds"). `run_projection.py` runs it in its `release-record` step and again on the copy target; files mode skips it, because plain files have no `catalog.ttl`.
 
 ```
-uv run --no-project --with rdflib python3 release_record.py records --report projection-report.json --output release-records.json <package.ttl>...
+uv run --no-project --with rdflib python3 release_record.py records --report projection-report.json --manifest run-manifest.json --output release-records.json <package.ttl>...
 NEO4J_PASSWORD=... uv run --no-project --with rdflib --with neo4j python3 release_record.py write --records release-records.json --uri bolt://127.0.0.1:<port>
 NEO4J_PASSWORD=... uv run --no-project --with rdflib --with neo4j python3 release_record.py check --records release-records.json --uri bolt://127.0.0.1:<port>
 ```
 
 | Field | Comes from |
 |---|---|
-| `module`, `version`, `version_iri`, `ontology` | `catalog.ttl`'s `dcat:Dataset`, whose IRI must equal the package file's `owl:versionIRI` |
+| `ontology`, `version_iri` | The package file's `owl:Ontology` and its `owl:versionIRI` |
+| `module`, `version` | `catalog.ttl`'s `dcat:Dataset` of that version IRI: the last part of its `dcterms:isVersionOf`, which must equal the ontology, and its `owl:versionInfo` |
 | `download_url` | The `dcat:downloadURL` in `catalog.ttl` that names the package file |
 | `conforms`, `in_graph_constraints`, `violations` | The projection report. They describe the whole load, because the shapes run over every module together |
 | `shapes_sha256` | SHA-256 of the release's `shapes.ttl` |
@@ -110,7 +111,8 @@ NEO4J_PASSWORD=... uv run --no-project --with rdflib --with neo4j python3 releas
 | `loaded_at` | The time `records` ran, in UTC. The copy target gets the same value |
 
 - **It leaves the proved graph alone.** The node has no `:Resource` label, and its link, `(:ModuleRelease)-[:DESCRIBES]->(:Resource)` to the module's `owl:Ontology` node, starts outside `:Resource`, so the graph hash, the counts, the module tags and the round trip read neither. `write` proves it: it writes nothing unless the graph hash equals the report's, and fails if the hash moves. No field enters any hash.
-- **A report that did not earn its pass makes no record** (`build.report_earned`, as add-on I).
+- **A report that did not earn its pass makes no record** (`build.report_earned`, as add-on I). Nor does a package, shapes or catalog file whose SHA-256 is not in the run's `run-manifest.json`, so a record cannot describe a file edited after the load.
+- **`write` is one transaction.** A record with no `owl:Ontology` node, a moved hash or an error rolls it back, and the earlier records stay.
 - **A load or a `copy_graph.py --replace` removes the records,** as it removes any other non-`:Resource` graph, so the driver writes them after each.
 
 To read them: `MATCH (r:ModuleRelease)-[:DESCRIBES]->(o) RETURN r.module, r.version, r.conforms, r.violations, r.loaded_at, o.uri ORDER BY r.module`.

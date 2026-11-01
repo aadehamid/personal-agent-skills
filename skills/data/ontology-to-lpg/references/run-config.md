@@ -77,7 +77,7 @@ The `project` step writes `<out>/run-manifest.json`: the mode, each data and sha
 | `jena` | the `rdf-store` skill's Fuseki and `rdfstore.py roundtrip` of the data files and their release graphs (files mode: each file under its graph name) | the store's export has the files' RDFC-1.0 hash |
 | `databricks` | `rdfstore.py roundtrip --store databricks` of the same dataset (add-on K) | the same, for the Delta table; the table is replaced only by a staging copy with that hash |
 | `explore` | a second Fuseki holding the data and `inferred.nt`, then `explore.py compare` against the local graph and, when this run copied, against the target | every saved walk and the module map give the same edges, nodes and tags in Neo4j and in Jena |
-| `rebuild` | see below | the store's export hashes equal to the release, the rebuild's triples and graph hashes equal this run's, and its own load, tags, copy and walks pass |
+| `rebuild` | see below | the store's export hashes equal to the release, the rebuild's triples and graph hashes equal this run's, and its own load, tags, release records, copy and walks pass |
 
 ## The rebuild
 
