@@ -13,6 +13,20 @@ Read it when the same released ontology must live in triple stores and in Neo4j 
 | 5. Aura or any Neo4j | Copy the verified graph with add-on I. | The target's graph hash equals the local one and the report's. | Built; run against a local second Neo4j and Aura Free |
 | 6. Rebuild | Delete the local Neo4j and the Aura data. Rebuild both, taking a store's export (for example the Databricks Delta table) as the source of hops 4 and 5. | The rebuilt graph's hash equals the hash from hop 4, and its round trip against the original source files loses and adds nothing. That proves source → store → Neo4j and Aura loses nothing. | Built: `run_projection.py`, step `rebuild` (`run-config.md`); first run on 2026-10-25 from a Databricks Delta table, with equal hashes locally and on Aura Free |
 
+## What each store holds: the projection policy
+
+A released package has three graphs: `<module>.ttl` (the content), `shapes.ttl` (the rules) and `catalog.ttl` (the DCAT release record). The stores treat them differently, because they do different work.
+
+| Store | Content (`<module>.ttl`) | Rules (`shapes.ttl`) | Release record (`catalog.ttl`) |
+|---|---|---|---|
+| Triple store (Jena) and Delta table | All, one named graph | All, one named graph | All, one named graph |
+| Neo4j, local and Aura | All, with no selection | Not nodes. They validate the release: pySHACL before the load, n10s in the graph at the load | Not in full: one `:ModuleRelease` node per module (add-on M) |
+
+- **All the content, always.** Do not project part of a module. The round trip's proof of 0 lost and 0 added compares the graph with the files, so a selective projection would lose that proof. A consumer that needs less of the graph filters it with labels or module tags (add-on F).
+- **The rules run; they are not data.** Shapes loaded as nodes would mix the rules with the things they describe, and the hash and the round trip would have to read around them. n10s keeps its compiled form of them in its own configuration, outside `:Resource`.
+- **One record per release, not the catalog.** A reader of the graph needs to know which release it holds and whether it passed. The rest of the catalog stays in the triple stores and the files.
+- **One local Neo4j and one standing triple store.** Keep one local graph, in one form, and copy that form to Aura: two local graphs in two forms give two sets of counts, and no reader can tell which is right. Set `keep_neo4j` and `keep_jena` (`run-config.md`), so one run leaves both loaded and proven.
+
 ## The data flow, box by box
 
 The data-flow diagram predates the `rdf-store` split of 2026-10-24: its Databricks box still says "(planned)", and its Fuseki arrow says "counts per predicate" where the store is now compared by RDFC-1.0 hash. The validation-path diagram is current. The text below gives the current state.
@@ -117,6 +131,7 @@ A project may want other graphs beside the projection in the same Neo4j or Aura 
 Once several stores hold the projection, each can fall behind the newest release. In a real project (2026-10-29) this took four parts:
 
 - **A marker per store.** Each store records the release set it was loaded from (the catalog's datasets and the projection's input fingerprint): a node with its own label in Neo4j and Aura, never `:Resource`, and a row in a table beside the triple table. The marker is written only after the store is checked against the repository: the pipeline's graph must give the committed report's hash and counts, the other Neo4j stores must hold the projection's nodes and relationships, the triple table must hold every module's newest release.
+- **A standing triple store needs no marker.** Its named graphs are version IRIs, so the store itself says which releases it holds: compare its graph names and each graph's triple count with the release files. That puts nothing extra in the store, so a later export compares equal to the files without an exclusion. A Fuseki with an in-memory dataset (the default here) empties on restart, and the check then reads empty; reload it with `run_projection.py --only jena`.
 - **A drift check** compares each marker with the main branch's newest catalog and each store's live count with its marker, and reports each store as current, behind, changed, unmarked or unreachable (with the error's name). It exits non-zero unless every store is current.
 - **A sync** reloads only what is not current, with the existing pipeline and driver rather than new loaders: local stores by default, cloud stores on request. It then reloads anything else the store held (see the section above) and marks what it reloaded.
 - **A workflow on release tags** reloads the cloud stores, and stays inactive until its logins exist as repository secrets: its first step checks them and every later step runs only if that check found them all. GitHub says "Secrets cannot be directly referenced in if: conditionals" and gives a job-level environment variable, tested in `if`, as its way round that (GitHub, "Using secrets in GitHub Actions", https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets, read 2026-10-29); a first step whose output later steps test is another way, and the one the real project used. Pin the checkout of any repository it runs code from.

@@ -18,6 +18,7 @@ Read it when a consumer asks for something the core pipeline does not give (supe
 | J. A triple store | SPARQL consumers need the same data | The `rdf-store` skill loads the files and proves the round trip; `triplestore.py` (see below) adds the counts against the n10s export |
 | K. Databricks | The data must also live in Unity Catalog | The `rdf-store` skill: a Delta table of quads, loaded and read from your machine over the Databricks SQL connector on Free Edition or Enterprise, with the same round trip. `run_projection.py` runs it through `rdf-store` (its `databricks` step) and rebuilds the graph from the table (`rebuild` from `databricks`): see `run-config.md` and `multi-store.md` |
 | L. A Data Modeling MCP model | Reviewers want an Arrows drawing or a Mermaid diagram of the graph | `build.py data-model` (see below) |
+| M. Release records | People reading the graph must see which release of each module it holds, whether it passed, and which rules loaded it | `release_record.py` (see below) |
 
 ## F. Module tags, the module graph and the walk
 
@@ -88,6 +89,31 @@ It exits 0 when every count matches, 1 on a mismatch or a failed request, 2 on b
 `build.py data-model --config <config> --shapes <shapes>... --output data-model.json [--separator _] <data>...` writes the shapes' element types (`build.element_types`, the mapping add-on H also reads) as a `DataModel` of the Neo4j Data Modeling MCP server, `mcp-neo4j-data-modeling` 0.8.2 (https://github.com/neo4j-contrib/mcp-neo4j, `servers/mcp-neo4j-data-modeling`, `data_model.py` at commit `0eaf613e0f`). One node per label a shape targets or a relationship reaches, keyed on `uri`; one property per typed key, with a list typed `LIST` and its element type in the description; one relationship per source, key and target, every label pair kept. Labels and types are the kept graph's names (`--separator` as for add-on H). It holds more than the `GRAPH TYPE`: a label with no typed property and a relationship type used between several label pairs stay in the model, and add-on H drops both. `metadata.left_out` lists what the shapes give no typed form; `metadata.not_in_graph_type` lists what the model holds and a `GRAPH TYPE` cannot; add-on H's comments are exactly the two lists together. Before it writes, the command checks the model against that server's `DataModel` under strict validation (`build.data_model_problems`; `test_modeling.py` checks it against the pinned package on every case) and exits 1 on a problem.
 
 Give the file's JSON to the server's tools: `validate_data_model` (it accepted the library model on 2026-10-24), then `get_mermaid_config_str` or `export_to_arrows_json` for Arrows.app. Leave out its `export_to_pydantic_models`: in 0.8.2 it writes each SHORTEN name into a Python declaration as it is, so a name with a hyphen (legal in an IRI) gives code that does not parse, and it makes every property a required field, so an instance without an optional property (`sh:minCount 0`) is refused (both found on the library model in the review of 2026-10-25). The ontology stays the source: regenerate the file after each release, and never edit the model to change the graph. Two of the server's tools stay unused. Its OWL import and export are lossy by its own README ("OWL Classes become Nodes, ObjectProperties become Relationships, and DatatypeProperties become Node properties"), and on 2026-10-24 `load_from_owl_turtle` rejected a released SKOS module whose object property has `rdfs:domain skos:Concept`, because that file does not declare `skos:Concept` an `owl:Class`. Its GraphRAG schema export is skipped, because this skill builds no extraction pipeline.
+
+## M. Release records
+
+One `:ModuleRelease` node per released module, in the local Neo4j and every copy. It says what the graph holds without bringing the catalog into the graph (`multi-store.md`, "What each store holds"). `run_projection.py` runs it in its `release-record` step and again on the copy target; files mode skips it, because plain files have no `catalog.ttl`.
+
+```
+uv run --no-project --with rdflib python3 release_record.py records --report projection-report.json --output release-records.json <package.ttl>...
+NEO4J_PASSWORD=... uv run --no-project --with rdflib --with neo4j python3 release_record.py write --records release-records.json --uri bolt://127.0.0.1:<port>
+NEO4J_PASSWORD=... uv run --no-project --with rdflib --with neo4j python3 release_record.py check --records release-records.json --uri bolt://127.0.0.1:<port>
+```
+
+| Field | Comes from |
+|---|---|
+| `module`, `version`, `version_iri`, `ontology` | `catalog.ttl`'s `dcat:Dataset`, whose IRI must equal the package file's `owl:versionIRI` |
+| `download_url` | The `dcat:downloadURL` in `catalog.ttl` that names the package file |
+| `conforms`, `in_graph_constraints`, `violations` | The projection report. They describe the whole load, because the shapes run over every module together |
+| `shapes_sha256` | SHA-256 of the release's `shapes.ttl` |
+| `projection_version` | The report's `versions.method`: the rules that loaded the graph |
+| `loaded_at` | The time `records` ran, in UTC. The copy target gets the same value |
+
+- **It leaves the proved graph alone.** The node has no `:Resource` label, and its link, `(:ModuleRelease)-[:DESCRIBES]->(:Resource)` to the module's `owl:Ontology` node, starts outside `:Resource`, so the graph hash, the counts, the module tags and the round trip read neither. `write` proves it: it writes nothing unless the graph hash equals the report's, and fails if the hash moves. No field enters any hash.
+- **A report that did not earn its pass makes no record** (`build.report_earned`, as add-on I).
+- **A load or a `copy_graph.py --replace` removes the records,** as it removes any other non-`:Resource` graph, so the driver writes them after each.
+
+To read them: `MATCH (r:ModuleRelease)-[:DESCRIBES]->(o) RETURN r.module, r.version, r.conforms, r.violations, r.loaded_at, o.uri ORDER BY r.module`.
 
 ## Reviewing the loaded graph
 
