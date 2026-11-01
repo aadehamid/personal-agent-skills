@@ -15,10 +15,12 @@ The steps, in this order (references/run-config.md has the run configuration and
                check-report (steps 5 and 6, V6 to V12); a failure removes the container
   review       model_review.py on the local Neo4j
   tags         module_tags.py tag, check and modules on the local Neo4j (add-on F)
+  release-record  release_record.py records, write and check: one :ModuleRelease node per module on the
+               local Neo4j, from catalog.ttl, shapes.ttl and the report; releases mode only
   graph-type   build.py graph-type (add-on H); it applies nothing
   triplestore  triplestore.py: the inputs in Jena Fuseki, counts tied to the report (add-on J)
   copy         copy_graph.py to the target env file (add-on I; the hash must match), then the tag
-               check, the module graph and model_review.py there
+               check, the module graph, the release records and model_review.py there
   jena         the rdf-store skill's roundtrip of the release (data plus its release graphs) through
                Jena Fuseki: the store's export must hash equal to the files (RDFC-1.0)
   databricks   the same roundtrip through a Databricks Delta table (add-on K)
@@ -27,10 +29,11 @@ The steps, in this order (references/run-config.md has the run configuration and
   rebuild      export the release from a store (jena or databricks) or take the repository files, run
                project and load on them into another output folder, require loadable.nt and
                inferred.nt to hold this run's triples (RDF 1.1 terms) and the report's two graph hashes
-               to equal this run's, then tag, copy (when configured) and explore
+               to equal this run's, then tag, write the release records, copy (when configured) and explore
 A step whose configuration is absent is skipped and says so; --only and --skip name steps by the
 names above. --plan prints the steps that would run and runs nothing. The local Neo4j is removed when
-the run ends, pass or fail, unless the configuration sets "keep_neo4j"; every Fuseki is removed.
+the run ends, pass or fail, unless the configuration sets "keep_neo4j"; every Fuseki is removed, except
+that "keep_jena" leaves the jena step's Fuseki running, loaded, once its round trip has passed.
 
 Secrets: the local Neo4j password is generated, written only to <out>/neo4j-run/run.env (mode 600)
 and passed to the scripts in their environment; the target and Databricks env files are passed by
@@ -53,11 +56,12 @@ from shell import Refusal, error_line, q
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.dirname(HERE)
-STEPS = ("project", "load", "review", "tags", "graph-type", "triplestore", "copy", "jena", "databricks",
+STEPS = ("project", "load", "review", "tags", "release-record", "graph-type", "triplestore", "copy", "jena", "databricks",
          "explore", "rebuild")
 # references/running.md, rule 2
 ROBOT_SHA256 = "16a73c074f3df359a7338a84b4e0788785fe06117f931bb9796e9619ea776105"
 INFERRED_GRAPH = "urn:ontology-to-lpg:inferred"
+RECORDS = "release-records.json"   # the run's release records (release_record.py)
 MODES = ("releases", "files")
 # The ontology skill's guided walk-through that packages an ontology as releases.
 PACKAGING = "skills/data/ontology/scripts/build_package.py"
@@ -114,7 +118,7 @@ def read_config(path):
 
     known = {"mode", "projection_config", "data", "shapes", "releases", "inputs_script", "files", "graphs", "out",
              "robot_jar", "manual_cases", "release_graphs", "queries", "target_env", "replace_target", "databricks",
-             "rdf_store", "rebuild", "keep_neo4j", "separator"} | set(DEFAULTS)
+             "rdf_store", "rebuild", "keep_neo4j", "keep_jena", "separator"} | set(DEFAULTS)
     unknown = sorted(set(cfg) - known)
     if unknown:
         raise Refusal("the run configuration has a key it does not know; references/run-config.md lists them")
@@ -220,6 +224,8 @@ def plan(cfg, only=None, skip=()):
             rows.append((step, "--skip"))
         elif step in needs and needs[step] not in cfg:
             rows.append((step, f"no {needs[step]} in the run configuration"))
+        elif step == "release-record" and cfg["mode"] == "files":
+            rows.append((step, "files mode has no catalog.ttl to read"))
         else:
             rows.append((step, None))
     return rows
@@ -505,10 +511,15 @@ class Driver:
         self.default_shapes = False
         # graphs: files mode's {data file: (graph IRI, where the name came from)}; empty for releases
         self.data, self.shapes, self.graphs = inputs if inputs else self.read_inputs()
+        # The package files the release records read and the manifest that proves them; a rebuild keeps the original's,
+        # with catalog.ttl and shapes.ttl beside them, because a store's export holds each graph as a file of its own.
+        self.package_files = self.data
+        self.package_manifest = self.out_file("run-manifest.json")
         self.local_up = False
         self.copied = False
         self.fusekis = []
         self.jena = None
+        self.jena_handle = None
         self.passed = []
         self.not_removed = 0
 
@@ -563,6 +574,11 @@ class Driver:
             args += ["--graph", f"{path}={self.graphs[path][0]}", path]
         return args
 
+    def catalogs(self):
+        """Each release's catalog.ttl: the release records read it. Files mode has none."""
+        beside = (os.path.join(os.path.dirname(p), "catalog.ttl") for p in self.package_files)
+        return [] if self.files else [c for c in beside if os.path.isfile(c)]
+
     def write_manifest(self):
         """<out>/run-manifest.json: the mode, each input's SHA-256 (and graph name in files mode), and
         what files mode leaves out, so a later rebuild can prove its source unchanged."""
@@ -577,6 +593,7 @@ class Driver:
                     "data": [{"path": p, "sha256": sha256_file(p), **({"graph": self.graphs[p][0], "graph_from": self.graphs[p][1]}
                                                                       if self.files else {})} for p in self.data],
                     "shapes": [{"path": p, "sha256": sha256_file(p)} for p in self.shapes],
+                    "catalogs": [{"path": c, "sha256": sha256_file(c)} for c in self.catalogs()],
                     "default_shapes": self.default_shapes, "notes": notes}
         with open(self.out_file("run-manifest.json"), "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2)
@@ -692,6 +709,9 @@ class Driver:
 
     def step_load(self):
         self.need("merged.ttl", "loadable.nt", "inferred.nt", "projection-manifest.json")
+        records = self.out_file(RECORDS)
+        if os.path.isfile(records):   # the records describe the load they were written for
+            os.remove(records)
         run = self.run_dir()
         self.neo4j_down()
         if os.path.isdir(run):
@@ -754,6 +774,20 @@ class Driver:
         target, env = self.local()
         self.tag_checks(target, env, write=True)
 
+    def step_release_record(self):
+        self.need("projection-report.json")
+        target, env = self.local()
+        self.py("release_record.py records", "release_record.py", "records", "--report", self.out_file("projection-report.json"),
+                "--manifest", self.package_manifest,
+                "--output", self.out_file(RECORDS), *self.package_files)
+        self.record_checks(target, env)
+
+    def record_checks(self, target, env):
+        """Writes the run's release records to a Neo4j and reads them back there."""
+        for command in ("write", "check"):
+            self.py(f"release_record.py {command}", "release_record.py", command, "--records", self.out_file(RECORDS),
+                    *target, env=env)
+
     def step_graph_type(self):
         self.py("build.py graph-type", "build.py", "graph-type", "--config", self.cfg["projection_config"],
                 *self.shape_args(), "--output", self.out_file("graph-type.cypher"), *self.sep_args(), *self.data)
@@ -779,21 +813,29 @@ class Driver:
         self.copied = True
         target = ["--env", target_env]
         self.tag_checks(target, None, write=False)
+        if os.path.isfile(self.out_file(RECORDS)):
+            self.record_checks(target, None)
         self.py("model_review.py (target)", "model_review.py", *target, "--report", self.out_file("model-review-target.json"),
                 *self.sep_args())
 
     def step_jena(self):
+        os.makedirs(self.out, exist_ok=True)   # rdfstore.py needs its report's folder, and --only jena may be first
         ds = self.jena_ds()
         self.rdfstore("rdfstore.py roundtrip (Jena)", "roundtrip", "--store", "fuseki", "--gsp", ds + "/data",
                       "--query", ds + "/query", "--update", ds + "/update", "--report", self.out_file("jena-roundtrip.json"),
                       *self.store_args())
+        if self.cfg.get("keep_jena") and self.jena_handle in self.fusekis:
+            self.fusekis.remove(self.jena_handle)   # no longer this run's to remove: it holds the proven copy
+            self.log(f"Jena left standing, loaded, on port {q(self.cfg['jena']['port'])}: its dataset is in memory, so a restart empties it")
 
     def jena_ds(self):
         if not self.jena:
             self.jena = self.rdf_store_fuseki("jena")
+            self.jena_handle = self.fusekis[-1]
         return self.jena
 
     def step_databricks(self):
+        os.makedirs(self.out, exist_ok=True)
         d = self.cfg["databricks"]
         self.rdfstore("rdfstore.py roundtrip (Databricks)", "roundtrip", "--store", "databricks", "--env", d["env"],
                       "--table", d["table"], "--report", self.out_file("databricks-roundtrip.json"), *self.store_args())
@@ -862,7 +904,10 @@ class Driver:
         child = Driver({**self.cfg, "out": r["out"]}, run=self.run, ready=self.ready, sleep=self.sleep, log=self.log,
                        inputs=(data, shapes, graphs))
         child.default_shapes = self.default_shapes
-        steps = ["project", "load", "compare", "tags"] + (["copy"] if "target_env" in self.cfg else []) + \
+        child.package_files = self.package_files
+        child.package_manifest = self.package_manifest
+        steps = ["project", "load", "compare", "tags"] + ([] if self.files else ["release-record"]) + \
+                (["copy"] if "target_env" in self.cfg else []) + \
                 (["explore"] if "queries" in self.cfg else [])
         try:
             for step in steps:
@@ -875,7 +920,7 @@ class Driver:
                         raise Failed("; ".join(problems + more))
                 else:
                     self.log(f"== rebuild: {q(step)}")
-                    getattr(child, "step_" + step)()
+                    getattr(child, "step_" + step.replace("-", "_"))()
         finally:
             child.finish()
             # what the child could not remove becomes this run's to retry: its Fuseki handles, and its
@@ -895,6 +940,9 @@ class Driver:
         now = {p: sha256_file(p) for p in self.data + self.shapes if os.path.isfile(p)}
         if recorded != now:
             raise Failed("the inputs differ from the ones out/run-manifest.json records: run project again first")
+        catalogs = {c: sha256_file(c) for c in self.catalogs()}
+        if {e["path"]: e["sha256"] for e in manifest.get("catalogs", [])} != catalogs:
+            raise Failed("the catalogs differ from the ones out/run-manifest.json records: run project again first")
 
     def finish(self):
         """Removes every container this run started, each attempt independent of the others, so one
@@ -918,7 +966,7 @@ class Driver:
 
     def run_steps(self, steps):
         """Runs the steps, then removes the containers. A step's failure propagates; with every step
-        passed, a container left running fails the run, so a pass means nothing was left up."""
+        passed, a removal that failed fails the run, so a pass leaves up only what keep_neo4j and keep_jena keep."""
         self.not_removed = 0
         try:
             for step in steps:

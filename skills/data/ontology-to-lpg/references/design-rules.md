@@ -8,9 +8,10 @@ Serves the design step. Read it before an ontology that will be projected is mod
 |---|---|
 | Every individual, type, literal value and link | Nodes, labels, properties, relationships |
 | Facts about one link (a role, an order, a source, a validity period) | Properties of a qualified-relation node (Rule 4a), or of a relationship (Rule 4b) |
-| Class and property hierarchy, domains and ranges | Schema nodes from `n10s.onto.import`; in SHORTEN mode `:n4sch__Class`, `:n4sch__Relationship` and `:n4sch__Property`, linked by `n4sch__SCO`, `n4sch__DOMAIN` and `n4sch__RANGE` |
+| Class and property hierarchy, domains and ranges | Schema nodes from `n10s.onto.import`; in SHORTEN mode `:n4sch__Class`, `:n4sch__Relationship` and `:n4sch__Property`, linked by `n4sch__SCO`, `n4sch__DOMAIN` and `n4sch__RANGE`. A class typed `owl:Class` in the Turtle is one node with two labels: `:owl__Class`, from the file's own triple, and `:n4sch__Class`, from the ontology import. Count classes with one of them, never both |
 | Cardinality and constraints | SHACL: every shape before the load, and inside the graph what the engine compiled, read back and tested row by row (`pipeline.md`, rules 13 and 14) |
 | A full round trip back to RDF | An automated diff (`pipeline.md`, verify) |
+| Which release the graph holds | One `:ModuleRelease` node per module (`add-ons.md`, add-on M); the rest of `catalog.ttl` stays in the files and the triple stores |
 
 **Not kept:** OWL reasoning (open world, complex class expressions, property chains). Neo4j has no reasoner. The pipeline runs one first and loads its inferences as data. The axioms stay in the Turtle files, which stay the master copy.
 

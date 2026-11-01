@@ -213,7 +213,7 @@ class Steps(Base):
     def test_a_full_run_calls_every_script_in_order_and_removes_the_containers(self):
         fake = FakeRun()
         d = self.driver(self.run_config(), fake)
-        d.run_steps(["project", "load", "review", "tags", "copy", "jena", "explore"])
+        d.run_steps(["project", "load", "review", "tags", "release-record", "copy", "jena", "explore"])
         self.assertEqual(fake.scripts(), [
             "check_projection_rules.py", "validate_data.py", "build.py merge", "robot", "build.py inferred",
             "build.py loadable", "build.py check-serialised", "validate_data.py", "build.py manifest",
@@ -221,12 +221,101 @@ class Steps(Base):
             "docker down", "docker up", "docker logs", "load_verify.py", "build.py check-report",
             "model_review.py",
             "module_tags.py tag", "module_tags.py check", "module_tags.py modules",
-            "copy_graph.py", "module_tags.py check", "module_tags.py modules", "model_review.py",
+            "release_record.py records", "release_record.py write", "release_record.py check",
+            "copy_graph.py", "module_tags.py check", "module_tags.py modules",
+            "release_record.py write", "release_record.py check", "model_review.py",
             "docker down", "docker up", "rdfstore.py roundtrip",
             "docker down", "docker up", "rdfstore.py roundtrip", "explore.py compare", "explore.py compare",
             "docker down",                            # explore's Fuseki
             "docker down", "docker down"])            # then Jena's Fuseki and the local Neo4j
-        self.assertEqual(d.passed, ["project", "load", "review", "tags", "copy", "jena", "explore"])
+        self.assertEqual(d.passed, ["project", "load", "review", "tags", "release-record", "copy", "jena", "explore"])
+
+    def test_keep_jena_leaves_the_jena_fuseki_up_and_removes_the_others(self):
+        fake = FakeRun()
+        d = self.driver(self.run_config(keep_jena=True), fake)
+        d.run_steps(["project", "load", "jena", "explore"])
+        downs = [cmd for cmd, _, _ in fake.calls if "down" in cmd]
+        jena = [cmd for cmd in downs if "lpg-jena" in cmd]
+        self.assertEqual(len(jena), 1)   # only the clean start before its own load, never after the round trip
+        self.assertLess(fake.calls.index(next(c for c in fake.calls if c[0] == jena[0])),
+                        fake.calls.index(next(c for c in fake.calls if "up" in c[0] and "lpg-jena" in c[0])))
+        self.assertEqual(d.fusekis, [])
+        self.assertEqual(sum("lpg-explore" in cmd for cmd in downs), 2)   # the transient Fuseki still goes
+
+    def test_only_jena_makes_its_output_folder_first_and_keeps_jena_up(self):
+        class Strict(FakeRun):   # as rdfstore.py: the report's folder must exist before any store is touched
+            def __call__(self, cmd, cwd=None, env=None, capture=False):
+                if "--report" in cmd and "roundtrip" in cmd and not os.path.isdir(os.path.dirname(cmd[cmd.index("--report") + 1])):
+                    return 2, ""
+                return super().__call__(cmd, cwd=cwd, env=env, capture=capture)
+        fake = Strict()
+        cfg = self.run_config(keep_jena=True)
+        d = self.driver(cfg, fake)
+        self.assertFalse(os.path.isdir(d.out))
+        d.run_steps(["jena"])
+        self.assertEqual(d.passed, ["jena"])
+        self.assertEqual(d.fusekis, [])
+
+    def test_only_databricks_makes_its_output_folder_first(self):
+        fake = FakeRun()
+        d = self.driver(self.run_config(databricks={"env": "dbx.env", "table": "c.s.t"}), fake)
+        self.assertFalse(os.path.isdir(d.out))
+        d.run_steps(["databricks"])
+        self.assertTrue(os.path.isdir(d.out))
+
+    def test_a_catalog_changed_since_the_run_stops_a_rebuild(self):
+        fake = FakeRun()
+        d = self.driver(self.run_config(), fake)
+        path = os.path.join(os.path.dirname(d.data[0]), "catalog.ttl")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("# one\n")
+        d.run_steps(["project"])
+        manifest = os.path.join(d.out, "run-manifest.json")
+        with open(manifest, encoding="utf-8") as f:
+            ran = json.load(f)
+        self.assertEqual(ran["catalogs"], [{"path": path, "sha256": rp.sha256_file(path)}])
+        d.same_source()
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("# edited\n")
+        with self.assertRaisesRegex(rp.Failed, "catalogs differ"):
+            d.same_source()
+        os.remove(path)   # removed since the run
+        with self.assertRaisesRegex(rp.Failed, "catalogs differ"):
+            d.same_source()
+        with open(manifest, "w", encoding="utf-8") as f:
+            json.dump({**ran, "catalogs": []}, f)
+        d.same_source()
+        added = os.path.join(os.path.dirname(d.data[1]), "catalog.ttl")   # added since the run
+        with open(added, "w", encoding="utf-8") as f:
+            f.write("# new\n")
+        with self.assertRaisesRegex(rp.Failed, "catalogs differ"):
+            d.same_source()
+
+    def test_keep_jena_removes_a_fuseki_whose_round_trip_failed(self):
+        fake = FakeRun(fail={"rdfstore.py roundtrip": 1})
+        d = self.driver(self.run_config(keep_jena=True), fake)
+        with self.assertRaises(rp.Failed):
+            d.run_steps(["project", "load", "jena"])
+        self.assertEqual(sum("lpg-jena" in cmd and "down" in cmd for cmd, _, _ in fake.calls), 2)
+
+    def test_without_keep_jena_the_jena_fuseki_is_removed(self):
+        fake = FakeRun()
+        d = self.driver(self.run_config(), fake)
+        d.run_steps(["project", "load", "jena"])
+        self.assertEqual(sum("lpg-jena" in cmd and "down" in cmd for cmd, _, _ in fake.calls), 2)
+
+    def test_a_new_load_drops_the_last_runs_release_records(self):
+        fake = FakeRun()
+        d = self.driver(self.run_config(), fake)
+        d.run_steps(["project", "load", "tags", "release-record"])
+        self.assertTrue(os.path.isfile(os.path.join(d.out, rp.RECORDS)))
+        d.run_steps(["load", "tags", "copy"])
+        self.assertFalse(os.path.isfile(os.path.join(d.out, rp.RECORDS)))
+        self.assertNotIn("release_record.py write", fake.scripts()[-6:])   # no records: the copy writes none
+
+    def test_files_mode_plans_no_release_record(self):
+        cfg = {**self.run_config(), "mode": "files"}
+        self.assertEqual(dict(rp.plan(cfg))["release-record"], "files mode has no catalog.ttl to read")
 
     def test_the_triplestore_fuseki_comes_from_the_skills_compose_profile(self):
         fake = FakeRun()
@@ -438,6 +527,16 @@ class Rebuild(Base):
         shapes = [rules[i + 1] for i, c in enumerate(rules) if c == "--shapes"]
         self.assertEqual(shapes, [os.path.join(ttl, "graph-2.ttl"), os.path.join(ttl, "graph-4.ttl"),
                                   os.path.join(self.tmp, "whole/shapes.ttl")])
+        # The release records read the release's own files: an export has no catalog.ttl beside each graph.
+        records = [cmd for cmd, _, _ in fake.calls if "records" in cmd][-1]
+        first = next(cmd for cmd, _, _ in fake.calls if any(c.endswith("build.py") for c in cmd) and "merge" in cmd)
+        self.assertEqual(records[records.index("--output") + 2:], first[first.index("--output") + 2:])
+        self.assertEqual(records[records.index("--manifest") + 1], os.path.join(self.tmp, "out", "run-manifest.json"))
+        self.assertEqual(records[records.index("--output") + 1], os.path.join(self.tmp, "re", rp.RECORDS))
+        # the rebuilt local graph and its copy target each get those records, written and read back
+        self.assertEqual([n for n in names if n.startswith("release_record.py")][-5:],
+                         ["release_record.py records", "release_record.py write", "release_record.py check",
+                          "release_record.py write", "release_record.py check"])
         copy = [cmd for cmd, _, _ in fake.calls if any(c.endswith("copy_graph.py") for c in cmd)][-1]
         self.assertIn("--replace", copy)
         self.assertEqual(names[-4:], ["explore.py compare", "explore.py compare", "docker down", "docker down"])
