@@ -19,7 +19,9 @@ sh:class skos:Concept is not one: it lets a value from the wrong list through. T
 property both apply, as they do in SHACL.
 
 Checks:
-  covered     every code-list property has at least one membership constraint
+  covered     every code-list property has at least one membership constraint; and when the data
+              declares a code list, at least one property takes a value from one (the modules hold no
+              instance, so pass the shapes tests' illustration file as data too: domain-model.md, rule 9)
   same-list   every value of the property (literals and blank nodes too) meets every constraint on it
   bites       for each constraint, moving one value to a concept that sits in a code list but meets none
               of the property's constraints makes that constraint's own shape report a result (its
@@ -118,6 +120,13 @@ def check(data, shapes, excluded=frozenset()):
     coded = coded_properties(data, lists)
     shaped = constraints(shapes)
     fails = []
+    if lists and not coded:
+        # The modules alone hold definitions and no instance (domain-model.md, rule 9), so without the
+        # shapes tests' illustration file no property ever takes a code-list value, and every check
+        # below would pass over nothing.
+        fails.append(("covered", f"no property takes a value from any code list ({', '.join(sorted(map(str, lists)))}); "
+                                 "pass the shapes tests' illustration file as --data too, or name each scheme that is "
+                                 "a taxonomy with --not-code-list"))
     for prop in sorted(coded, key=str):
         cons = shaped.get(prop)
         if not cons:

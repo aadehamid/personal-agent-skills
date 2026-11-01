@@ -15,6 +15,8 @@ Search the web for the domain plus "ontology", "OWL", "vocabulary" and "code lis
 
 Search all four for the domain's main nouns and record each search in the registry-search table of `templates/survey-register.md`: the registry, the date, the query terms, and the hits by name, or "no hits". Each hit worth assessing then gets its own row in the survey table. A registry's listing is a lead; assess the source itself (below).
 
+**Offline.** When a registry cannot be reached, record its row as "not run (offline)" with the date and the query terms you would use, and list the search as an open item (`governance.md`, rule 14). The "Done when" below is then not met, so Step 0 stays open with that reason, and Step 1 may start: the survey changes nothing a later step builds on, because a mapping found later is applied at its own step (rule 1) and a gap is a finding either way (rule 8). Run each open search at the first connection, fill its row, and close the step then.
+
 | Registry | What it holds | How to search it |
 |---|---|---|
 | Linked Open Vocabularies (LOV), https://lov.linkeddata.es/ | Reusable RDF vocabularies with curated metadata: versions, who maintains them, and which vocabularies reuse which | The vocabulary search and the term search on the site: this is the search to record. LOV also documents a SPARQL endpoint and a REST API (`/dataset/lov/api`) and offers a dump to download; on 2026-10-24 the endpoint and the API answered with an HTML page instead of results, so they are not verified, and a downloaded dump is data to query yourself, not a search of the registry |

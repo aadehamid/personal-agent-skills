@@ -1,4 +1,4 @@
-"""Tests for run_regression.py, check_shapes.py, check_packages.py and check_code_lists.py.
+"""Tests for run_regression.py, check_shapes.py, check_cardinality.py, check_packages.py and check_code_lists.py.
 
 Run from this folder:
   uv run --no-project --with rdflib --with pyyaml --with pyshacl python3 -m unittest test_validation
@@ -17,6 +17,7 @@ import tempfile
 import textwrap
 import unittest
 
+import check_cardinality
 import check_code_lists
 import check_packages
 import check_shapes
@@ -256,6 +257,87 @@ class WholeGraph(Files):
     def test_a_malformed_shape_is_a_usage_error(self):
         bad = SHAPES.replace("sh:minCount 1", 'sh:minCount "one"')
         self.assertEqual(self.gate([self.write("books.ttl", BOOKS)], [self.write("shapes.ttl", bad)])[0], 2)
+
+
+DECLARED = """\
+    @prefix owl: <http://www.w3.org/2002/07/owl#> .
+    lib:Book a owl:Class . lib:Copy a owl:Class .
+    lib:genre a owl:ObjectProperty ; rdfs:domain lib:Book ; rdfs:range skos:Concept .
+    lib:pages a owl:DatatypeProperty ; rdfs:domain lib:Book ; rdfs:range xsd:integer .
+    lib:note a owl:AnnotationProperty .
+    """
+CARDINALITIES = """\
+    lib:BookShape a sh:NodeShape ; sh:targetClass lib:Book ; sh:property lib:BookShape-genre, lib:BookShape-pages .
+    lib:BookShape-genre a sh:PropertyShape ; sh:path lib:genre ; sh:minCount 1 .
+    lib:BookShape-pages a sh:PropertyShape ; sh:path lib:pages ; sh:maxCount 1 .
+    lib:NoteShape a sh:NodeShape ; sh:targetSubjectsOf lib:note ; sh:property [ sh:path lib:note ; sh:maxCount 1 ] .
+    """
+
+
+class Cardinality(Files):
+    def check(self, data, shapes):
+        return run_main(check_cardinality.main, ["--shapes", self.write("shapes.ttl", shapes),
+                                                 "--data", self.write("data.ttl", data)])
+
+    def test_every_property_shaped_passes(self):
+        code, out = self.check(DECLARED, CARDINALITIES)
+        self.assertEqual(code, 0, out)
+        self.assertIn("(3 properties)", out)
+
+    def test_the_skill_skeletons_pass(self):
+        templates = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates")
+        code, out = run_main(check_cardinality.main, ["--shapes", os.path.join(templates, "shapes-skeleton.ttl"),
+                                                      "--data", os.path.join(templates, "ontology-skeleton.ttl")])
+        self.assertEqual(code, 0, out)
+        self.assertIn("(5 properties)", out)
+
+    def test_a_property_with_no_cardinality_fails(self):
+        shapes = CARDINALITIES.replace("sh:path lib:pages ; sh:maxCount 1", "sh:path lib:pages ; sh:datatype xsd:integer")
+        code, out = self.check(DECLARED, shapes)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL cardinality: https://id.example.org/library/pages has no live property shape", out)
+        self.assertNotIn("library/genre", out)
+
+    def test_a_declared_unused_property_still_needs_one(self):
+        shapes = CARDINALITIES.replace("lib:NoteShape a sh:NodeShape ; sh:targetSubjectsOf lib:note ; sh:property [ sh:path lib:note ; sh:maxCount 1 ] .\n", "")
+        code, out = self.check(DECLARED, shapes)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL cardinality: https://id.example.org/library/note has no live property shape", out)
+
+    def test_an_empty_node_shape_fails(self):
+        # A class with no properties gets no node shape (shapes-skeleton.ttl); one that holds nothing can never fail.
+        code, out = self.check(DECLARED, CARDINALITIES + "lib:CopyShape a sh:NodeShape ; sh:targetClass lib:Copy .\n")
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL empty-shape: https://id.example.org/library/CopyShape holds no property shape and no constraint", out)
+
+    def test_a_node_shape_with_a_constraint_but_no_property_shape_passes(self):
+        code, out = self.check(DECLARED, CARDINALITIES + "lib:CopyShape a sh:NodeShape ; sh:targetClass lib:Copy ; sh:closed true .\n")
+        self.assertEqual(code, 0, out)
+
+    def test_a_deactivated_shape_is_not_live(self):
+        for dead in ("lib:BookShape-pages a sh:PropertyShape ; sh:deactivated true ;",
+                     "lib:BookShape a sh:NodeShape ; sh:deactivated true ;"):
+            with self.subTest(dead=dead):
+                shapes = CARDINALITIES.replace(dead.replace(" sh:deactivated true ;", ""), dead)
+                code, out = self.check(DECLARED, shapes)
+                self.assertEqual(code, 1, out)
+                self.assertIn("FAIL cardinality: https://id.example.org/library/pages", out)
+
+    def test_a_property_shape_nothing_targets_is_not_live(self):
+        shapes = CARDINALITIES.replace("sh:property lib:BookShape-genre, lib:BookShape-pages", "sh:property lib:BookShape-genre")
+        code, out = self.check(DECLARED, shapes)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL cardinality: https://id.example.org/library/pages", out)
+
+    def test_a_property_shape_with_its_own_target_is_live(self):
+        shapes = CARDINALITIES.replace("sh:property lib:BookShape-genre, lib:BookShape-pages", "sh:property lib:BookShape-genre") \
+            .replace("lib:BookShape-pages a sh:PropertyShape ;", "lib:BookShape-pages a sh:PropertyShape ; sh:targetClass lib:Book ;")
+        self.assertEqual(self.check(DECLARED, shapes)[0], 0)
+
+    def test_an_unreadable_file_is_a_usage_error(self):
+        self.assertEqual(self.check("lib:x a .\n", CARDINALITIES)[0], 2)
+        self.assertEqual(run_main(check_cardinality.main, ["--shapes", os.path.join(self.dir, "none.ttl"),
+                                                           "--data", self.write("d.ttl", DECLARED)])[0], 2)
 
 
 CORE_V1 = """\
@@ -619,6 +701,31 @@ class CodeLists(Files):
     def test_an_unreadable_file_is_a_usage_error(self):
         self.assertEqual(run_main(check_code_lists.main, ["--shapes", self.write("s.ttl", GENRE_SHAPE),
                                                           "--data", self.write("d.ttl", "lib:x a .\n")])[0], 2)
+
+    def test_definitions_alone_do_not_pass(self):
+        # The module declares its lists and no instance (domain-model.md, rule 9), so no property takes a value:
+        # the run must fail, not pass over nothing.
+        definitions = "\n".join(l for l in CODED.split("\n") if "lib:dune" not in l)
+        code, out = self.check(definitions, GENRE_SHAPE + FORMAT_SHAPE)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL covered: no property takes a value from any code list (https://id.example.org/library/Format, "
+                      "https://id.example.org/library/Genre); pass the shapes tests' illustration file as --data too", out)
+
+    def test_the_skeleton_alone_does_not_pass(self):
+        templates = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "templates")
+        code, out = run_main(check_code_lists.main, ["--shapes", os.path.join(templates, "shapes-skeleton.ttl"),
+                                                      "--data", os.path.join(templates, "ontology-skeleton.ttl"),
+                                                      "--not-code-list=https://id.example.org/library/lending"])
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL covered: no property takes a value from any code list (https://id.example.org/library/loan-state)", out)
+
+    def test_a_module_with_no_code_list_passes_with_no_property(self):
+        code, out = self.check("lib:dune a lib:Book ; rdfs:label \"Dune\"@en .\n", "")
+        self.assertEqual(code, 0, out)
+        self.assertIn("(0 properties)", out)
+        code, out = self.check(CODED.replace("lib:genre lib:fiction ; lib:format lib:hardback", "rdfs:label \"Dune\"@en"), "",
+                               "--not-code-list=https://id.example.org/library/Genre", "--not-code-list=https://id.example.org/library/Format")
+        self.assertEqual(code, 0, out)
 
 
 if __name__ == "__main__":

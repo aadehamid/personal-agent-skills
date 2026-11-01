@@ -34,6 +34,6 @@ Standards: OWL 2 Web Ontology Language Primer (Second Edition), W3C Recommendati
 
 ## Records stay out
 
-9. **Define the class, not its instances.** The ontology holds `Loan`, its properties and its shapes; the loans themselves live in the lending system (`foundations.md`, policy 2). Ship one illustrative instance per class only inside a shapes test, marked as an illustration (`provenance.md`, rule 6). *Why:* an instance in the ontology is a record that goes stale the next day.
+9. **Define the class, not its instances.** The ontology holds `Loan`, its properties and its shapes; the loans themselves live in the lending system (`foundations.md`, policy 2). Ship one illustrative instance per class only inside a shapes test, marked as an illustration (`provenance.md`, rule 6), and pass that file as data to `scripts/check_code_lists.py` beside the modules (`shacl.md`, rule 4): with definitions alone no property takes a code-list value, and the check fails rather than pass over nothing. *Why:* an instance in the ontology is a record that goes stale the next day.
 
 `templates/ontology-skeleton.ttl` shows each kind for a library (concepts, a code list, three classes, four object and datatype properties, one annotation property); `templates/shapes-skeleton.ttl` shows their shapes. `scripts/check_taxonomy.py` checks the mechanical part of rules 4 to 6 and 8, including that each object or datatype property's range matches its kind.
