@@ -133,8 +133,8 @@ def separator(opts):
 def prefixes_holding(prefixes, sep):
     """The configured prefixes a rename to sep cannot handle: those that contain the separator (a renamed
     name could not be split back into prefix and local name at the first separator: my_ns_x reads as
-    my, ns_x) and those that contain n10s's own delimiter (the rename replaces the first one it finds,
-    which would sit inside the prefix: my__ns__x would become my___ns__x). The scripts refuse the pair
+    my, ns_x) and those that contain n10s's own two-underscore delimiter (the rename replaces the first one
+    it finds, which would then sit inside the prefix, not between prefix and name). The scripts refuse the pair
     before anything is loaded. With n10s's own separator nothing is renamed, so nothing is refused."""
     if sep == SEPARATOR:
         return []
