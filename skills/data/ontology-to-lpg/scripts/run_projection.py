@@ -940,9 +940,9 @@ class Driver:
         now = {p: sha256_file(p) for p in self.data + self.shapes if os.path.isfile(p)}
         if recorded != now:
             raise Failed("the inputs differ from the ones out/run-manifest.json records: run project again first")
-        for entry in manifest.get("catalogs", []):
-            if not os.path.isfile(entry["path"]) or sha256_file(entry["path"]) != entry["sha256"]:
-                raise Failed("a catalog.ttl differs from the one out/run-manifest.json records: run project again first")
+        catalogs = {c: sha256_file(c) for c in self.catalogs()}
+        if {e["path"]: e["sha256"] for e in manifest.get("catalogs", [])} != catalogs:
+            raise Failed("the catalogs differ from the ones out/run-manifest.json records: run project again first")
 
     def finish(self):
         """Removes every container this run started, each attempt independent of the others, so one

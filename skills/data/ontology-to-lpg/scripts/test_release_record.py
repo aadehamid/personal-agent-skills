@@ -11,6 +11,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -37,9 +38,10 @@ def sha_of(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def manifest(**change):
-    """What a run that read this test's three files records."""
-    return {"data": [{"sha256": sha_of(MODULE)}], "shapes": [{"sha256": sha_of(SHAPES)}], "catalogs": [{"sha256": sha_of(CATALOG)}], **change}
+def manifest(folder, **change):
+    """What a run that read this test's three files in folder records."""
+    entry = lambda name, text: [{"path": os.path.join(folder, name), "sha256": sha_of(text)}]   # noqa: E731
+    return {"data": entry("m.ttl", MODULE), "shapes": entry("shapes.ttl", SHAPES), "catalogs": entry("catalog.ttl", CATALOG), **change}
 
 
 def earned_report(**change):
@@ -128,7 +130,7 @@ class Records(unittest.TestCase):
         return path
 
     def test_every_field_comes_from_the_release_files_and_the_report(self):
-        content = rr.build_records([self.path], earned_report(), "2026-11-01T00:00:00Z", manifest())
+        content = rr.build_records([self.path], earned_report(), "2026-11-01T00:00:00Z", manifest(self.tmp))
         self.assertEqual(content["graph_hash"], earned_report()["determinism_hash_sorted"])
         self.assertEqual(content["records"], [{
             "module": "m", "version": "1.2.0", "version_iri": f"{BASE}/1.2.0", "ontology": BASE,
@@ -140,13 +142,13 @@ class Records(unittest.TestCase):
         rep = earned_report(roundtrip_lost=1)
         self.assertTrue(build.report_earned(rep))
         with self.assertRaises(rr.Refusal):
-            rr.build_records([self.path], rep, "t", manifest())
+            rr.build_records([self.path], rep, "t", manifest(self.tmp))
 
     def test_a_catalog_of_another_release_is_refused(self):
         text = CATALOG.replace("1.2.0", "1.1.0")
         self.write("catalog.ttl", text)
         with self.assertRaisesRegex(rr.Refusal, "no dcat:Dataset"):
-            rr.build_records([self.path], earned_report(), "t", manifest(catalogs=[{"sha256": sha_of(text)}]))
+            rr.build_records([self.path], earned_report(), "t", manifest(self.tmp, catalogs=[{"path": os.path.join(self.tmp, "catalog.ttl"), "sha256": sha_of(text)}]))
 
     def test_a_file_edited_after_the_load_makes_no_record(self):
         for name, text in (("shapes.ttl", SHAPES + "# edited\n"), ("catalog.ttl", CATALOG + "# edited\n"), ("m.ttl", MODULE + "# edited\n")):
@@ -154,8 +156,28 @@ class Records(unittest.TestCase):
                 before = open(os.path.join(self.tmp, name)).read()
                 self.write(name, text)
                 with self.assertRaisesRegex(rr.Refusal, "not the file the run read"):
-                    rr.build_records([self.path], earned_report(), "t", manifest())
+                    rr.build_records([self.path], earned_report(), "t", manifest(self.tmp))
                 self.write(name, before)
+
+    def test_a_known_digest_at_another_path_is_refused(self):
+        """Two releases' shapes swapped: each digest is in the run manifest, but not at that path."""
+        other = os.path.join(self.tmp, "other-shapes.ttl")
+        ran = manifest(self.tmp, shapes=[{"path": os.path.join(self.tmp, "shapes.ttl"), "sha256": sha_of("# the other module's\n")},
+                                         {"path": other, "sha256": sha_of(SHAPES)}])
+        with self.assertRaisesRegex(rr.Refusal, "shapes.ttl is not the file the run read"):
+            rr.build_records([self.path], earned_report(), "t", ran)
+
+    def test_a_file_replaced_during_the_read_cannot_enter_the_record(self):
+        """Each file is opened once: what is hashed is what is parsed. A swap after that read changes nothing."""
+        opened, real = [], open
+
+        def counting(path, *a, **k):
+            opened.append(os.path.basename(str(path)))
+            return real(path, *a, **k)
+        with mock.patch("builtins.open", counting):
+            rr.build_records([self.path], earned_report(), "t", manifest(self.tmp))
+        for name in ("m.ttl", "shapes.ttl", "catalog.ttl"):
+            self.assertEqual(opened.count(name), 1, name)
 
     def test_a_manifest_without_catalogs_is_refused(self):
         with self.assertRaisesRegex(rr.Refusal, "lists no catalogs"):
@@ -165,18 +187,20 @@ class Records(unittest.TestCase):
         text = CATALOG.replace(f"dcterms:isVersionOf <{BASE}>", "dcterms:isVersionOf <https://x.org/modules/other>")
         self.write("catalog.ttl", text)
         with self.assertRaisesRegex(rr.Refusal, "another module"):
-            rr.build_records([self.path], earned_report(), "t", manifest(catalogs=[{"sha256": sha_of(text)}]))
+            rr.build_records([self.path], earned_report(), "t", manifest(self.tmp, catalogs=[{"path": os.path.join(self.tmp, "catalog.ttl"), "sha256": sha_of(text)}]))
 
     def test_two_modules_with_one_version_iri_are_refused(self):
         other = os.path.join(self.tmp, "two")
         os.makedirs(other)
-        second_module = MODULE.replace(f"<{BASE}> a", "<https://x.org/modules/n> a").replace(f"<{BASE}/1.2.0>", f"<{BASE}/1.2.0>")
+        second_module = MODULE.replace(f"<{BASE}> a", "<https://x.org/modules/n> a")
         second_catalog = CATALOG.replace(f"dcterms:isVersionOf <{BASE}>", "dcterms:isVersionOf <https://x.org/modules/n>").replace("m.ttl", "n.ttl")
         for name, text in (("n.ttl", second_module), ("catalog.ttl", second_catalog), ("shapes.ttl", SHAPES)):
             with open(os.path.join(other, name), "w", encoding="utf-8") as f:
                 f.write(text)
-        both = manifest(data=[{"sha256": sha_of(MODULE)}, {"sha256": sha_of(second_module)}],
-                        catalogs=[{"sha256": sha_of(CATALOG)}, {"sha256": sha_of(second_catalog)}])
+        row = lambda name, text: {"path": os.path.join(other, name), "sha256": sha_of(text)}   # noqa: E731
+        first = manifest(self.tmp)
+        both = {"data": first["data"] + [row("n.ttl", second_module)], "shapes": first["shapes"] + [row("shapes.ttl", SHAPES)],
+                "catalogs": first["catalogs"] + [row("catalog.ttl", second_catalog)]}
         with self.assertRaisesRegex(rr.Refusal, "one release"):
             rr.build_records([self.path, os.path.join(other, "n.ttl")], earned_report(), "t", both)
 
@@ -184,11 +208,11 @@ class Records(unittest.TestCase):
         text = CATALOG.replace("m.ttl", "other.ttl")
         self.write("catalog.ttl", text)
         with self.assertRaisesRegex(rr.Refusal, "downloadURL"):
-            rr.build_records([self.path], earned_report(), "t", manifest(catalogs=[{"sha256": sha_of(text)}]))
+            rr.build_records([self.path], earned_report(), "t", manifest(self.tmp, catalogs=[{"path": os.path.join(self.tmp, "catalog.ttl"), "sha256": sha_of(text)}]))
 
     def test_the_cli_writes_the_file_and_a_missing_catalog_exits_2(self):
         report = self.write("report.json", json.dumps(earned_report()))
-        ran = self.write("run-manifest.json", json.dumps(manifest()))
+        ran = self.write("run-manifest.json", json.dumps(manifest(self.tmp)))
         out = os.path.join(self.tmp, "records.json")
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(rr.main(["records", "--report", report, "--manifest", ran, "--output", out, "--loaded-at", "t", self.path]), 0)
@@ -211,6 +235,7 @@ class WriteAndCheck(unittest.TestCase):
         content = self.content(s)
         before = lv.hash_graph(s)
         self.assertEqual(rr.write(s, content), ([], 1))
+        self.assertEqual((s.committed, s.rolled_back), (1, 0))
         self.assertEqual(lv.hash_graph(s), before)
         self.assertEqual(rr.check(s, content), [])
 

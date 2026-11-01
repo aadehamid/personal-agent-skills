@@ -256,23 +256,39 @@ class Steps(Base):
         self.assertEqual(d.passed, ["jena"])
         self.assertEqual(d.fusekis, [])
 
+    def test_only_databricks_makes_its_output_folder_first(self):
+        fake = FakeRun()
+        d = self.driver(self.run_config(databricks={"env": "dbx.env", "table": "c.s.t"}), fake)
+        self.assertFalse(os.path.isdir(d.out))
+        d.run_steps(["databricks"])
+        self.assertTrue(os.path.isdir(d.out))
+
     def test_a_catalog_changed_since_the_run_stops_a_rebuild(self):
-        path = os.path.join(self.tmp, "catalog-copy.ttl")
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("# one\n")
         fake = FakeRun()
         d = self.driver(self.run_config(), fake)
+        path = os.path.join(os.path.dirname(d.data[0]), "catalog.ttl")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("# one\n")
         d.run_steps(["project"])
         manifest = os.path.join(d.out, "run-manifest.json")
         with open(manifest, encoding="utf-8") as f:
             ran = json.load(f)
-        ran["catalogs"] = [{"path": path, "sha256": rp.sha256_file(path)}]
-        with open(manifest, "w", encoding="utf-8") as f:
-            json.dump(ran, f)
+        self.assertEqual(ran["catalogs"], [{"path": path, "sha256": rp.sha256_file(path)}])
         d.same_source()
         with open(path, "w", encoding="utf-8") as f:
             f.write("# edited\n")
-        with self.assertRaisesRegex(rp.Failed, "catalog.ttl differs"):
+        with self.assertRaisesRegex(rp.Failed, "catalogs differ"):
+            d.same_source()
+        os.remove(path)   # removed since the run
+        with self.assertRaisesRegex(rp.Failed, "catalogs differ"):
+            d.same_source()
+        with open(manifest, "w", encoding="utf-8") as f:
+            json.dump({**ran, "catalogs": []}, f)
+        d.same_source()
+        added = os.path.join(os.path.dirname(d.data[1]), "catalog.ttl")   # added since the run
+        with open(added, "w", encoding="utf-8") as f:
+            f.write("# new\n")
+        with self.assertRaisesRegex(rp.Failed, "catalogs differ"):
             d.same_source()
 
     def test_keep_jena_removes_a_fuseki_whose_round_trip_failed(self):

@@ -8,8 +8,8 @@ passed, and which rules loaded it.
 
 Each package file sits beside its release's shapes.ttl and catalog.ttl. `records` reads no database. It
 refuses a report that did not earn its pass (build.report_earned, as copy_graph.py does), and any package,
-shapes or catalog file whose SHA-256 is not in the run's run-manifest.json, so a record cannot describe a file
-edited after the load. It then writes one record per package, every field taken from those files or the report:
+shapes or catalog file whose path and SHA-256 are not together in the run's run-manifest.json, so a record cannot
+describe a file edited or swapped after the load. It reads each file once, and hashes and parses those same bytes. It then writes one record per package, every field taken from those files or the report:
 
   ontology, version_iri                    the package file's owl:Ontology and its owl:versionIRI
   module, version                          catalog.ttl's dcat:Dataset of that version IRI: the last part of its
@@ -56,9 +56,14 @@ READ = (f"MATCH (r:{LABEL}) OPTIONAL MATCH (r)-[:{LINK}]->(o:Resource) "
         "RETURN properties(r) AS fields, collect(o.uri) AS links ORDER BY fields.version_iri")
 
 
-def sha256(path):
+def checked_bytes(path, recorded, where):
+    """The file's bytes, read once, when the run manifest records that path with their SHA-256. Returns (bytes, digest)."""
     with open(path, "rb") as f:
-        return hashlib.sha256(f.read()).hexdigest()
+        body = f.read()
+    digest = hashlib.sha256(body).hexdigest()
+    if recorded.get(os.path.realpath(path)) != digest:
+        raise Refusal(f"{where}: {os.path.basename(path)} is not the file the run read; run project and load again")
+    return body, digest
 
 
 def one(values, what, where):
@@ -70,16 +75,14 @@ def one(values, what, where):
 
 def record(path, report, loaded_at, loaded):
     """The record of one package file, from the files beside it and the report. loaded maps a kind of file in the
-    run manifest (data, shapes, catalogs) to the SHA-256s that run read."""
+    run manifest (data, shapes, catalogs) to {real path: the SHA-256 that run read}."""
     folder, name = os.path.split(path)
     where = name
-    for kind, file in (("data", path), ("shapes", os.path.join(folder, "shapes.ttl")), ("catalogs", os.path.join(folder, "catalog.ttl"))):
-        if sha256(file) not in loaded[kind]:
-            raise Refusal(f"{where}: {os.path.basename(file)} is not the file the run read; run project and load again")
-    data = Graph().parse(path)
+    data = Graph().parse(data=checked_bytes(path, loaded["data"], where)[0], format="turtle")
+    shapes_digest = checked_bytes(os.path.join(folder, "shapes.ttl"), loaded["shapes"], where)[1]
     ontology = one(data.subjects(RDF.type, OWL.Ontology), "owl:Ontology", where)
     version_iri = one(data.objects(URIRef(ontology), OWL.versionIRI), "owl:versionIRI", where)
-    catalog = Graph().parse(os.path.join(folder, "catalog.ttl"))
+    catalog = Graph().parse(data=checked_bytes(os.path.join(folder, "catalog.ttl"), loaded["catalogs"], where)[0], format="turtle")
     dataset = URIRef(version_iri)
     if (dataset, RDF.type, DCAT.Dataset) not in catalog:
         raise Refusal(f"{where}: its catalog.ttl has no dcat:Dataset named by its owl:versionIRI")
@@ -95,7 +98,7 @@ def record(path, report, loaded_at, loaded):
             "conforms": report["passed"] is True and report["shacl_violations_in_graph"] == 0,
             "in_graph_constraints": report["in_graph_shape_constraints"],
             "violations": report["shacl_violations_in_graph"],
-            "shapes_sha256": sha256(os.path.join(folder, "shapes.ttl")),
+            "shapes_sha256": shapes_digest,
             "projection_version": report["versions"]["method"],
             "loaded_at": loaded_at}
 
@@ -110,7 +113,7 @@ def build_records(paths, report, loaded_at, manifest):
         raise unverified_report(fails)
     if "catalogs" not in manifest:
         raise Refusal("the run manifest lists no catalogs; run project again")
-    loaded = {kind: {e["sha256"] for e in manifest[kind]} for kind in ("data", "shapes", "catalogs")}
+    loaded = {kind: {os.path.realpath(e["path"]): e["sha256"] for e in manifest[kind]} for kind in ("data", "shapes", "catalogs")}
     records = sorted((record(p, report, loaded_at, loaded) for p in paths), key=lambda r: r["version_iri"])
     for field, what in (("module", "one module"), ("version_iri", "one release")):
         if len({r[field] for r in records}) != len(records):

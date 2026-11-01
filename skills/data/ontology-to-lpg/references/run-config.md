@@ -60,7 +60,7 @@ The rule check runs without `--releases`, so version pins and the closure of req
 
 ## The run manifest
 
-The `project` step writes `<out>/run-manifest.json`: the mode, each data and shape file with its SHA-256 (and, in files mode, its graph name and where the name came from), whether the shapes were derived, and the notes above. The rebuild refuses to compare with `out` when any of those files has changed since.
+The `project` step writes `<out>/run-manifest.json`: the mode, each data and shape file with its SHA-256 (and, in files mode, its graph name and where the name came from), each release's `catalog.ttl` with its SHA-256, whether the shapes were derived, and the notes above. The rebuild refuses to compare with `out` when any of those files has changed, or a catalog has been added or removed, since. `release_record.py` refuses a file whose path and SHA-256 are not in it.
 
 ## The steps and their checks
 
