@@ -217,8 +217,13 @@ class Review(unittest.TestCase):
 
     def test_skill_md_runs_the_tests_with_the_pin_check_sh_uses(self):
         # The Cursor review of 5869898: SKILL.md's test command lacked the package the parity test imports.
-        skill = open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read()
-        check = open(os.path.join(HERE, "..", "..", "..", "..", "scripts", "check.sh"), encoding="utf-8").read()
+        check_sh = os.path.join(HERE, "..", "..", "..", "..", "scripts", "check.sh")
+        if not os.path.exists(check_sh):
+            self.skipTest("not in the skills repository: a copy of the skill alone has no check.sh to compare with")
+        with open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8") as f:
+            skill = f.read()
+        with open(check_sh, encoding="utf-8") as f:
+            check = f.read()
         pin = "--with mcp-neo4j-data-modeling==0.8.2"
         self.assertIn(pin, next(line for line in check.splitlines() if "test_modeling" in line))
         self.assertIn(pin, next(line for line in skill.splitlines() if "test_modeling" in line and "uv run" in line))
