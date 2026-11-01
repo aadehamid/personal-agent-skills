@@ -885,9 +885,18 @@ class CodeLists(Files):
                       "https://id.example.org/library/notAConcept", out)
         self.assertNotIn("unexercised", out)
 
-    def test_a_shape_with_no_code_list_declared_is_not_unexercised(self):
-        code, out = self.check('lib:dune a lib:Book ; rdfs:label "Dune"@en .\n', GENRE_SHAPE)
-        self.assertEqual(code, 0, out)
+    def test_with_no_code_list_declared_same_list_and_unexercised_still_run(self):
+        in_list = ("lib:BookGenre a sh:NodeShape ; sh:targetClass lib:Book ;\n"
+                   "    sh:property [ sh:path lib:genre ; sh:in ( lib:fiction lib:poetry ) ] .\n")
+        code, out = self.check("lib:dune a lib:Book ; lib:genre lib:notAConcept .\n", in_list)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL same-list: https://id.example.org/library/genre on https://id.example.org/library/dune is "
+                      "https://id.example.org/library/notAConcept", out)
+        code, out = self.check("lib:dune a lib:Book .\n", in_list)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL unexercised: https://id.example.org/library/genre", out)
+        code, out = self.check("lib:dune a lib:Book ; lib:genre lib:fiction .\n", in_list)
+        self.assertEqual(code, 0, out)  # a good value: no second list exists, so no bite test applies
 
     def test_a_module_with_no_code_list_passes_with_no_property(self):
         code, out = self.check("lib:dune a lib:Book ; rdfs:label \"Dune\"@en .\n", "")
