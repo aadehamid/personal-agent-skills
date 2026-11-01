@@ -140,6 +140,18 @@ class Build(Workspace):
         self.assertEqual(code, 1)
         self.assertIn("CHANGELOG.md differs from a fresh build", out)
 
+    def test_a_crlf_edit_to_the_package_fails_verify(self):
+        path = self.write_answers()
+        run(["build", path, "--releases", self.releases])
+        ttl = os.path.join(self.releases, "lending", "1.0.0", "lending.ttl")
+        with open(ttl, "rb") as f:
+            text = f.read()
+        with open(ttl, "wb") as f:
+            f.write(text.replace(b"\n", b"\r\n"))
+        code, out = run(["verify", path, "--releases", self.releases])
+        self.assertEqual(code, 1)
+        self.assertIn("lending.ttl differs from a fresh build", out)
+
     def test_a_released_package_is_never_overwritten(self):
         self.assertEqual(self.build()[0], 0)
         before = self.manifest()

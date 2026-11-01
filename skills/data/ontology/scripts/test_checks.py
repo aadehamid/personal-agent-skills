@@ -1141,6 +1141,39 @@ class CheckScriptWithoutGit(CheckScriptSkeleton):
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("the checks changed the working tree", result.stderr)
 
+    def test_a_git_that_fails_stops_the_guard(self):
+        # git is present but cannot answer (a dubious owner, a broken repository): the guard must not fall
+        # back to the plain-folder snapshots, which would leave out the index and status it was asked for.
+        self.edit_script(self.drop_todos)
+        env = self.without_git()
+        fake = os.path.join(env["PATH"], "git")
+        with open(fake, "w") as f:
+            f.write("#!/bin/sh\necho 'fatal: detected dubious ownership in repository' >&2\nexit 128\n")
+        os.chmod(fake, 0o755)
+        result = subprocess.run(["bash", "scripts/check.sh"], cwd=self.tmp, env=env,
+                                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=300)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("git rev-parse failed, so the guard cannot tell whether this is a checkout: fatal: detected dubious ownership",
+                      result.stderr)
+        self.assertNotIn("all checks passed", result.stdout)
+
+    def test_a_folder_that_cannot_be_listed_stops_the_guard(self):
+        if os.geteuid() == 0:
+            self.skipTest("root can list any folder")
+        self.edit_script(self.drop_todos)
+        locked = os.path.join(self.tmp, "locked")
+        os.makedirs(locked)
+        with open(os.path.join(locked, "inside.txt"), "w") as f:
+            f.write("x\n")
+        os.chmod(locked, 0o100)
+        try:
+            result = self.run_script()
+        finally:
+            os.chmod(locked, 0o755)  # before tearDown removes the folder
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("PermissionError", result.stderr)
+        self.assertNotIn("all checks passed", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

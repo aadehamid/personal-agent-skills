@@ -35,16 +35,28 @@ h = hashlib.sha256()
 BUILD_OUTPUT = {".git", ".venv", "__pycache__", ".pytest_cache"}
 
 def in_git():
+    """True in a checkout, False with no git or outside any repository. Any other answer from git (a
+    dubious owner, a broken repository) stops the snapshot, so the index and status are never left out
+    in silence."""
     try:
         r = subprocess.run(["git", "rev-parse", "--is-inside-work-tree"], capture_output=True)
     except FileNotFoundError:
         return False
-    return r.returncode == 0 and r.stdout.strip() == b"true"
+    if r.returncode == 0 and r.stdout.strip() == b"true":
+        return True
+    err = r.stderr.decode(errors="replace").strip()
+    if r.returncode == 0 or "not a git repository" in err:
+        return False
+    raise SystemExit("git rev-parse failed, so the guard cannot tell whether this is a checkout: " + err)
+
+def refuse(exc):
+    raise exc
 
 def every_file():
-    """Every path under the folder, relative, as bytes; a symlink to a folder is listed, not entered."""
+    """Every path under the folder, relative, as bytes; a symlink to a folder is listed, not entered,
+    and a folder that cannot be listed stops the snapshot."""
     found = []
-    for folder, dirs, files in os.walk(os.curdir):
+    for folder, dirs, files in os.walk(os.curdir, onerror=refuse):
         dirs[:] = sorted(d for d in dirs if d not in BUILD_OUTPUT)
         for d in list(dirs):
             if os.path.islink(os.path.join(folder, d)):
@@ -100,7 +112,7 @@ before="$(snapshot)"
 # TODO: mappings=(); while IFS= read -r -d '' f; do mappings+=("$f"); done < <(find modules -name '*.sssom.tsv' -print0)
 # TODO: [ "${#mappings[@]}" -eq 0 ] || uv run --no-project --with pyyaml python3 scripts/ontology/check_sssom.py "${mappings[@]}"
 
-# 3. Generated files: every builder rebuilds into a temporary directory and --verify compares
+# 3. Generated files: every builder rebuilds into a temporary directory and its verify command compares
 #    (release.md, rules 9 and 19). One line per module package, then the combined catalog, which
 #    build_catalog.py builds from the packages' own catalog.ttl files plus the title and description
 #    given here.

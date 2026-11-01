@@ -295,14 +295,50 @@ class Cardinality(Files):
         shapes = CARDINALITIES.replace("sh:path lib:pages ; sh:maxCount 1", "sh:path lib:pages ; sh:datatype xsd:integer")
         code, out = self.check(DECLARED, shapes)
         self.assertEqual(code, 1)
-        self.assertIn("FAIL cardinality: https://id.example.org/library/pages has no live property shape", out)
+        self.assertIn("FAIL cardinality: https://id.example.org/library/pages has no applied property shape", out)
         self.assertNotIn("library/genre", out)
 
     def test_a_declared_unused_property_still_needs_one(self):
         shapes = CARDINALITIES.replace("lib:NoteShape a sh:NodeShape ; sh:targetSubjectsOf lib:note ; sh:property [ sh:path lib:note ; sh:maxCount 1 ] .\n", "")
         code, out = self.check(DECLARED, shapes)
         self.assertEqual(code, 1)
-        self.assertIn("FAIL cardinality: https://id.example.org/library/note has no live property shape", out)
+        self.assertIn("FAIL cardinality: https://id.example.org/library/note has no applied property shape", out)
+
+    def test_a_shape_for_another_class_does_not_count(self):
+        # pages has domain Book; its only cardinality sits under a shape that targets Copy, so no Book is checked.
+        shapes = CARDINALITIES.replace("sh:property lib:BookShape-genre, lib:BookShape-pages", "sh:property lib:BookShape-genre") \
+            + "lib:CopyShape a sh:NodeShape ; sh:targetClass lib:Copy ; sh:property lib:BookShape-pages .\n"
+        code, out = self.check(DECLARED, shapes)
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL cardinality: https://id.example.org/library/pages", out)
+
+    def test_a_shape_for_a_superclass_of_the_domain_counts(self):
+        data = DECLARED + "lib:Item a owl:Class . lib:Book rdfs:subClassOf lib:Item .\n"
+        shapes = CARDINALITIES.replace("sh:targetClass lib:Book", "sh:targetClass lib:Item")
+        self.assertEqual(self.check(data, shapes)[0], 0)
+        shapes = CARDINALITIES.replace("sh:targetClass lib:Book", "sh:targetClass lib:Copy")
+        self.assertEqual(self.check(data, shapes)[0], 1)
+
+    def test_an_implicit_class_target_counts(self):
+        shapes = "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n" + CARDINALITIES.replace(
+            "lib:BookShape a sh:NodeShape ; sh:targetClass lib:Book ;", "lib:Book a sh:NodeShape, owl:Class ;")
+        code, out = self.check(DECLARED, shapes)
+        self.assertEqual(code, 0, out)
+
+    def test_a_shape_reached_through_node_and_or_counts(self):
+        # The cardinalities sit in shapes nothing targets; the targeted shape reaches them through sh:node and sh:and.
+        for reuse in ("sh:node lib:Inner", "sh:and ( lib:Inner )", "sh:or ( lib:Inner )", "sh:xone ( lib:Inner )",
+                      "sh:property [ sh:path lib:genre ; sh:node lib:Inner ]"):
+            with self.subTest(reuse=reuse):
+                shapes = CARDINALITIES.replace("lib:BookShape a sh:NodeShape ; sh:targetClass lib:Book ; sh:property lib:BookShape-genre, lib:BookShape-pages .",
+                                               f"lib:BookShape a sh:NodeShape ; sh:targetClass lib:Book ; {reuse} .\n"
+                                               "lib:Inner a sh:NodeShape ; sh:property lib:BookShape-genre, lib:BookShape-pages .")
+                code, out = self.check(DECLARED, shapes)
+                self.assertEqual(code, 0, out)
+
+    def test_a_sparql_target_counts_for_any_property(self):
+        shapes = CARDINALITIES.replace("sh:targetClass lib:Book", "sh:target [ a sh:SPARQLTarget ; sh:select \"SELECT ?this WHERE { ?this a <https://id.example.org/library/Book> }\" ]")
+        self.assertEqual(self.check(DECLARED, shapes)[0], 0)
 
     def test_an_empty_node_shape_fails(self):
         # A class with no properties gets no node shape (shapes-skeleton.ttl); one that holds nothing can never fail.
@@ -330,9 +366,11 @@ class Cardinality(Files):
         self.assertIn("FAIL cardinality: https://id.example.org/library/pages", out)
 
     def test_a_property_shape_with_its_own_target_is_live(self):
-        shapes = CARDINALITIES.replace("sh:property lib:BookShape-genre, lib:BookShape-pages", "sh:property lib:BookShape-genre") \
-            .replace("lib:BookShape-pages a sh:PropertyShape ;", "lib:BookShape-pages a sh:PropertyShape ; sh:targetClass lib:Book ;")
-        self.assertEqual(self.check(DECLARED, shapes)[0], 0)
+        loose = CARDINALITIES.replace("sh:property lib:BookShape-genre, lib:BookShape-pages", "sh:property lib:BookShape-genre")
+        own = loose.replace("lib:BookShape-pages a sh:PropertyShape ;", "lib:BookShape-pages a sh:PropertyShape ; sh:targetClass lib:Book ;")
+        self.assertEqual(self.check(DECLARED, own)[0], 0)
+        other = loose.replace("lib:BookShape-pages a sh:PropertyShape ;", "lib:BookShape-pages a sh:PropertyShape ; sh:targetClass lib:Copy ;")
+        self.assertEqual(self.check(DECLARED, other)[0], 1)
 
     def test_an_unreadable_file_is_a_usage_error(self):
         self.assertEqual(self.check("lib:x a .\n", CARDINALITIES)[0], 2)
@@ -718,6 +756,16 @@ class CodeLists(Files):
                                                       "--not-code-list=https://id.example.org/library/lending"])
         self.assertEqual(code, 1)
         self.assertIn("FAIL covered: no property takes a value from any code list (https://id.example.org/library/loan-state)", out)
+
+    def test_a_shaped_property_no_value_exercises_fails(self):
+        # genre is illustrated; format has a membership shape (deactivated, so it would never bite) and no value.
+        data = CODED.replace(" ; lib:format lib:hardback", "")
+        dead = FORMAT_SHAPE.replace("lib:InFormat a sh:NodeShape ;", "lib:InFormat a sh:NodeShape ; sh:deactivated true ;")
+        code, out = self.check(data, GENRE_SHAPE + dead)
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL unexercised: https://id.example.org/library/format has a membership shape but no value in the data takes it", out)
+        self.assertNotIn("library/genre", out)
+        self.assertEqual(self.check(data, GENRE_SHAPE + FORMAT_SHAPE)[0], 1)
 
     def test_a_module_with_no_code_list_passes_with_no_property(self):
         code, out = self.check("lib:dune a lib:Book ; rdfs:label \"Dune\"@en .\n", "")

@@ -6,7 +6,7 @@ description: >-
 
 # Ontology
 
-Build the ontology in **gated** steps. Each step ends on its "Done when" gate; start the next step only when the gate is met. The user, the ontology owner, makes every decision; your job is the evidence, the options and a recommendation. What counts as decided, and what stays with the owner under a delegation: `references/governance.md`, rules 6 and 12.
+Build the ontology in **gated** steps. Each step ends on its "Done when" gate; start the next step only when the gate is met, or when the gate itself names what may go on while it stays open (an owner's "not yet", `references/governance.md`, rule 3; an offline survey, Step 0). The user, the ontology owner, makes every decision; your job is the evidence, the options and a recommendation. What counts as decided, and what stays with the owner under a delegation: `references/governance.md`, rules 6 and 12.
 
 Scope: from intake to a released, checked ontology; Step 12 hands its property-graph projection to the `ontology-to-lpg` skill. Namespace hosting is the owner's decision (`references/release.md`, rule 20); event records and measure values stay in the consumers' systems (`references/foundations.md`, policy 2); application Cypher and data-model advice for a graph database belong to a graph-database skill.
 
@@ -20,7 +20,7 @@ Scope: from intake to a released, checked ontology; Step 12 hands its property-g
 
 ## The steps
 
-Keep the order, except Step 8, which runs right after Step 0. Before you work on a step, read the reference it names. When the user asks why the method works this way, or wants it explained step by step with an example, read `references/playbook.md`, the narrative guide; the references below hold the rules.
+Keep the order, except Step 8, which runs right after Step 0; Step 1 may also start while Step 0 waits only on offline registry searches. Before you work on a step, read the reference it names. When the user asks why the method works this way, or wants it explained step by step with an example, read `references/playbook.md`, the narrative guide; the references below hold the rules.
 
 0. **Reference framework and existing ontologies.** Read `references/foundations.md` and `references/external-ontologies.md`; record in `templates/survey-register.md`.
    Done when: every cited framework ID is verified against the publisher's copy (or the framework's absence is a recorded finding), every divergence has a boundary note, and the survey meets the "Done when" in `references/external-ontologies.md`. Offline, a registry search recorded as "not run (offline)" with its date leaves this step open and still lets Step 1 start (`references/external-ontologies.md`, "Offline").
@@ -43,7 +43,7 @@ Keep the order, except Step 8, which runs right after Step 0. Before you work on
 9. **SHACL.** Read `references/shacl.md`.
    Done when: every module's shapes, the whole-graph gate and the release-package test meet the pass condition in `references/shacl.md`, rule 7, every property has a cardinality (rule 5), and each guard has a negative test that asserts its violation. `scripts/check_shapes.py`, `scripts/check_cardinality.py`, `scripts/check_code_lists.py` and `scripts/check_packages.py` run those gates.
 10. **Release and publication.** Read `references/release.md`; when the user has files but no packages yet, run the interview in `references/packaging-walkthrough.md`.
-    Done when: every released module is a package that passes `--verify`, each release meets `references/release.md`, rules 28 to 30, first releases included, the combined catalog (`scripts/build_catalog.py`) lists every release and passes `verify`, and, where the project uses git, each release is retrievable at its tag. Before the first module release, every row on the source-correction backlog has a fresh verdict (`references/promotion.md`, the first-release gate). "The catalog resolves" waits for the owner's hosting decision.
+    Done when: every released module is a package that passes `build_package.py verify`, each release meets `references/release.md`, rules 28 to 30, first releases included, the combined catalog (`scripts/build_catalog.py`) lists every release and passes `verify`, and, where the project uses git, each release is retrievable at its tag. Before the first module release, every row on the source-correction backlog has a fresh verdict (`references/promotion.md`, the first-release gate). "The catalog resolves" waits for the owner's hosting decision.
 11. **Regression.** Read `references/regression.md`.
     Done when: every competency question passes on the released packages, or is partial, parked or waiting by a recorded decision that names what it waits for; `scripts/run_regression.py` runs the questions and checks each status.
 12. **Property-graph projection (optional).** Read `references/lpg-projection.md`, then load the `ontology-to-lpg` skill, which holds the method; its design rules apply from Step 1. To hold the release in triple stores and Neo4j or Aura with proof that nothing is lost, follow its `references/multi-store.md`; the triple-store hops (Jena Fuseki, Databricks) use the `rdf-store` skill.

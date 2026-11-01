@@ -121,6 +121,36 @@ class Catalog(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("differs from a fresh build", out)
 
+    def test_a_crlf_edit_fails_verify(self):
+        self.build()
+        with open(self.catalog, "rb") as f:
+            text = f.read()
+        with open(self.catalog, "wb") as f:
+            f.write(text.replace(b"\n", b"\r\n"))
+        code, out = self.verify()
+        self.assertEqual(code, 1)
+        self.assertIn("differs from a fresh build", out)
+
+    def test_a_record_of_another_release_fails(self):
+        # core's record copied from lending: one dataset, listed by the catalog, but not core's own release.
+        shutil.copy(os.path.join(self.releases, "lending", "1.0.0", "catalog.ttl"),
+                    os.path.join(self.releases, "core", "1.0.0", "catalog.ttl"))
+        code, out = self.build()
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL core 1.0.0: catalog.ttl describes https://id.example.org/library/lending/1.0.0, not this package's "
+                      "release https://id.example.org/library/core/1.0.0", out)
+
+    def test_a_manifest_without_a_version_iri_fails(self):
+        path = os.path.join(self.releases, "core", "1.0.0", "manifest.json")
+        with open(path, encoding="utf-8") as f:
+            m = json.load(f)
+        del m["version_iri"]
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(m, f)
+        code, out = self.build()
+        self.assertEqual(code, 1)
+        self.assertIn("FAIL core 1.0.0: the manifest names no version_iri", out)
+
     def test_a_changed_title_fails_verify(self):
         self.build()
         code, out = run(["verify", "--releases", self.releases, "--title", "Other", "--description", DESCRIPTION])
@@ -152,7 +182,17 @@ class Catalog(unittest.TestCase):
         self.edit_record("core", lambda t: t.replace("releases/1.0.0/shapes.ttl", "releases/1.0.0/extra.ttl"))
         code, out = self.build()
         self.assertEqual(code, 1)
-        self.assertIn("FAIL core 1.0.0: distribution https://id.example.org/library/core/releases/1.0.0/extra.ttl names extra.ttl, "
+        self.assertIn("FAIL core 1.0.0: distribution https://id.example.org/library/core/releases/1.0.0/extra.ttl downloads extra.ttl, "
+                      "which the manifest does not list", out)
+
+    def test_a_download_url_naming_no_file_fails(self):
+        # The distribution IRI still ends in shapes.ttl; only the URL a consumer follows points at a missing file.
+        self.edit_record("core", lambda t: t.replace(
+            "dcat:downloadURL <https://id.example.org/library/core/releases/1.0.0/shapes.ttl>",
+            "dcat:downloadURL <https://id.example.org/library/core/releases/1.0.0/missing.ttl>"))
+        code, out = self.build()
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL core 1.0.0: distribution https://id.example.org/library/core/releases/1.0.0/shapes.ttl downloads missing.ttl, "
                       "which the manifest does not list", out)
 
     def test_a_distribution_not_described_fails(self):
@@ -160,6 +200,14 @@ class Catalog(unittest.TestCase):
             "<https://id.example.org/library/core/releases/1.0.0/shapes.ttl> a dcat:Distribution ;\n"
             "    dcat:downloadURL <https://id.example.org/library/core/releases/1.0.0/shapes.ttl> ;",
             "<https://id.example.org/library/core/releases/1.0.0/shapes.ttl> a dcat:Distribution ;"))
+        code, out = self.build()
+        self.assertEqual(code, 1, out)
+        self.assertIn("FAIL core 1.0.0: distribution https://id.example.org/library/core/releases/1.0.0/shapes.ttl is not described", out)
+
+    def test_a_download_url_that_is_a_literal_fails(self):
+        self.edit_record("core", lambda t: t.replace(
+            "dcat:downloadURL <https://id.example.org/library/core/releases/1.0.0/shapes.ttl>",
+            'dcat:downloadURL "https://id.example.org/library/core/releases/1.0.0/shapes.ttl"'))
         code, out = self.build()
         self.assertEqual(code, 1, out)
         self.assertIn("FAIL core 1.0.0: distribution https://id.example.org/library/core/releases/1.0.0/shapes.ttl is not described", out)

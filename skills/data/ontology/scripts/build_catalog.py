@@ -14,15 +14,19 @@ for byte, so a release missing from the catalog, a package added since, or a han
 and the catalog can hold nothing but the packages' own records and the two values given here.
 
 Checks, before anything is written or compared (one FAIL line each):
-  packages       <dir> holds at least one package, and each package's catalog.ttl parses
+  packages       <dir> holds at least one package, and each package's manifest.json and catalog.ttl
+                 can be read
   one-catalog    every package names the same dcat:Catalog IRI (set catalog_iri in the answers file
                  of a package that names another)
-  one-dataset    each package's catalog.ttl holds exactly one dcat:Dataset, listed by the catalog
+  one-dataset    each package's catalog.ttl holds exactly one dcat:Dataset, which is the package's
+                 own release (the manifest's version_iri) and which the catalog lists
   distribution   every distribution a dataset links to is described (typed dcat:Distribution, with a
-                 dcat:downloadURL) and its last path segment names a file the package's manifest lists
+                 dcat:downloadURL that is an IRI) and the download URL's last path segment names a
+                 file the package's manifest lists
 
-Exit 0 when the catalog is written or equals a fresh build, 1 when a check fails or the written catalog
-differs, 2 when the arguments are wrong, <dir> is not a directory or a manifest cannot be read.
+Exit 0 when the catalog is written or equals a fresh build, 1 when a check fails (an unreadable
+manifest or record included) or the written catalog differs, 2 when the arguments are wrong or <dir>
+is not a directory.
 """
 import argparse
 import os
@@ -57,6 +61,13 @@ def check_record(where, g, manifest):
     datasets = sorted(set(g.subjects(RDF.type, DCAT.Dataset)), key=str)
     if len(datasets) != 1:
         fails.append(f"{where}: catalog.ttl holds {len(datasets)} dcat:Dataset, not one")
+    release = manifest.get("version_iri")
+    if not isinstance(release, str) or not release:
+        fails.append(f"{where}: the manifest names no version_iri")
+    else:
+        for ds in datasets:
+            if ds != URIRef(release):
+                fails.append(f"{where}: catalog.ttl describes {ds}, not this package's release {release}")
     for cat in catalogs:
         for ds in datasets:
             if (cat, DCAT.dataset, ds) not in g:
@@ -64,11 +75,13 @@ def check_record(where, g, manifest):
     files = set(manifest.get("files") or {})
     for ds in datasets:
         for dist in sorted(g.objects(ds, DCAT.distribution), key=str):
-            if (dist, RDF.type, DCAT.Distribution) not in g or g.value(dist, DCAT.downloadURL) is None:
-                fails.append(f"{where}: distribution {dist} is not described (dcat:Distribution with dcat:downloadURL)")
-            name = str(dist).rsplit("/", 1)[-1]
+            url = g.value(dist, DCAT.downloadURL)
+            if (dist, RDF.type, DCAT.Distribution) not in g or not isinstance(url, URIRef):
+                fails.append(f"{where}: distribution {dist} is not described (dcat:Distribution with a dcat:downloadURL IRI)")
+                continue
+            name = str(url).rstrip("/").rsplit("/", 1)[-1]
             if name not in files:
-                fails.append(f"{where}: distribution {dist} names {name}, which the manifest does not list")
+                fails.append(f"{where}: distribution {dist} downloads {name}, which the manifest does not list")
     return fails
 
 
@@ -137,8 +150,8 @@ def main(argv):
     if not os.path.isfile(out):
         print(f"FAIL no written catalog at {out}")
         return 1
-    with open(out, encoding="utf-8") as f:
-        if f.read() != text:
+    with open(out, "rb") as f:  # bytes, so a changed line ending is a difference too
+        if f.read() != text.encode("utf-8"):
             print(f"FAIL {out} differs from a fresh build of the {count} packages under {args.releases}")
             return 1
     print(f"{out} equals a fresh build: {count} releases from {count} packages")
