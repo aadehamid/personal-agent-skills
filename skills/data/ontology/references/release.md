@@ -48,7 +48,7 @@ Releases need neither git nor a remote: a package's integrity is its manifest, w
 
 ## Before every release
 
-17. **Check the gate:** the source-correction backlog is settled (`promotion.md`); the build, the evidence and the consumer-impact scan cite one commit; the consumer attestation is fresh; the package conforms to its shapes over its closure (`shacl.md`, rule 9); the competency questions run on it (`regression.md`); the approval in rule 6 is recorded in writing.
+17. **Check the gate:** the source-correction backlog is settled (`promotion.md`); the build, the evidence and the consumer-impact scan cite one commit; the consumer attestation is fresh; the package conforms to its shapes over its closure (`shacl.md`, rule 9); the competency questions run on it, with the example graph of a module under `new-module.md`, rule 9 (`regression.md`); the approval in rule 6 is recorded in writing.
 18. **Ship with every release:** `owl:versionInfo` on each module and on the release; `dcterms:issued` and `dcterms:modified`; a changelog entry per change (what, why, who approved, classification); a "Known gaps" section in the changelog; a new DCAT dataset version with its distributions. The section lists what the release still lacks, one bullet per gap, each with `Reason:` and `Record:` (the decision record or the open question that holds it), or says "None."; `scripts/check_changelogs.py --releases releases` fails on a changelog without it, with `--exempt <module>/<version>` for packages released before the project adopted the rule, which stay as released (rule 10). *Why:* a consumer reads what a release is not yet fit for in the same place as what changed, and a gap with no record behind it is a gap nobody owns.
 
 ## The catalog

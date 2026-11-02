@@ -120,7 +120,9 @@ Two principles run through every step:
 - **Write the exam before the coursework.** The business owner approves the
   competency questions (Step 1) before any modeling. They become the
   regression tests (Step 11). A question the model cannot answer is a
-  modeling gap, not a bad question.
+  modeling gap, not a bad question. The one exception is a question of a
+  module under `new-module.md`, rule 9: it is tested on the package plus
+  the module's example graph (`regression.md`, rule 3).
 - **One step at a time, with a gate.** Finish a step before you start the
   next, except where the gate names what may go on while it stays open.
   Record each decision as you make it, and change the source of truth
@@ -345,7 +347,7 @@ from the answers.
 
 **Purpose.** Prove the ontology keeps answering its exam. The competency
 questions from Step 1 become SPARQL, and the suite runs against the released
-packages on every release and after every module lands. Start the harness
+packages (with any example graph under `new-module.md`, rule 9) on every release and after every module lands. Start the harness
 early, before most questions can pass, so each module's pull request moves
 its own questions to answerable. A failing test is a regression or a
 recorded, deliberate change; it is never a surprise.
@@ -601,7 +603,7 @@ that holds it; the rule, not this list, is the source.
    its successor; a first release, with no earlier package, checks only the
    last of these (`release.md`, rules 3, 5 and 28).
 5. **The competency questions.** The regression suite runs on the released
-   packages after every module lands and on every release, and checks each
+   packages, with the example graph of a module under `new-module.md`, rule 9, after every module lands and on every release, and checks each
    question's status (`regression.md`, rule 13).
 6. **The sweep, then the check script.** Every claim the change makes is
    searched for in all its wordings, then the project's full check script
@@ -675,6 +677,8 @@ asks which rooms a lending event uses.
 answer from definitions and reference facts: "what makes a loan overdue?",
 not "which loans are overdue today?". The ontology defines `Loan`, its
 properties and its shapes; the lending system holds the loans themselves.
+A module whose terms describe records kept outside the ontology is the one
+exception: its questions are tested on an example graph (`new-module.md`, rule 9).
 The loan period that the published lending policy sets is a reference
 fact, recorded with the policy's edition. Local codes become
 `skos:notation` and slugs (`LND 1.2` becomes `LND-1-2`).

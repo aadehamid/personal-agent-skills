@@ -8,7 +8,7 @@ The competency questions are the exam the owner approved and locked at Step 1 (`
 
 1. **Trace every class and property to at least one competency question or explicit requirement, in a table kept with the questions:** per question, the classes and properties it needs. *Why:* an element no question or requirement needs is scope nobody asked for. The rule follows the requirement gate of the ontology-builder skill in Going Meta S03E07 (7 April 2026; `SOURCES.md`): "An ontology element is eligible only if it is required to answer at least one competency question or explicit requirement."
 2. **List what was left out on purpose, each with its reason** (no question needs it, no source supports it, parked with a trigger), including terms of a reused vocabulary you chose not to use. *Why:* the next reviewer can then tell a deliberate omission from a gap, and nobody re-adds it unasked.
-3. **Treat a question the model cannot answer as a modelling gap, not a bad question.** Change a locked question only by the owner's recorded decision. *Why:* editing the exam to fit the model hides the gap.
+3. **Treat a question the model cannot answer as a modelling gap, not a bad question.** Change a locked question only by the owner's recorded decision. The one exception is a question of a module under `new-module.md`, rule 9, asked of records kept outside the ontology: that the package alone returns nothing is not a gap, so keep the records out and test the question on the package plus the module's example graph (rule 10). *Why:* editing the exam to fit the model hides the gap.
 
 ## Write the queries
 
@@ -23,7 +23,7 @@ The competency questions are the exam the owner approved and locked at Step 1 (`
 
 10. **Start the harness early, before most questions can pass, and give each question one status:**
     - **drafted:** written at Step 1, not yet locked or not yet run; the elements it names are expected, and their names may change until Step 3;
-    - **answerable:** all its queries run on the released packages;
+    - **answerable:** all its queries run on the released packages, or, for a question of a module under `new-module.md`, rule 9, on the released packages plus that module's example graph;
     - **partial:** the graph part runs and the rest is named, with what it waits for; it closes Step 11 only by a recorded decision (rule 11);
     - **waiting:** it names the step, module or decision it waits for.
     A question parked by a recorded decision (rule 11) has the status **parked**. In `regression/expected.csv`, which `scripts/run_regression.py` reads, the statuses are written `drafted`, `answerable`, `partial` (with the rest in `waits_for`), `waiting:<what it waits for>` and `parked:<decision>`; only answerable and partial rows list query files. A module's pull request moves its questions to answerable. *Why:* the status list is the build's progress, and a question with no named wait has been forgotten.
@@ -32,5 +32,5 @@ The competency questions are the exam the owner approved and locked at Step 1 (`
 
 ## Run it every time
 
-13. **Run the full suite against the released packages after every module lands and on every release, from the check script,** with `scripts/run_regression.py`, which also checks each question's status against rules 10 and 11. A failing query is a regression or a recorded, deliberate change, never a surprise. *Why:* a change in one module can break a question another module answers.
+13. **Run the full suite against the released packages, with the example graph of each module under `new-module.md`, rule 9, after every module lands and on every release, from the check script,** with `scripts/run_regression.py`, which also checks each question's status against rules 10 and 11. A failing query is a regression or a recorded, deliberate change, never a surprise. *Why:* a change in one module can break a question another module answers.
 14. **Run the whole check suite, not only the module's tests, before a review.** *Why:* a new source, value or node can break a check in another module, such as the rule that every cited source has an evidence tier.
