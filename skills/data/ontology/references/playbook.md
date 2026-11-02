@@ -120,7 +120,9 @@ Two principles run through every step:
 - **Write the exam before the coursework.** The business owner approves the
   competency questions (Step 1) before any modeling. They become the
   regression tests (Step 11). A question the model cannot answer is a
-  modeling gap, not a bad question.
+  modeling gap, not a bad question. The one exception is a question of a
+  module under `new-module.md`, rule 9: it is tested on the package plus
+  the module's example graph (`regression.md`, rule 3).
 - **One step at a time, with a gate.** Finish a step before you start the
   next, except where the gate names what may go on while it stays open.
   Record each decision as you make it, and change the source of truth
