@@ -39,7 +39,7 @@ each standard the method uses.
 
 The two method documents stay company-neutral. A project's documents point to them, and they do not point back.
 
-**Where it starts.** Before Step 0, an intake sorts what you bring into six kinds of input, with a hierarchy of the business's processes or concepts as the backbone (`governance.md`, rule 1). Competency questions are drafted there and locked at Step 1. To add a module to an ontology that already has releases, read `new-module.md`.
+**Where it starts.** Before Step 0, an intake sorts what you bring into six kinds of input, with a hierarchy of the business's processes or concepts as the backbone (`governance.md`, rule 1). Competency questions are drafted there and locked at Step 1. To add a module to an ontology that already has releases, read `new-module.md`; for a logical data model exported from a modelling tool, also read `logical-model.md`.
 
 **How to read it.**
 

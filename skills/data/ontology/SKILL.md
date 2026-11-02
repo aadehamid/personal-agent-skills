@@ -15,7 +15,7 @@ Scope: from intake to a released, checked ontology; Step 12 hands its property-g
 1. Read the project's decision log, worklog, requirements file, competency questions and released packages, if they exist.
 2. Read the project's playbook (its own written method), if it has one. Its rules win where they conflict with this skill.
 3. For a new ontology, sort the inputs and fill `templates/requirements.yaml` before Step 0 (`references/governance.md`, rules 1 to 3). The hierarchy of the business's processes or concepts counts as representative data and is the backbone of Steps 2 and 3, so name it, or its absence, there.
-4. To add a module to an ontology that already has releases, read `references/new-module.md`; it narrows the steps below.
+4. To add a module to an ontology that already has releases, read `references/new-module.md`; it narrows the steps below. For a logical data model exported from a modelling tool, also read `references/logical-model.md`.
 5. Name the current step and its open gate before you do any work.
 
 ## The steps

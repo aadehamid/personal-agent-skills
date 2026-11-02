@@ -2,6 +2,8 @@
 
 Serves any new module added after an ontology's first release. Read it before you start the module, then follow `SKILL.md`'s steps as this file narrows them.
 
+For a logical data model exported from a modelling tool, read `logical-model.md` too.
+
 The steps stay the same and their gates still apply. What changes is their scope: the ontology's policies, namespace and earlier modules already exist, so most steps cover only the new module's domain.
 
 ## Decide whether it is a new module
