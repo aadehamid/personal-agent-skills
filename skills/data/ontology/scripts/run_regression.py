@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Step 11: run the competency-question queries against the released packages (references/regression.md).
+"""Step 11: run the competency-question queries against the released packages, and any example graph under new-module.md rule 9 (references/regression.md).
 
 Run: uv run --no-project --with rdflib python3 run_regression.py --expected <expected.csv> --queries <dir> <file.ttl>...
 
 <file.ttl>... are the released packages the questions run on (each module's Turtle; the closure, not a
-working tree). <expected.csv> has the columns question, status, queries, waits_for; one row per locked
+working tree), plus the example graph of any module under new-module.md, rule 9. <expected.csv> has the columns question, status, queries, waits_for; one row per locked
 question. queries is a ";"-separated list of file names in <dir>. Each status (regression.md, rules 10
 and 11) is one of:
   answerable          every listed query must run and give its expected result; waits_for is empty

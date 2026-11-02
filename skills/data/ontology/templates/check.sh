@@ -140,8 +140,9 @@ before="$(snapshot)"
 # 4c. Documentation pages: every released package has current pages beside it (release.md, rules 24 to 27).
 # TODO: python3 scripts/ontology/check_docs.py --releases releases --docs docs/ontology
 
-# 5. Regression: every competency question on the released packages (regression.md, rule 13).
-# TODO: uv run --no-project --with rdflib python3 scripts/ontology/run_regression.py --expected regression/expected.csv --queries regression/queries <the newest release of each module's Turtle>
+# 5. Regression: every competency question on the released packages, plus the example graph of each module under
+#    new-module.md, rule 9 (regression.md, rule 13).
+# TODO: uv run --no-project --with rdflib python3 scripts/ontology/run_regression.py --expected regression/expected.csv --queries regression/queries <the newest release of each module's Turtle> <each new-module.md rule 9 example graph>
 
 # 6. Every test file (governance rule 15).
 # TODO: python3 -m pytest -q -p no:cacheprovider tests/

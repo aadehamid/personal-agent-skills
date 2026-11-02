@@ -23,7 +23,7 @@ The competency questions are the exam the owner approved and locked at Step 1 (`
 
 10. **Start the harness early, before most questions can pass, and give each question one status:**
     - **drafted:** written at Step 1, not yet locked or not yet run; the elements it names are expected, and their names may change until Step 3;
-    - **answerable:** all its queries run on the released packages;
+    - **answerable:** all its queries run on the released packages, or, for a question of a module under `new-module.md`, rule 9, on the released packages plus that module's example graph;
     - **partial:** the graph part runs and the rest is named, with what it waits for; it closes Step 11 only by a recorded decision (rule 11);
     - **waiting:** it names the step, module or decision it waits for.
     A question parked by a recorded decision (rule 11) has the status **parked**. In `regression/expected.csv`, which `scripts/run_regression.py` reads, the statuses are written `drafted`, `answerable`, `partial` (with the rest in `waits_for`), `waiting:<what it waits for>` and `parked:<decision>`; only answerable and partial rows list query files. A module's pull request moves its questions to answerable. *Why:* the status list is the build's progress, and a question with no named wait has been forgotten.
@@ -32,5 +32,5 @@ The competency questions are the exam the owner approved and locked at Step 1 (`
 
 ## Run it every time
 
-13. **Run the full suite against the released packages after every module lands and on every release, from the check script,** with `scripts/run_regression.py`, which also checks each question's status against rules 10 and 11. A failing query is a regression or a recorded, deliberate change, never a surprise. *Why:* a change in one module can break a question another module answers.
+13. **Run the full suite against the released packages, with the example graph of each module under `new-module.md`, rule 9, after every module lands and on every release, from the check script,** with `scripts/run_regression.py`, which also checks each question's status against rules 10 and 11. A failing query is a regression or a recorded, deliberate change, never a surprise. *Why:* a change in one module can break a question another module answers.
 14. **Run the whole check suite, not only the module's tests, before a review.** *Why:* a new source, value or node can break a check in another module, such as the rule that every cited source has an evidence tier.
