@@ -53,7 +53,7 @@ Releases need neither git nor a remote: a package's integrity is its manifest, w
 
 ## Keeping copies in step
 
-Every store loaded from the releases (a property graph, a triple store, a lakehouse table), and every graph loaded beside them from other files, is a copy that falls behind when a release lands. The markers, the drift check and the sync are the `ontology-to-lpg` skill's (`references/multi-store.md`, "Keeping the stores in step"). Where no workflow runs the drift check, run it as a written step of every release, once the release is cut and tagged (rules 15 and 16; with no remote, once `build_package.py tag` has tagged it; with no git, once the package's manifest is written, "Without a remote"), and sync each store to that issued release, never to a merged candidate. The release checklist carries the step after its tag item.
+Every store loaded from the releases (a property graph, a triple store, a lakehouse table), and every graph loaded beside them from other files, is a copy that falls behind when a release lands. The markers, the drift check and the sync are the `ontology-to-lpg` skill's (`references/multi-store.md`, "Keeping the stores in step"). Where no workflow runs the drift check, run it as a written step of every release, once the release is cut and tagged (rules 15 and 16; with no remote, once `build_package.py tag` has tagged it; with no git, once the approved candidate is cut and rebuilt as the issued release, rule 15), and sync each store to that issued release, never to a merged candidate. The release checklist carries the step after its tag item.
 
 ## Inputs kept outside Git
 
