@@ -340,6 +340,10 @@ changes. A changelog says what changed and what the release is not yet fit
 for ("Known gaps"). When a project has files but no packages yet, the
 packaging walk-through asks one question at a time and builds the packages
 from the answers.
+After a release, every store loaded from it is checked and brought back in
+step, and files a release reads from outside Git are recorded by hash and
+checked on their own (`release.md`, "Keeping copies in step" and "Inputs kept
+outside Git").
 
 ### Step 11. SPARQL regression tests
 

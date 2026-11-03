@@ -128,10 +128,28 @@ A project may want other graphs beside the projection in the same Neo4j or Aura 
 
 ## Keeping the stores in step
 
-Once several stores hold the projection, each can fall behind the newest release. In a real project (2026-10-29) this took four parts:
+The released Turtle is the master copy, held in Git where there is Git; every store is a copy that can fall behind it. Three kinds of copy need keeping in step, each by its own check: the ontology's triples in each store, a graph kept beside them, and files a release reads from outside Git.
+
+### The ontology's triples in each store
+
+Once several stores hold the projection, each can fall behind the newest release. In a real project (2026-10-29) this took these parts:
 
 - **A marker per store.** Each store records the release set it was loaded from (the catalog's datasets and the projection's input fingerprint): a node with its own label in Neo4j and Aura, never `:Resource`, and a row in a table beside the triple table. The marker is written only after the store is checked against the repository: the pipeline's graph must give the committed report's hash and counts, the other Neo4j stores must hold the projection's nodes and relationships, the triple table must hold every module's newest release.
 - **A standing triple store needs no marker.** Its named graphs are version IRIs, so the store itself says which releases it holds: compare its graph names and each graph's triple count with the release files. That puts nothing extra in the store, so a later export compares equal to the files without an exclusion. A Fuseki with an in-memory dataset (the default here) empties on restart, and the check then reads empty; reload it with `run_projection.py --only jena`.
 - **A drift check** compares each marker with the main branch's newest catalog and each store's live count with its marker, and reports each store as current, behind, changed, unmarked or unreachable (with the error's name). It exits non-zero unless every store is current.
 - **A sync** reloads only what is not current, with the existing pipeline and driver rather than new loaders: local stores by default, cloud stores on request. It then reloads anything else the store held (see the section above) and marks what it reloaded.
 - **A workflow on release tags** reloads the cloud stores, and stays inactive until its logins exist as repository secrets: its first step checks them and every later step runs only if that check found them all. GitHub says "Secrets cannot be directly referenced in if: conditionals" and gives a job-level environment variable, tested in `if`, as its way round that (GitHub, "Using secrets in GitHub Actions", https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets, read 2026-10-29); a first step whose output later steps test is another way, and the one the real project used. Pin the checkout of any repository it runs code from.
+- **A release step when nothing schedules it.** Where no workflow runs the drift check, it is a written step of every release, and the `ontology` skill's `references/release.md`, "Keeping copies in step", says when it runs and which release the sync loads.
+
+### A graph kept beside the triples
+
+A graph that is not the ontology's triples, such as a technical or lineage graph (the section above) or a logical data model loaded as its own subgraph apart from the `:Resource` nodes, is loaded from its own files, so the release set cannot say whether it is current. Check it against those files:
+
+- **Its own marker, written with the load.** A node with its own label records a SHA-256 digest of the files the graph was loaded from (each file's name and hash, sorted). Write it in the same transaction as the load, so a marker never describes a load that failed.
+- **A content fingerprint, not only counts.** The check computes a fingerprint of what the store holds (each node's labels and key properties, each edge's type and the keys at its two ends, sorted, then hashed) and the same fingerprint from the files. A hand edit that leaves the counts unchanged then reads as changed.
+- **A copy refreshed only from a matching source.** A copy of the graph in another store, such as a lakehouse table read from Neo4j, is refreshed from its source store only when that source's fingerprint matches the files; otherwise reload the source first. A copy taken from a drifted source would carry the drift with a fresh date.
+- **The previous graph or none, never part of one.** Each load deletes the old graph and writes the new one, marker included, in one transaction, or loads beside it under a staging label and swaps once the load is complete. A failed load then leaves the graph that was there before.
+
+### Files a release reads from outside Git
+
+A file kept outside Git, such as an export a client keeps private, has no store marker: its path relative to its folder and its SHA-256, in the release's input record (`release-inputs.json`), are the record. The rules are the `ontology` skill's (`references/release.md`, "Inputs kept outside Git").
