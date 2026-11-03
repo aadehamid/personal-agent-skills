@@ -139,7 +139,7 @@ Once several stores hold the projection, each can fall behind the newest release
 - **A drift check** compares each marker with the main branch's newest catalog and each store's live count with its marker, and reports each store as current, behind, changed, unmarked or unreachable (with the error's name). It exits non-zero unless every store is current.
 - **A sync** reloads only what is not current, with the existing pipeline and driver rather than new loaders: local stores by default, cloud stores on request. It then reloads anything else the store held (see the section above) and marks what it reloaded.
 - **A workflow on release tags** reloads the cloud stores, and stays inactive until its logins exist as repository secrets: its first step checks them and every later step runs only if that check found them all. GitHub says "Secrets cannot be directly referenced in if: conditionals" and gives a job-level environment variable, tested in `if`, as its way round that (GitHub, "Using secrets in GitHub Actions", https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets, read 2026-10-29); a first step whose output later steps test is another way, and the one the real project used. Pin the checkout of any repository it runs code from.
-- **A release step when nothing schedules it.** Where no workflow runs the drift check, it is a written step of every release (the `ontology` skill's `references/release.md`, "Keeping copies in step"): run it after the release merges and sync what it reports as not current.
+- **A release step when nothing schedules it.** Where no workflow runs the drift check, it is a written step of every release (the `ontology` skill's `references/release.md`, "Keeping copies in step"): run it once the release is tagged and sync what it reports as not current to that tagged release.
 
 ### A graph kept beside the triples
 
@@ -152,4 +152,4 @@ A graph that is not the ontology's triples, such as a technical or lineage graph
 
 ### Files a release reads from outside Git
 
-A file kept outside Git, such as an export a client keeps private, has no store marker: its hash in the release's own manifest is the record. The rules are the `ontology` skill's (`references/release.md`, "Inputs kept outside Git").
+A file kept outside Git, such as an export a client keeps private, has no store marker: its path relative to its folder and its SHA-256, in the release's input record (`release-inputs.json`), are the record. The rules are the `ontology` skill's (`references/release.md`, "Inputs kept outside Git").

@@ -53,15 +53,15 @@ Releases need neither git nor a remote: a package's integrity is its manifest, w
 
 ## Keeping copies in step
 
-Every store loaded from the releases (a property graph, a triple store, a lakehouse table), and every graph loaded beside them from other files, is a copy that falls behind when a release lands. The markers, the drift check and the sync are the `ontology-to-lpg` skill's (`references/multi-store.md`, "Keeping the stores in step"). Where no workflow runs the drift check, run it as a written step of every release, after the merge, and sync each store it reports as not current; the release checklist carries the step.
+Every store loaded from the releases (a property graph, a triple store, a lakehouse table), and every graph loaded beside them from other files, is a copy that falls behind when a release lands. The markers, the drift check and the sync are the `ontology-to-lpg` skill's (`references/multi-store.md`, "Keeping the stores in step"). Where no workflow runs the drift check, run it as a written step of every release, once the release is cut and tagged (rules 15 and 16; with no remote, once `build_package.py tag` has tagged it), and sync each store to that tagged release, never to a merged candidate. The release checklist carries the step after its tag item.
 
 ## Inputs kept outside Git
 
 Some releases read files that may never enter the repository, such as an export a client keeps private, read through a release option from a folder git ignores (`logical-model.md`, rule 12). That content, and anything built from it, never enters the main branch: no package, test fixture, page or commit message there holds it, so the release that carries it ships as its own archive.
 
-- **Record each file's hash, never the folder.** The release build records the SHA-256 of every file it read from the folder, under the file's name inside the folder, in the release's own manifest beside the packages (a package's manifest lists only its package's files, rule 8). It never records the folder's own path, which names a machine and often the client.
-- **Validate the release from its archive alone.** The package check (`check_packages.py`), the shapes and the competency questions pass on the unpacked archive with no folder present, since a recipient of the release has none.
-- **Check the folder separately.** A second check compares each file in the folder with the recorded hashes and fails on a changed, missing or extra file. Run it wherever the folder is present and before any rebuild; the byte-for-byte rebuild (rule 9) needs the folder, so it runs with this check. A changed file ships only as a new release, which records the new hash.
+- **Record each file's hash in the input record, never the folder.** The release build writes one release-level record, `release-inputs.json` at the archive's root beside the packages and separate from every package's manifest (a package's manifest lists only its package's files, rule 8). It lists each file read from the folder by its path relative to that folder, with its SHA-256. It never records the folder's own path, which names a machine and often the client.
+- **Validate the release from its archive alone.** The archive validates without the folder: the package check (`check_packages.py`), the shapes and the competency questions pass on the unpacked archive with no folder present, since a recipient of the release has none.
+- **Check the folder separately.** A second check compares each file in the folder with `release-inputs.json` and fails on a changed, missing or extra file. Run it wherever the folder is present and before any rebuild; the byte-for-byte rebuild (rule 9) needs the folder, so it runs with this check. A changed file ships only as a new release, which records the new hash.
 
 ## The catalog
 
