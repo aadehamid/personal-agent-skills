@@ -1,0 +1,20 @@
+@prefix cat: <https://example.org/catalog/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+
+cat: a owl:Ontology ; owl:versionInfo "1.0.0" .
+cat:Item a owl:Class ; rdfs:label "Item"@en ;
+  skos:definition "A resource described in the library catalog."@en ;
+  skos:definition "Une ressource décrite dans le catalogue."@fr .
+cat:Book a owl:Class ; rdfs:label "Book"@en ; rdfs:subClassOf cat:Item ;
+  skos:definition "An item published as a book."@en .
+cat:Topics a skos:ConceptScheme ; rdfs:label "Topics"@en .
+cat:Knowledge a skos:Concept ; skos:prefLabel "Knowledge"@en ; skos:inScheme cat:Topics .
+cat:History a skos:Concept ; skos:prefLabel "History"@en ;
+  skos:broader cat:Knowledge ; skos:inScheme cat:Topics ;
+  skos:definition "A topic about past events."@en .
+cat:title a owl:DatatypeProperty ; rdfs:label "title"@en ; rdfs:domain cat:Item .
+cat:ItemShape a sh:NodeShape ; sh:targetClass cat:Item ; sh:property _:detail .
+_:detail sh:path cat:title ; sh:minCount 1 .

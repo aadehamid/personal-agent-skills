@@ -9,5 +9,8 @@ List each new record below with its date, title, status and path. A proposed
 implementation choice is not an approved decision. No convention treating a
 skipped question as agreement is recorded here.
 
-No repository decision records have been added to this index yet. Existing
-skills' source and change notes remain where their READMEs identify them.
+| Date | Decision | Status |
+|---|---|---|
+| 2026-11-07 | [A reusable ontology visualization skill](2026-11-07-ontology-visualization.md) | Decided |
+
+Existing skills' source and change notes remain where their READMEs identify them.
