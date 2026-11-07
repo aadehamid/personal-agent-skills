@@ -13,9 +13,9 @@ depends on an owner's decision.
 
 Every change goes through the review and pull-request process in
 `way-of-working`. Run `scripts/check.sh` before each push. CI calls the same
-script. In a fresh clone, install the tracked pre-push hook with
-`git config core.hooksPath scripts/hooks`; preserve an existing shared hook
-configuration as that skill requires.
+script. Before installing the tracked pre-push hook, follow the conditions in
+`skills/engineering/way-of-working/references/guardrails.md`. When those
+conditions permit installation, run `git config core.hooksPath scripts/hooks`.
 
 Use `scripts/link-skills.sh --dry-run` to inspect the installation inventory.
 Run installation from the maintained checkout after the change lands, so links
