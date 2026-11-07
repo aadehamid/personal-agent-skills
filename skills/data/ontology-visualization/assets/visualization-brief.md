@@ -17,6 +17,7 @@ the user's request; omit fields that do not apply.
 - Semantic comparison and negative cases:
 - Reader tasks, keyboard checks and screenshot review:
 - Baseline files that must remain unchanged:
+- Authorized actions and scope, including any source-specific or artifact-specific approval:
 - Required repository checks, review and publication conditions:
 - Candidate artifact identity and validation evidence:
 - Open decisions and remaining limitations:

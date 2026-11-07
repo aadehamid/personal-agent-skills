@@ -32,12 +32,16 @@ review requirements.
 
 ## Status
 
-The three behavioral tasks passed on neutral Catalog and Lending fixtures on
+The three initial behavioral tasks passed on neutral Catalog and Lending fixtures on
 2026-11-07: a first build, an ontology release update and an additive
 documentation update. The trials checked source fidelity, existing links,
 phone reading paths and the extracted offline artifacts. Browser coverage was
 Chrome only; these small fixtures do not establish large-graph usability.
 A focused follow-up corrected clipboard and audit-report defects in the
 evaluation output, and a release-delta check that accepted invented entries.
-See the evaluation results for coverage and the pull request for repository
+Independent review then found anonymous-node identity and method-version
+coverage gaps. A further release-update trial passed after the playbook changed;
+it checks complete deltas and historical anonymous links when a new constraint
+changes canonical IDs.
+See the evaluation results for method hashes and coverage, and the pull request for repository
 checks and review. No renderer or hosting service is installed by the skill.

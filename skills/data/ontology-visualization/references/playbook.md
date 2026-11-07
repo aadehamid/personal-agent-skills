@@ -62,6 +62,13 @@ dataset serialization can share blank nodes across its graphs; preserve that
 sharing. Preserve graph names where the source has them. File provenance is
 useful metadata but does not recreate a named graph that a flattened export lost.
 
+Blank-node labels and canonical IDs identify nodes within a snapshot; they do
+not establish identity across releases. An unrelated addition can change them.
+Use release-scoped links for anonymous nodes and retain the old snapshot for
+those links. Named term links use their full IRIs. A persistent anonymous-node
+mapping needs separate evidence; do not add identifiers to the ontology merely
+to keep viewer links working.
+
 Keep a lossless statement representation alongside display indexes. A record
 needs subject, predicate and object RDF terms, graph identity where present,
 and source membership. Compute incoming relationships from the same statements
@@ -118,8 +125,8 @@ list. Handle cycles and multiple parents without inventing a single parent.
 Provide search over names, definitions and identifiers, with filters that match
 the reader's vocabulary. Preserve search text, filters and page when returning
 from a term. Keep keyboard focus on a usable control after paging.
-Use stable links based on identity, encode them safely, and show a useful
-not-found view for obsolete or malformed links. Link only to destinations the
+Use the identity and link rules in section 2, encode links safely, and show a
+useful not-found view for obsolete or malformed links. Link only to destinations the
 viewer can resolve; display an unresolved reference honestly.
 
 Long incoming lists and evidence can overwhelm the definition. Start with a
@@ -228,12 +235,20 @@ First classify the change from source evidence:
 | Presentation or guide only | Keep ontology inputs fixed; prove their semantic payload is unchanged; test affected reader tasks. |
 | Renderer or dependency update | Keep source inputs fixed initially; verify supported constructs and output fidelity before changing the source set. |
 
-For an ontology release, compare full IRIs and the complete added and removed
-statement sets, including empty sets. Verify the statement lists as well as
-their counts. Separate added,
-removed and deprecated terms from label or definition changes. Check changed
-constraints, module memberships, dependencies and cross-module edges. Preserve
-stable term links. If an identifier disappears, provide the project's chosen
+For an ontology release, match named terms by full IRI. Compare anonymous
+structures with blank-node-aware correspondence, using named anchors and
+subgraph isomorphism where they establish a match. Record the matching method.
+Independent canonicalization followed by tuple subtraction can report unchanged
+constraints as removed and added. If correspondence is ambiguous, report the
+unmatched structures and that uncertainty without claiming persistent identity.
+Verify the complete added and removed statement sets under that correspondence,
+including empty sets, rather than their counts alone.
+
+Separate added, removed and deprecated terms from label or definition changes.
+Check changed constraints, module memberships, dependencies and cross-module
+edges. Retest with an unrelated anonymous constraint added: the unchanged
+constraint must retain its meaning, and old anonymous links must still identify
+the old release. Preserve named term links. If an identifier disappears, provide the project's chosen
 not-found or historical view; redirect only when a recorded replacement
 justifies it. Never infer equivalence from a similar label.
 

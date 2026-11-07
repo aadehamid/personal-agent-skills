@@ -23,7 +23,9 @@ and follow relationships within and between modules.
 Before implementation, fill the applicable fields in
 [the visualization brief](assets/visualization-brief.md) from repository
 evidence and the user's instructions. Resolve only missing choices that affect
-scope, interpretation or delivery. Existing authorization remains valid.
+scope, interpretation or delivery. Existing authorization remains valid within its recorded scope. Distinguish
+standing permission from approval of a particular candidate. Apply a requested
+review to the candidate being released.
 
 ## Keep meaning and presentation separate
 
