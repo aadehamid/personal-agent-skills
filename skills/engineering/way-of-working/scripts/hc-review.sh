@@ -254,15 +254,19 @@ ready_text = {"kimi": ("",), "cursor": ("Plan, search, build anything", "Add a f
 ready = any(x in ready_text for x in inputs) if ready_text is not None else bool(inputs) and not held
 if kind == "kimi" and ready:
     ready = any("context:" in l for l in lines[-12:])
-# A choice list above the input (the Kimi migration dialog, say) is a question for
-# the owner, however ready the input line looks: the strict look rejects it the way
-# Rex does, so the prompt never lands on an unattended dialog.
-choices = any(re.search(r"\?\s*$", l) or re.match(r"^\s*(\d+[.)]\s|❯\s|\[[ xX]\]\s)", l) for l in bottom if not re.match(editor, l))
-if ready and choices and not limit and not question and not trust:
-    ready = False
 busy = re.search(r"ctrl\+c to stop|esc to interrupt|Press Ctrl\+B to run in background|Working…|"
                  r"Running \d+ agents?|Agent Running", "\n".join(outside[-12:]))
-if limit:
+# A choice list above the input (the Kimi migration dialog, say) is a question for
+# the owner, however ready the input line looks or however the reviewer reports itself:
+# the strict look rejects it the way Rex does, so the prompt never lands on an unattended
+# dialog (round 2, finding 4 of PR #99), and a reported-idle reviewer with one above its
+# input reads unknown, not idle.
+choices = any(re.search(r"\?\s*$", l) or re.match(r"^\s*(\d+[.)]\s|❯\s|\[[ xX]\]\s)", l)
+              for l in bottom if not re.match(editor, l))
+strict_block = choices and not (limit or question or trust)
+if strict_block and (ready or reported in ("idle", "done")):
+    word = "unknown"
+elif limit:
     word = "limit"
 elif reported == "blocked":
     word = "blocked"

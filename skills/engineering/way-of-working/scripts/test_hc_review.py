@@ -74,6 +74,8 @@ FAKE = textwrap.dedent(r'''
             write("phase", "trustq")
         elif "blocked" in s:
             write("phase", "blocked")
+        elif "migrateq" in s:
+            write("phase", "migrateq")
         elif "limit" in s:
             write("phase", "limit")
         elif "unsent" in s:
@@ -121,6 +123,10 @@ FAKE = textwrap.dedent(r'''
             print("  429 You've reached your 5-hour usage limit\n" + editor()); sys.exit(0)
         if phase == "blocked":
             print("  Run this command?\n  → Run (once) (y)"); sys.exit(0)
+        if phase == "migrateq":
+            # The Kimi data-migration dialog sits above the empty input line: a
+            # choice list the strict guard must reject (round 2, finding 4).
+            print("  Migrate kimi-cli data to Kimi Code?\n  1. Migrate\n  2. Skip\n" + editor()); sys.exit(0)
         if phase == "kimiunsent":
             name = "kimi-wrapped-prompt.txt" if "kimiwrapped" in s else "kimi-scrolled-prompt.txt"
             screen = open(os.path.join(os.environ["FAKE_FIXTURES"], name)).read().rstrip("\n").split("\n")
@@ -293,6 +299,18 @@ class HcReview(unittest.TestCase):
         self.assertNotIn("kill", calls)
 
     # Questions, limits and failures.
+
+    def test_a_choice_list_above_the_input_never_receives_the_prompt(self):
+        # The Kimi migration dialog above the empty input line: the strict guard
+        # rejects readiness, so nothing is sent or typed and the run stops for the
+        # owner (round 2, finding 4; the guard added 2026-11-08).
+        r, calls = self.run_case("migrateq", extra=("--kind", "kimi"))
+        self.assertEqual(r.returncode, 1)
+        self.assertNotIn("send", calls)
+        self.assertNotIn("keys", calls)
+        self.assertNotIn("kill", calls)
+        self.assertIn("did not start", r.stdout)
+        self.assertIn("waiting on a question or an unknown screen", r.stdout)
 
     def test_a_blocked_reviewer_is_a_question_for_the_owner(self):
         r, calls = self.run_case("blocked")

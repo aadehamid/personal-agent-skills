@@ -5,7 +5,7 @@
 #   The default reviewer is Codex on gpt-6-luna. --kind kimi runs Kimi Code (model default
 #   kimi-code/k3.1-pro, whose default effort is high); --kind cursor runs the Cursor agent
 #   CLI (default cursor-grok-4.6-medium). changing.md ("Who reviews") says which to try first.
-#   Each reviewer, the default too, gets its own tab, review-<repo>-<kind>-<hash of kind:model>,
+#   Each reviewer, the default too, gets its own tab, review-<repo>-<kind>-<hash of kind:model:mode>,
 #   because a reused tab keeps the reviewer and model it started with: a new default model
 #   must not land in the old default's tab.
 #   Run from the repository under review, inside a Herdr TUI pane (HERDR_WORKSPACE_ID set).
@@ -32,11 +32,12 @@
 #   waits for that review and prints its report if the prompt was delivered, and runs
 #   this again if not (on_exit).
 # Exit 2: bad arguments.
-# Every outcome of the prompt (completed, stalled, blocked, timed out) goes through one
-# recovery: Enter for a Cursor prompt left pasted but unsent, a wait until the reviewer
-# has worked and gone idle, one request for the report, then the reviewer's own file at
-# the report path, or failing that the review skill's report.md from this run, copied
-# there (see find_skill_reports for which one counts).
+# Completed, stalled, and timed-out prompts go through one recovery: Enter for a Cursor
+# prompt left pasted but unsent, a wait until the reviewer has worked and gone idle, one
+# request for the report, then the reviewer's own file at the report path, or failing
+# that the review skill's report.md from this run, copied there (see find_skill_reports
+# for which one counts). A wait that ends blocked stops instead: the pane's recent text,
+# the reason, and no report, because a file written before a block may be partial.
 # Tests: test_herdr_review.py, run by the repository's scripts/check.sh.
 set -euo pipefail
 
@@ -477,6 +478,7 @@ done
 if [ -n "$ended_blocked" ]; then
   trailer=1
   [ -n "$prompt_ok" ] || echo "Prompt result: $prompt_out"
+  pane_tail 60
   echo "No report at $report: $reason."
   echo "Next: $next"
   exit 1

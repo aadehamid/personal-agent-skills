@@ -44,12 +44,18 @@ PR body and the report's open-questions section, the way the
 - A review never stops on approval prompts; a genuinely blocked review fails
   closed with the answer-then-continue instruction, as it does today.
 - Herdr's tail now treats a blocked outcome like Rex and hc do: no report and
-  no skill-report fallback after a block, exit 1 (first review round finding
-  #3 of PR #99).
+  no skill-report fallback after a block, exit 1, with the pane's recent text
+  before the reason line (first review round finding #3 of PR #99).
 - The hc readiness classifier rejects a choice list above the input line the
-  way Rex does, so a setup dialog never receives the prompt (first review
-  round, agent-native finding).
-- The label hash carries the launch mode, so a pre-change reviewer is never
-  reused (finding #4 of PR #99).
+  way Rex does, so a setup dialog never receives the prompt; the guard makes
+  an unreported reviewer fail closed, and a reported-idle reviewer with a
+  choice list too. Consequence: an idle screen whose bottom twelve lines hold
+  a line ending in a question mark or reading like a choice list stops the
+  run with the answer-then-continue Next; fail-closed and recoverable (first
+  review round, agent-native finding).
+- The label hash in herdr, hc, and rex carries the launch mode, so a
+  pre-change `-y` reviewer is never reused (finding #4 of PR #99; hc's name
+  hash was extended in round 2).
 - The runner does not pin a Kimi version; flag semantics are verified against
-  the installed Kimi.
+  the installed Kimi. The `-y` launch that remains is pi-review.sh's, for the
+  pi reviewer, which is not this decision's scope.
