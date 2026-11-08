@@ -1,0 +1,28 @@
+@prefix wf: <https://example.org/library/workflow/> .
+@prefix cat: <https://example.org/catalog/> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+wf:Circulation a skos:Concept ; rdfs:label "Circulation" ;
+    wf:hasStage wf:Request, wf:Return .
+wf:Acquisition a skos:Concept ; rdfs:label "Acquisition" ;
+    wf:hasStage wf:Selection .
+wf:Request a skos:Concept ; rdfs:label "Request" ;
+    wf:sequence " 1 "^^xsd:integer ; wf:hasProcess wf:Issue .
+wf:Return a skos:Concept ; rdfs:label "Return" ;
+    wf:sequence "\t+2\n"^^xsd:integer ; wf:hasProcess wf:Receive .
+wf:Selection a skos:Concept ; rdfs:label "Selection" ;
+    wf:hasProcess wf:Choose .
+wf:Issue a skos:Concept ; rdfs:label "Issue an item" ;
+    wf:realizes wf:IssueTask ; wf:uses cat:Item .
+wf:Receive a skos:Concept ; rdfs:label "Receive an item" ;
+    wf:informs wf:Choose .
+wf:Choose a skos:Concept ; rdfs:label "Choose an item" ; wf:uses cat:Book .
+wf:Operations a skos:Concept ; rdfs:label "Library operations" .
+wf:Lending a skos:Concept ; rdfs:label "Lending" ; skos:broader wf:Operations .
+wf:Service a skos:Concept ; rdfs:label "Reader service" ; skos:broader wf:Operations .
+wf:IssueTask a skos:Concept ; rdfs:label "Issue an item" ;
+    skos:broader wf:Lending, wf:Service .
+wf:CycleA a skos:Concept ; rdfs:label "Review A" ; skos:broader wf:CycleB .
+wf:CycleB a skos:Concept ; rdfs:label "Review B" ; skos:broader wf:CycleA .
