@@ -12,7 +12,8 @@ examples. No project code or ontology data is copied into the skill.
 ## Standards
 
 The playbook paraphrases these sources. No specification text is vendored.
-Check the cited sections when changing the semantic contract. Read 2026-11-07.
+Check the cited sections when changing the semantic contract. Sources were read
+2026-11-07 unless a row records another date.
 
 | Source | Version and date | Use |
 |---|---|---|

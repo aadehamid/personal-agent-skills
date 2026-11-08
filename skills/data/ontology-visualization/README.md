@@ -54,5 +54,6 @@ checks and review. No renderer or hosting service is installed by the skill.
 
 A guided-path trial passed on 2026-11-08 using Catalog and Workflow fixtures.
 It exercised stage order, shared parents, cycles, saved paths and cross-module
-connections in an extracted offline candidate. The results record the fixture
-correction, Chrome-only coverage and other limits.
+connections in an extracted offline candidate. A review follow-up strengthened
+the path assertions and added UI mutation controls. The results record the
+fixture correction, Chrome-only coverage and other limits.

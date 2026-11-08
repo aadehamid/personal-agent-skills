@@ -64,5 +64,50 @@
       "path": "/tmp/visualization-guided-eval/library-viewer-candidate.zip",
       "sha256": "29903560a6a5f5654279c33408790b72997c9e724456aff0a42207819c146df9"
     }
-  ]
+  ],
+  "followup": {
+    "scope": "Exact path assertions and corresponding UI mutation controls on unchanged candidate and extracted archive. Original trial preserved.",
+    "files": [
+      {
+        "path": "/tmp/visualization-guided-eval-followup/followup-report.md",
+        "sha256": "596e304dfbd33ea42f7279b3cb143bfde0043029d50cfb04280cfc4936888833"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup/followup-hashes.json",
+        "sha256": "0414a09a34d3b75e93e8477840c41a6efbc6c11927d7ff99aae985011710e520"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup/test_guided_followup.cjs",
+        "sha256": "aeb97f0918f2cd43b2d6716996dfc369014e079896900a1a72984ce457401d17"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup/followup-candidate-results.json",
+        "sha256": "f234c12c520032daaf609cb063f5b31451cd36d3df5aeff0842da8dc46afe477"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup/followup-extracted-results.json",
+        "sha256": "d7a32c502b379e40c607fc7fd62c8511bbed6b8129dc6b09ee3c26bae0ba8b6c"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup/preservation-results.json",
+        "sha256": "0e3997d1e50e6ba1cb41af1b99e84b0b86ee1ec4cbbca9dbeeb04ae257576369"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup/original-manifest.json",
+        "sha256": "aa490615ff224223d88b76e64fdde38f0b1ec4535cef8436e92284c71e2ba0e3"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup/candidate/index.html",
+        "sha256": "17cc2264a4d32a98b539a8697ce67c73f2d9916ea85a9dda8b86075095119d70"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup/candidate/statements.json",
+        "sha256": "6c7da380c2d1a1da9a53ec9924a6b981429aeca6e0ecbdea3df3cacc5c15409c"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup/library-viewer-candidate.zip",
+        "sha256": "29903560a6a5f5654279c33408790b72997c9e724456aff0a42207819c146df9"
+      }
+    ]
+  }
 }
