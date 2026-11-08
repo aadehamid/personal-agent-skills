@@ -109,5 +109,50 @@
         "sha256": "29903560a6a5f5654279c33408790b72997c9e724456aff0a42207819c146df9"
       }
     ]
+  },
+  "restart_oracle_followup": {
+    "scope": "Original path start and current term differ at the limit. A keep-old-origin mutation fails on build and extracted archive; all ten cases pass and catch their mutations. Earlier evidence and artifact bytes remain unchanged.",
+    "files": [
+      {
+        "path": "/tmp/visualization-guided-eval-followup2/followup2-report.md",
+        "sha256": "3d097b1ee193f303d190884a735d72e9a24da0d8e8946311a681da11498e8a8f"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup2/followup2-hashes.json",
+        "sha256": "1ade181e141ec8d69618795ff78ef1b758ff4485f93eed178b8bbe88ad79bb1f"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup2/test_guided_followup.cjs",
+        "sha256": "172ec4591c2afdcc88655e08578e3ec2a7265cb4ed7b847eb1fc75d44efbadad"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup2/followup-candidate-results.json",
+        "sha256": "f234c12c520032daaf609cb063f5b31451cd36d3df5aeff0842da8dc46afe477"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup2/followup-extracted-results.json",
+        "sha256": "d7a32c502b379e40c607fc7fd62c8511bbed6b8129dc6b09ee3c26bae0ba8b6c"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup2/candidate/index.html",
+        "sha256": "17cc2264a4d32a98b539a8697ce67c73f2d9916ea85a9dda8b86075095119d70"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup2/candidate/statements.json",
+        "sha256": "6c7da380c2d1a1da9a53ec9924a6b981429aeca6e0ecbdea3df3cacc5c15409c"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup2/library-viewer-candidate.zip",
+        "sha256": "29903560a6a5f5654279c33408790b72997c9e724456aff0a42207819c146df9"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup2/followup2-preservation-results.json",
+        "sha256": "911393422e65b1a7f525ebb07941a14fa172ded3bcbb88d8788f75d2f8fcdcc9"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup2/prior-folders-manifest.json",
+        "sha256": "8648dfead30e009895b5f05ae85758378eb8ec3ce7e4c2b02a64ee1386336880"
+      }
+    ]
   }
 }
