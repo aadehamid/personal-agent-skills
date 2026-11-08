@@ -25,6 +25,7 @@ review requirements.
 | `agents/openai.yaml` | Skill host | Display metadata and a suggested invocation. |
 | `SOURCES.md` | Person and maintainer | Sources, provenance, limitations and update instructions. |
 | `evals/README.md` | Evaluator | Behavioral tasks and assessment criteria. |
+| `evals/evidence-2026-11-07.json` | Maintainer | Local evaluation reports, inputs, artifact paths and hashes. |
 | `evals/results-2026-11-07.md` | Person and maintainer | Observed results, corrections and coverage limits. |
 | `evals/fixtures/v1/catalog.ttl` | Evaluator and test tools | Catalog classes, a taxonomy, multilingual definitions and a constraint. |
 | `evals/fixtures/v1/lending.ttl` | Evaluator and test tools | Lending terms, a cross-module range, a second constraint and a lexical literal. |
@@ -42,6 +43,8 @@ evaluation output, and a release-delta check that accepted invented entries.
 Independent review then found anonymous-node identity and method-version
 coverage gaps. A further release-update trial passed after the playbook changed;
 it checks complete deltas and historical anonymous links when a new constraint
-changes canonical IDs.
+changes canonical IDs. A second successive update checks historical destinations
+across three releases. Further focused checks cover correspondence metadata and
+a review that applies only to the previous candidate.
 See the evaluation results for method hashes and coverage, and the pull request for repository
 checks and review. No renderer or hosting service is installed by the skill.

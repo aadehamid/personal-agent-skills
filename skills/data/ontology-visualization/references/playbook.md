@@ -64,10 +64,18 @@ useful metadata but does not recreate a named graph that a flattened export lost
 
 Blank-node labels and canonical IDs identify nodes within a snapshot; they do
 not establish identity across releases. An unrelated addition can change them.
-Use release-scoped links for anonymous nodes and retain the old snapshot for
-those links. Named term links use their full IRIs. A persistent anonymous-node
+Use links scoped to an immutable viewer release for anonymous nodes and retain
+the previous viewer snapshots for those links. Named term links use their full IRIs. A persistent anonymous-node
 mapping needs separate evidence; do not add identifiers to the ontology merely
 to keep viewer links working.
+
+An existing viewer may have anonymous links without a release identifier.
+Before replacing its published URL, define how those legacy links resolve.
+Carry forward published snapshot URLs and legacy mappings through successive
+updates. If one legacy fragment could name nodes in several releases, offer
+explicit historical destinations instead of choosing a release silently. Test
+two successive updates when migrating legacy links. A source pin alone does not
+identify the delivered viewer; renderer changes can also change anonymous IDs.
 
 Keep a lossless statement representation alongside display indexes. A record
 needs subject, predicate and object RDF terms, graph identity where present,
