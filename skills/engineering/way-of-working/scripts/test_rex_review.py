@@ -212,7 +212,9 @@ KINDS = {"codex": "gpt-6-luna", "kimi": "kimi-code/k3.1-pro", "cursor": "cursor-
 
 def label_for(kind, model, top):
     top = os.path.realpath(top)
-    return "review-%s-%s-%s-%s" % (os.path.basename(top), kind, hashlib.sha1(("%s:%s" % (kind, model)).encode()).hexdigest()[:8],
+    # Mode runs in the hash since 2026-11-08: Kimi's label carries --auto.
+    identity = "%s:%s" % (kind, model) + (":--auto" if kind == "kimi" else "")
+    return "review-%s-%s-%s-%s" % (os.path.basename(top), kind, hashlib.sha1(identity.encode()).hexdigest()[:8],
                                    hashlib.sha1(top.encode()).hexdigest()[:6])
 
 
@@ -367,7 +369,7 @@ class RexReview(unittest.TestCase):
     def test_each_kind_starts_with_herdr_reviews_flags(self):
         self.run_case("ok", kind="kimi")
         a = self.created_with("split")
-        self.assertEqual(a[a.index("--") + 1:], ["kimi", "-m", "kimi-code/k3.1-pro", "-y"])
+        self.assertEqual(a[a.index("--") + 1:], ["kimi", "-m", "kimi-code/k3.1-pro", "--auto"])
         self.run_case("ok", kind="cursor")
         a = self.created_with("split")
         self.assertEqual(a[a.index("--") + 1:], ["cursor-agent", "--model", "cursor-grok-4.6-medium",

@@ -5,7 +5,7 @@
 #   The default reviewer is Codex on gpt-6-luna. --kind kimi runs Kimi Code (model default
 #   kimi-code/k3.1-pro, whose default effort is high); --kind cursor runs the Cursor agent
 #   CLI (default cursor-grok-4.6-medium). changing.md ("Who reviews") says which to try first.
-#   Each reviewer, the default too, gets its own tab, review-<repo>-<kind>-<hash of kind:model>,
+#   Each reviewer, the default too, gets its own tab, review-<repo>-<kind>-<hash of kind:model:mode>,
 #   because a reused tab keeps the reviewer and model it started with: a new default model
 #   must not land in the old default's tab.
 #   Run from the repository under review, inside a Herdr TUI pane (HERDR_WORKSPACE_ID set).
@@ -32,11 +32,12 @@
 #   waits for that review and prints its report if the prompt was delivered, and runs
 #   this again if not (on_exit).
 # Exit 2: bad arguments.
-# Every outcome of the prompt (completed, stalled, blocked, timed out) goes through one
-# recovery: Enter for a Cursor prompt left pasted but unsent, a wait until the reviewer
-# has worked and gone idle, one request for the report, then the reviewer's own file at
-# the report path, or failing that the review skill's report.md from this run, copied
-# there (see find_skill_reports for which one counts).
+# Completed, stalled, and timed-out prompts go through one recovery: Enter for a Cursor
+# prompt left pasted but unsent, a wait until the reviewer has worked and gone idle, one
+# request for the report, then the reviewer's own file at the report path, or failing
+# that the review skill's report.md from this run, copied there (see find_skill_reports
+# for which one counts). A wait that ends blocked stops instead: the pane's recent text,
+# the reason, and no report, because a file written before a block may be partial.
 # Tests: test_herdr_review.py, run by the repository's scripts/check.sh.
 set -euo pipefail
 
@@ -137,7 +138,16 @@ if [ -z "${HERDR_WORKSPACE_ID:-}" ]; then
 fi
 # The tab label and the agent name both carry this hash, so two models never share a
 # tab, even when their names differ only in punctuation (kimi-code/k3, kimi-code-k3).
-reviewer_hash=$(printf '%s' "$kind:$model" | shasum | cut -c1-8)
+# The hash carries the launch mode, so a live reviewer started before a mode
+# change (-y, say) can never be reused by the updated script: its label and
+# name no longer match, and the run starts a fresh reviewer (2026-11-08).
+mode=""
+hash_input="$kind:$model"
+if [ "$kind" = kimi ]; then
+  mode="--auto"
+  hash_input="$kind:$model:$mode"
+fi
+reviewer_hash=$(printf '%s' "$hash_input" | shasum | cut -c1-8)
 
 # Read one field from herdr's JSON on stdin. Every object on the path must exist;
 # only the last field may be missing or null (it prints an empty line). An error
@@ -197,9 +207,12 @@ step="starting the reviewer"
 # Start a reviewer only if the pane has none; a reused tab keeps its reviewer.
 # Different model from the writer, no approval prompts, sandboxed with network
 # (Claude writing: Codex on gpt-6-luna at medium reasoning, the owner's choice;
-# --kind and --model pick another reviewer when the owner asks). Kimi has no sandbox,
-# so it runs with -y: routine commands run, risky actions still ask, and a question
-# leaves the pane blocked, which the prompt step below reports.
+# --kind and --model pick another reviewer when the owner asks). Kimi has no sandbox
+# and no `--sandbox` flag; since 2026-11-08 (EPG-DEC-0001, the owner asked after its
+# read-approval prompts blocked a review) it runs with --auto (Never Ask: everything
+# runs and is decided automatically), not -y, whose approval prompts block the pane
+# and stall the review; a question leaves the pane blocked, which the prompt step
+# below reports.
 pane_agent=$(herdr pane get "$review_pane" | jget result.pane.agent)
 if [ -n "$pane_agent" ]; then
   # A running reviewer keeps the flags it started with, such as the sandbox's writable folders.
@@ -211,7 +224,7 @@ if [ -z "$pane_agent" ]; then
   # hash of its kind and model, and reviewers on different models run side by side.
   name="rev-$(printf '%s' "$slug" | cut -c1-19)-$reviewer_hash"
   if [ "$kind" = kimi ]; then
-    agent_args=(-m "$model" -y)
+    agent_args=(-m "$model" --auto)
   elif [ "$kind" = cursor ]; then
     # Sandboxed, no approval prompts, workspace trusted: the Cursor match for Codex's flags.
     agent_args=(--model "$model" --sandbox enabled --force --trust)
@@ -305,7 +318,7 @@ if [ "$kind" = cursor ]; then report_dir="${HERDR_REVIEW_DIR:-/tmp/herdr-reviews
 report=$(mktemp "$report_dir/review-XXXXXX")   # unique; a failure stops here
 rm -f "$report"                                     # absent until the reviewer writes it
 echo "Report file: $report" >&2                     # findable even if the output is cut short
-prompt="Read AGENTS.md and the repository's review standards file (for example REVIEW_STANDARDS.md) first, and apply them. Run the ce-code-review skill (instructions: $HOME/.agents/skills/ce-code-review/SKILL.md) on branch $branch, diff vs main. Verify: $verify. For each finding, name the kind of defect and list every place in the repository that has it, including places outside the diff. Say how this could pass review while still being wrong. Report findings only; do not apply them. When the review is finished, write the final report as Markdown to exactly this path: $report. This is required even if the review skill also saves its own report elsewhere. Then reply with that path."
+prompt="Read AGENTS.md and the repository's review standards file (for example REVIEW_STANDARDS.md) first, and apply them. Run the ce-code-review skill (instructions: $HOME/.agents/skills/ce-code-review/SKILL.md) on branch $branch, diff vs main. Verify: $verify. For each finding, name the kind of defect and list every place in the repository that has it, including places outside the diff. Say how this could pass review while still being wrong. Report findings only; do not apply them. You run with every approval prompt answered automatically. Do not stop to ask the owner, and do not use blocking question tools. Whatever you would have asked, record it as an explicit 'Open questions' section in your report and review on. When the review is finished, write the final report as Markdown to exactly this path: $report. This is required even if the review skill also saves its own report elsewhere. Then reply with that path."
 
 
 pane_tail() { herdr agent read "$review_pane" --source recent-unwrapped --lines "$1" 2>/dev/null || true; }
@@ -400,7 +413,7 @@ delivered=$worked
 # once for it. Each counter below ends the wait with its reason. The "never started"
 # stop counts 12 idle polls after the last Enter or the request for the report, and 60
 # when neither happened.
-asked="" last_size="" idle_unworked=0 blocked=0 unread=0
+asked="" last_size="" idle_unworked=0 blocked=0 unread=0 ended_blocked=""
 reason="no report within 60 minutes; the review may still be running"
 next="herdr agent wait $review_pane --until idle --until done --timeout 3600000 && cat '$report'"
 for _ in $(seq 1 720); do
@@ -436,6 +449,7 @@ for _ in $(seq 1 720); do
     blocked)
       unread=0 blocked=$((blocked + 1))
       if [ "$blocked" -ge 24 ]; then
+        ended_blocked=1
         reason="the reviewer is waiting on a question"
         # A reviewer that never worked never got the prompt (herdr rejects a prompt to a
         # blocked agent before sending it), so after the answer the script runs again.
@@ -457,6 +471,18 @@ for _ in $(seq 1 720); do
   esac
   sleep 5
 done
+
+# A wait that ended blocked stops here: the reviewer is waiting on a question, and a file
+# it wrote before blocking may be partial. Rex and hc leave it unprinted; so does Herdr.
+# Report success stays reserved for completed, idle, and timed-out runs.
+if [ -n "$ended_blocked" ]; then
+  trailer=1
+  [ -n "$prompt_ok" ] || echo "Prompt result: $prompt_out"
+  pane_tail 60
+  echo "No report at $report: $reason."
+  echo "Next: $next"
+  exit 1
+fi
 
 # The reviewer's own file comes first, however the wait ended. A non-empty file is never
 # overwritten; a missing or empty one (the reviewer wrote nothing) gets the fallback.

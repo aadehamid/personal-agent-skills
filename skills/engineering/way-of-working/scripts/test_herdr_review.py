@@ -216,7 +216,11 @@ FAKE = textwrap.dedent(r'''
 ''').lstrip()
 
 
-def reviewer_hash(kind_model):
+def reviewer_hash(kind_model, mode=None):
+    # Mode runs in the hash since 2026-11-08: a live -y reviewer's label never
+    # matches the --auto script's, so a fresh reviewer always starts.
+    if kind_model.startswith("kimi:"):
+        kind_model += ":--auto"
     import hashlib
     return hashlib.sha1(kind_model.encode()).hexdigest()[:8]
 
@@ -541,7 +545,7 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(created[created.index("--label") + 1], "review-repo-kimi-" + reviewer_hash("kimi:kimi-code/k3.1-pro"))
         start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
         self.assertEqual(start[start.index("--kind") + 1], "kimi")
-        self.assertEqual(start[start.index("--") + 1:], ["-m", "kimi-code/k3.1-pro", "-y"])
+        self.assertEqual(start[start.index("--") + 1:], ["-m", "kimi-code/k3.1-pro", "--auto"])
         self.assertRegex(start[2], r"^rev-repo-[0-9a-f]{8}$")
         self.assertIn("agent prompt", calls)
 
@@ -552,8 +556,8 @@ class HerdrReview(unittest.TestCase):
         created = [a for a in self.argv if a[:2] == ["tab", "create"]][0]
         self.assertEqual(created[created.index("--label") + 1], "review-repo-kimi-" + reviewer_hash("kimi:kimi-code/k3-256k"))
         start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
-        self.assertEqual(start[start.index("--") + 1:], ["-m", "kimi-code/k3-256k", "-y"])
-        self.assertEqual(start[2], "rev-repo-" + hashlib.sha1(b"kimi:kimi-code/k3-256k").hexdigest()[:8])
+        self.assertEqual(start[start.index("--") + 1:], ["-m", "kimi-code/k3-256k", "--auto"])
+        self.assertEqual(start[2], "rev-repo-" + hashlib.sha1(b"kimi:kimi-code/k3-256k:--auto").hexdigest()[:8])
 
     def test_models_that_differ_only_in_punctuation_get_different_tabs(self):
         labels = set()
@@ -713,12 +717,14 @@ class HerdrReview(unittest.TestCase):
         self.assertRegex(r.stdout.splitlines()[-1],
                          r"^Next: answer it \(herdr agent send-keys w2:p3 <key>\), then run: \S*herdr-review\.sh --branch b --verify v $")
 
-    def test_the_reviewers_own_file_wins_however_the_wait_ends(self):
-        # The reviewer wrote the report, then blocked; a matching skill report is also there.
+    def test_a_report_written_before_a_block_is_left_unprinted(self):
+        # The reviewer wrote the report, then blocked on a question. Rex and hc leave
+        # a blocked run's file unprinted (it may be partial); so does Herdr now, and
+        # the planted skill report is not copied either (2026-11-08).
         r, _ = self.run_case("timeout,writes", git_head=True,
                              before=lambda t, h: self.plant_skill_report(t, h, "SKILL REPORT\n", -60))
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(r.stdout, "REVIEW FINDINGS\n")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertRegex(r.stdout.splitlines()[-2], r"^No report at \S+: the reviewer is waiting on a question\.$")
 
     def test_no_report_anywhere_exits_1_with_the_reason_and_next_command(self):
         r, calls = self.run_case("newtab,fresh,stalled,pasted,silent", extra=("--kind", "cursor"))
@@ -869,17 +875,19 @@ class HerdrReview(unittest.TestCase):
         self.assertNotIn("tab close", calls)
         self.assertIn("did not start", r.stdout)
 
-    def test_an_empty_report_file_still_gets_this_runs_skill_report(self):
+    def test_an_empty_report_file_stays_unprinted_after_a_block(self):
+        # The empty file was created before the block; the blocked tail suppresses
+        # the fallback too (2026-11-08).
         r, _ = self.run_case("timeout,emptyreport", git_head=True,
                              before=lambda t, h: self.plant_skill_report(t, h, "SKILL REPORT\n", -60))
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(r.stdout, "SKILL REPORT\n")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertRegex(r.stdout.splitlines()[-2], r"^No report at \S+: the reviewer is waiting on a question\.$")
 
     def test_an_empty_report_file_keeps_the_blocked_next_command(self):
         r, _ = self.run_case("timeout,emptyreport", git_head=True)
         self.assertEqual(r.returncode, 1)
         lines = r.stdout.splitlines()
-        self.assertRegex(lines[-2], r"^No report at \S+: the reviewer is waiting on a question; no skill report for this run\.$")
+        self.assertRegex(lines[-2], r"^No report at \S+: the reviewer is waiting on a question\.$")
         self.assertRegex(lines[-1], r"^Next: answer it \(herdr agent send-keys w2:p3 <key>\), then run: "
                                     r"herdr agent wait w2:p3 --until idle --until done --timeout 3600000 && cat '\S+'$")
 

@@ -153,11 +153,11 @@ if [ "$kind" = cursor ]; then report_dir="${HERDR_REVIEW_DIR:-/tmp/herdr-reviews
 report=$(mktemp "$report_dir/review-XXXXXX")
 rm -f "$report"
 echo "Report file: $report" >&2
-prompt="Read AGENTS.md and the repository's review standards file (for example REVIEW_STANDARDS.md) first, and apply them. Run the ce-code-review skill (instructions: $HOME/.agents/skills/ce-code-review/SKILL.md) on branch $branch, diff vs main. Verify: $verify. For each finding, name the kind of defect and list every place in the repository that has it, including places outside the diff. Say how this could pass review while still being wrong. Report findings only; do not apply them. When the review is finished, write the final report as Markdown to exactly this path: $report. This is required even if the review skill also saves its own report elsewhere. Then reply with that path."
+prompt="Read AGENTS.md and the repository's review standards file (for example REVIEW_STANDARDS.md) first, and apply them. Run the ce-code-review skill (instructions: $HOME/.agents/skills/ce-code-review/SKILL.md) on branch $branch, diff vs main. Verify: $verify. For each finding, name the kind of defect and list every place in the repository that has it, including places outside the diff. Say how this could pass review while still being wrong. Report findings only; do not apply them. You run with every approval prompt answered automatically. Do not stop to ask the owner, and do not use blocking question tools. Whatever you would have asked, record it as an explicit 'Open questions' section in your report and review on. When the review is finished, write the final report as Markdown to exactly this path: $report. This is required even if the review skill also saves its own report elsewhere. Then reply with that path."
 
 step="starting the reviewer"
 if [ "$kind" = kimi ]; then
-  agent_cmd=(kimi) agent_args=(-m "$model" -y)
+  agent_cmd=(kimi) agent_args=(-m "$model" --auto)
 elif [ "$kind" = cursor ]; then
   agent_cmd=(cursor-agent) agent_args=(--model "$model" --sandbox enabled --force --trust)
 else
@@ -256,7 +256,17 @@ if kind == "kimi" and ready:
     ready = any("context:" in l for l in lines[-12:])
 busy = re.search(r"ctrl\+c to stop|esc to interrupt|Press Ctrl\+B to run in background|Working…|"
                  r"Running \d+ agents?|Agent Running", "\n".join(outside[-12:]))
-if limit:
+# A choice list above the input (the Kimi migration dialog, say) is a question for
+# the owner, however ready the input line looks or however the reviewer reports itself:
+# the strict look rejects it the way Rex does, so the prompt never lands on an unattended
+# dialog (round 2, finding 4 of PR #99), and a reported-idle reviewer with one above its
+# input reads unknown, not idle.
+choices = any(re.search(r"\?\s*$", l) or re.match(r"^\s*(\d+[.)]\s|❯\s|\[[ xX]\]\s)", l)
+              for l in bottom if not re.match(editor, l))
+strict_block = choices and not (limit or question or trust)
+if strict_block and (ready or reported in ("idle", "done")):
+    word = "unknown"
+elif limit:
     word = "limit"
 elif reported == "blocked":
     word = "blocked"
