@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Pre-push gate. Git runs this before every push; a non-zero exit cancels it.
 #
-# Install once per clone:
-#     git config core.hooksPath scripts/hooks
+# Install only under the conditions and command in the root AGENTS.md.
 #
 # It runs the same script CI runs, so a push that passes here passes there.
 # A push that only deletes remote refs sends no commits, so it skips the checks. Git gives

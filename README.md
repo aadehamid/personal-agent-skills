@@ -48,10 +48,12 @@ Category names are short and lowercase: `writing`, `coding`, `data`, `engineerin
 git clone https://github.com/aadehamid/personal-agent-skills.git
 cd personal-agent-skills
 ./scripts/link-skills.sh --global --tools
-git config core.hooksPath scripts/hooks   # run scripts/check.sh before every push that sends commits
 npx skills add mattpocock/skills --skill writing-for-agents --skill retro -g
 ./scripts/update-pstack.sh   # optional: pstack from cursor/plugins, without its unslop
 ```
+
+Configure the pre-push hook following the conditions and command in
+[AGENTS.md](AGENTS.md).
 
 Check that `retro/SKILL.md` and `writing-for-agents/SKILL.md` exist in both
 `~/.agents/skills` and your agent's skill directory. A Claude plugin cache alone
