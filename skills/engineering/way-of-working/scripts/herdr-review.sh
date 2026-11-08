@@ -137,7 +137,16 @@ if [ -z "${HERDR_WORKSPACE_ID:-}" ]; then
 fi
 # The tab label and the agent name both carry this hash, so two models never share a
 # tab, even when their names differ only in punctuation (kimi-code/k3, kimi-code-k3).
-reviewer_hash=$(printf '%s' "$kind:$model" | shasum | cut -c1-8)
+# The hash carries the launch mode, so a live reviewer started before a mode
+# change (-y, say) can never be reused by the updated script: its label and
+# name no longer match, and the run starts a fresh reviewer (2026-11-08).
+mode=""
+hash_input="$kind:$model"
+if [ "$kind" = kimi ]; then
+  mode="--auto"
+  hash_input="$kind:$model:$mode"
+fi
+reviewer_hash=$(printf '%s' "$hash_input" | shasum | cut -c1-8)
 
 # Read one field from herdr's JSON on stdin. Every object on the path must exist;
 # only the last field may be missing or null (it prints an empty line). An error
@@ -308,7 +317,7 @@ if [ "$kind" = cursor ]; then report_dir="${HERDR_REVIEW_DIR:-/tmp/herdr-reviews
 report=$(mktemp "$report_dir/review-XXXXXX")   # unique; a failure stops here
 rm -f "$report"                                     # absent until the reviewer writes it
 echo "Report file: $report" >&2                     # findable even if the output is cut short
-prompt="Read AGENTS.md and the repository's review standards file (for example REVIEW_STANDARDS.md) first, and apply them. Run the ce-code-review skill (instructions: $HOME/.agents/skills/ce-code-review/SKILL.md) on branch $branch, diff vs main. Verify: $verify. For each finding, name the kind of defect and list every place in the repository that has it, including places outside the diff. Say how this could pass review while still being wrong. Report findings only; do not apply them. When the review is finished, write the final report as Markdown to exactly this path: $report. This is required even if the review skill also saves its own report elsewhere. Then reply with that path."
+prompt="Read AGENTS.md and the repository's review standards file (for example REVIEW_STANDARDS.md) first, and apply them. Run the ce-code-review skill (instructions: $HOME/.agents/skills/ce-code-review/SKILL.md) on branch $branch, diff vs main. Verify: $verify. For each finding, name the kind of defect and list every place in the repository that has it, including places outside the diff. Say how this could pass review while still being wrong. Report findings only; do not apply them. You run with every approval prompt answered automatically. Do not stop to ask the owner, and do not use blocking question tools. Whatever you would have asked, record it as an explicit 'Open questions' section in your report and review on. When the review is finished, write the final report as Markdown to exactly this path: $report. This is required even if the review skill also saves its own report elsewhere. Then reply with that path."
 
 
 pane_tail() { herdr agent read "$review_pane" --source recent-unwrapped --lines "$1" 2>/dev/null || true; }
@@ -403,7 +412,7 @@ delivered=$worked
 # once for it. Each counter below ends the wait with its reason. The "never started"
 # stop counts 12 idle polls after the last Enter or the request for the report, and 60
 # when neither happened.
-asked="" last_size="" idle_unworked=0 blocked=0 unread=0
+asked="" last_size="" idle_unworked=0 blocked=0 unread=0 ended_blocked=""
 reason="no report within 60 minutes; the review may still be running"
 next="herdr agent wait $review_pane --until idle --until done --timeout 3600000 && cat '$report'"
 for _ in $(seq 1 720); do
@@ -439,6 +448,7 @@ for _ in $(seq 1 720); do
     blocked)
       unread=0 blocked=$((blocked + 1))
       if [ "$blocked" -ge 24 ]; then
+        ended_blocked=1
         reason="the reviewer is waiting on a question"
         # A reviewer that never worked never got the prompt (herdr rejects a prompt to a
         # blocked agent before sending it), so after the answer the script runs again.
@@ -460,6 +470,17 @@ for _ in $(seq 1 720); do
   esac
   sleep 5
 done
+
+# A wait that ended blocked stops here: the reviewer is waiting on a question, and a file
+# it wrote before blocking may be partial. Rex and hc leave it unprinted; so does Herdr.
+# Report success stays reserved for completed, idle, and timed-out runs.
+if [ -n "$ended_blocked" ]; then
+  trailer=1
+  [ -n "$prompt_ok" ] || echo "Prompt result: $prompt_out"
+  echo "No report at $report: $reason."
+  echo "Next: $next"
+  exit 1
+fi
 
 # The reviewer's own file comes first, however the wait ended. A non-empty file is never
 # overwritten; a missing or empty one (the reviewer wrote nothing) gets the fallback.

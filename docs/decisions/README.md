@@ -12,5 +12,6 @@ skipped question as agreement is recorded here.
 | Date | Decision | Status |
 |---|---|---|
 | 2026-11-07 | [A reusable ontology visualization skill](2026-11-07-ontology-visualization.md) | Decided |
+| 2026-11-08 | [The Kimi reviewer runs with --auto (Never Ask)](2026-11-08-kimi-reviewer-never-ask.md) | Decided |
 
 Existing skills' source and change notes remain where their READMEs identify them.

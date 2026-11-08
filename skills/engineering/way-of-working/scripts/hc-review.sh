@@ -153,7 +153,7 @@ if [ "$kind" = cursor ]; then report_dir="${HERDR_REVIEW_DIR:-/tmp/herdr-reviews
 report=$(mktemp "$report_dir/review-XXXXXX")
 rm -f "$report"
 echo "Report file: $report" >&2
-prompt="Read AGENTS.md and the repository's review standards file (for example REVIEW_STANDARDS.md) first, and apply them. Run the ce-code-review skill (instructions: $HOME/.agents/skills/ce-code-review/SKILL.md) on branch $branch, diff vs main. Verify: $verify. For each finding, name the kind of defect and list every place in the repository that has it, including places outside the diff. Say how this could pass review while still being wrong. Report findings only; do not apply them. When the review is finished, write the final report as Markdown to exactly this path: $report. This is required even if the review skill also saves its own report elsewhere. Then reply with that path."
+prompt="Read AGENTS.md and the repository's review standards file (for example REVIEW_STANDARDS.md) first, and apply them. Run the ce-code-review skill (instructions: $HOME/.agents/skills/ce-code-review/SKILL.md) on branch $branch, diff vs main. Verify: $verify. For each finding, name the kind of defect and list every place in the repository that has it, including places outside the diff. Say how this could pass review while still being wrong. Report findings only; do not apply them. You run with every approval prompt answered automatically. Do not stop to ask the owner, and do not use blocking question tools. Whatever you would have asked, record it as an explicit 'Open questions' section in your report and review on. When the review is finished, write the final report as Markdown to exactly this path: $report. This is required even if the review skill also saves its own report elsewhere. Then reply with that path."
 
 step="starting the reviewer"
 if [ "$kind" = kimi ]; then
@@ -254,6 +254,12 @@ ready_text = {"kimi": ("",), "cursor": ("Plan, search, build anything", "Add a f
 ready = any(x in ready_text for x in inputs) if ready_text is not None else bool(inputs) and not held
 if kind == "kimi" and ready:
     ready = any("context:" in l for l in lines[-12:])
+# A choice list above the input (the Kimi migration dialog, say) is a question for
+# the owner, however ready the input line looks: the strict look rejects it the way
+# Rex does, so the prompt never lands on an unattended dialog.
+choices = any(re.search(r"\?\s*$", l) or re.match(r"^\s*(\d+[.)]\s|❯\s|\[[ xX]\]\s)", l) for l in bottom if not re.match(editor, l))
+if ready and choices and not limit and not question and not trust:
+    ready = False
 busy = re.search(r"ctrl\+c to stop|esc to interrupt|Press Ctrl\+B to run in background|Working…|"
                  r"Running \d+ agents?|Agent Running", "\n".join(outside[-12:]))
 if limit:

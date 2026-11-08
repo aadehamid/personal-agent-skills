@@ -103,7 +103,15 @@ top=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 top=$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$top")
 head_sha=$(git -C "$top" rev-parse HEAD 2>/dev/null || true)
 repo=$(basename "$top")
-reviewer_hash=$(printf '%s' "$kind:$model" | shasum | cut -c1-8)
+# The hash carries the launch mode: a live -y reviewer cannot be reused by the
+# updated script (2026-11-08).
+mode=""
+hash_input="$kind:$model"
+if [ "$kind" = kimi ]; then
+  mode="--auto"
+  hash_input="$kind:$model:$mode"
+fi
+reviewer_hash=$(printf '%s' "$hash_input" | shasum | cut -c1-8)
 tree_hash=$(printf '%s' "$top" | shasum | cut -c1-6)
 label="review-$repo-$kind-$reviewer_hash-$tree_hash"
 # The reviewer's program names, as the process listing shows them (name, argv0 or file name).
@@ -440,7 +448,7 @@ if [ "$kind" = cursor ]; then report_dir="${HERDR_REVIEW_DIR:-/tmp/herdr-reviews
 report=$(mktemp "$report_dir/review-XXXXXX")
 rm -f "$report"
 echo "Report file: $report" >&2
-prompt="Read AGENTS.md and the repository's review standards file (for example REVIEW_STANDARDS.md) first, and apply them. Run the ce-code-review skill (instructions: $HOME/.agents/skills/ce-code-review/SKILL.md) on branch $branch, diff vs main. Verify: $verify. For each finding, name the kind of defect and list every place in the repository that has it, including places outside the diff. Say how this could pass review while still being wrong. Report findings only; do not apply them. When the review is finished, write the final report as Markdown to exactly this path: $report. This is required even if the review skill also saves its own report elsewhere. Then reply with that path."
+prompt="Read AGENTS.md and the repository's review standards file (for example REVIEW_STANDARDS.md) first, and apply them. Run the ce-code-review skill (instructions: $HOME/.agents/skills/ce-code-review/SKILL.md) on branch $branch, diff vs main. Verify: $verify. For each finding, name the kind of defect and list every place in the repository that has it, including places outside the diff. Say how this could pass review while still being wrong. Report findings only; do not apply them. You run with every approval prompt answered automatically. Do not stop to ask the owner, and do not use blocking question tools. Whatever you would have asked, record it as an explicit 'Open questions' section in your report and review on. When the review is finished, write the final report as Markdown to exactly this path: $report. This is required even if the review skill also saves its own report elsewhere. Then reply with that path."
 
 # Text first, then Enter as its own key, a moment later: an Enter sent with the text can
 # land as a new line in the input box (Kimi, 2026-10-24). A fresh look comes right before the
