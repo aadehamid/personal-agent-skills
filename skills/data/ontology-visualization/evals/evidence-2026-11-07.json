@@ -1,0 +1,446 @@
+{
+  "date": "2026-11-07",
+  "scope": "Local behavior evaluations. Read results-2026-11-07.md for corrections and coverage limits; an earlier report may contain a claim qualified there.",
+  "storage": "Artifacts remain outside the skill source. Paths locate preserved input copies and local run artifacts; hashes identify the files if moved. Temporary files are not guaranteed to survive cleanup. Re-run the relevant task if evidence is unavailable.",
+  "runs": [
+    {
+      "id": "new-viewer",
+      "evaluator": "Codex, separate evaluator context visualization_forward_test; serving model not attested",
+      "report": {
+        "path": "/tmp/pas-vis-eval-new/evaluation-report.md",
+        "sha256": "3fb4017beb6715269f2ce0c1caa480677325925ee95919113c70b0f699e93656"
+      },
+      "inputs": [
+        {
+          "path": "/tmp/pas-ontology-visualization-work/skills/data/ontology-visualization/evals/fixtures/v1/catalog.ttl",
+          "sha256": "b6ba2385f1965e8262b4f3421a95baab678dd3ebb80162b2352c6a00fc8402ec"
+        },
+        {
+          "path": "/tmp/pas-ontology-visualization-work/skills/data/ontology-visualization/evals/fixtures/v1/lending.ttl",
+          "sha256": "7b321919fb38c2f98e9efbe6ac41bafd3b793e1548be7d18036de5101ac93302"
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/tmp/pas-vis-eval-new/library-reference.zip",
+          "sha256": "9db2a2401dd8a2cba7ea976f5635ecf9ec9b6dbc2843ee57485c38c7ee87cf77"
+        }
+      ],
+      "check_evidence": [
+        {
+          "path": "/tmp/pas-vis-eval-new/evidence/semantic-results.json",
+          "sha256": "3838764eff223f5b74923617e5a05bd94016f6eac9af5f5752280df1fe9a1732"
+        },
+        {
+          "path": "/tmp/pas-vis-eval-new/evidence/browser-results.json",
+          "sha256": "1d721a1116a953c56da5331bec55c469d3d2206fb40680b74e309ba1f3edb941"
+        }
+      ],
+      "method_sha256": {
+        "SKILL.md": "12e998b94a312c553e2b714b7bd593285e56a6fd2d99f9bfa239e78a29808528",
+        "references/playbook.md": "3b61175b97946bda7905d568c5156c9d698841b2eb0a18651f36416aebb0d095",
+        "assets/visualization-brief.md": "6d397a3e5429886b75104a358444382b53430bcd3d72b29ab7bceec97b849f45"
+      }
+    },
+    {
+      "id": "ontology-update",
+      "evaluator": "Codex, separate evaluator context visualization_forward_test; serving model not attested",
+      "report": {
+        "path": "/tmp/pas-vis-eval-update/evaluation-report.md",
+        "sha256": "723be25fe1202166e3658171e08570f2ac7305d209e936dfcd3a219199ac6448"
+      },
+      "inputs": [
+        {
+          "path": "/tmp/pas-ontology-visualization-work/skills/data/ontology-visualization/evals/fixtures/v1/catalog.ttl",
+          "sha256": "b6ba2385f1965e8262b4f3421a95baab678dd3ebb80162b2352c6a00fc8402ec"
+        },
+        {
+          "path": "/tmp/pas-ontology-visualization-work/skills/data/ontology-visualization/evals/fixtures/v1/lending.ttl",
+          "sha256": "7b321919fb38c2f98e9efbe6ac41bafd3b793e1548be7d18036de5101ac93302"
+        },
+        {
+          "path": "/tmp/pas-vis-eval-update/candidate/sources/catalog.ttl",
+          "sha256": "39f01dd36fadd32fc3024e1c4a2389cbdc394c09668a375333ee518d3494d4ca"
+        },
+        {
+          "path": "/tmp/pas-vis-eval-update/candidate/sources/lending.ttl",
+          "sha256": "af17118405cb8b645d44a91b9729bc96f739287e8728adc966b0adc982049e27"
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/tmp/pas-vis-eval-update/library-reference.zip",
+          "sha256": "8fd49b3eb577b16cc488cfe55f468ee070e43258c745224e68aa89a430f9c079"
+        }
+      ],
+      "check_evidence": [
+        {
+          "path": "/tmp/pas-vis-eval-update/evidence/identities.json",
+          "sha256": "91d02c54d3abf08257d2c0ab1979f6c06307bd604d73eec923e377cdb1d50497"
+        }
+      ],
+      "method_sha256": {
+        "SKILL.md": "12e998b94a312c553e2b714b7bd593285e56a6fd2d99f9bfa239e78a29808528",
+        "references/playbook.md": "3b61175b97946bda7905d568c5156c9d698841b2eb0a18651f36416aebb0d095",
+        "assets/visualization-brief.md": "6d397a3e5429886b75104a358444382b53430bcd3d72b29ab7bceec97b849f45"
+      }
+    },
+    {
+      "id": "documentation-update",
+      "evaluator": "Codex, separate evaluator context visualization_forward_test; serving model not attested",
+      "report": {
+        "path": "/tmp/pas-vis-eval-docs-update/evaluation-report.md",
+        "sha256": "8f3e9cf3f0199a3235ca9b2f783c5d11d1bfb4d2db770671b899252654038ef9"
+      },
+      "inputs": [
+        {
+          "path": "/tmp/pas-vis-eval-update/candidate/sources/catalog.ttl",
+          "sha256": "39f01dd36fadd32fc3024e1c4a2389cbdc394c09668a375333ee518d3494d4ca"
+        },
+        {
+          "path": "/tmp/pas-vis-eval-update/candidate/sources/lending.ttl",
+          "sha256": "af17118405cb8b645d44a91b9729bc96f739287e8728adc966b0adc982049e27"
+        },
+        {
+          "path": "/tmp/pas-vis-eval-update/library-reference.zip",
+          "sha256": "8fd49b3eb577b16cc488cfe55f468ee070e43258c745224e68aa89a430f9c079"
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/tmp/pas-vis-eval-docs-update/library-reference-with-guide.zip",
+          "sha256": "ecbe9dc1736d291687d67eddc62bc58c5601ade8f62a1de75e17240c7740672a"
+        }
+      ],
+      "check_evidence": [
+        {
+          "path": "/tmp/pas-vis-eval-docs-update/evidence/identities.json",
+          "sha256": "b96c2c8037824e52d063c07e8e3179c22d4902b5ede6ee293658bdaee3ab16c3"
+        }
+      ],
+      "method_sha256": {
+        "SKILL.md": "12e998b94a312c553e2b714b7bd593285e56a6fd2d99f9bfa239e78a29808528",
+        "references/playbook.md": "3b61175b97946bda7905d568c5156c9d698841b2eb0a18651f36416aebb0d095",
+        "assets/visualization-brief.md": "6d397a3e5429886b75104a358444382b53430bcd3d72b29ab7bceec97b849f45"
+      }
+    },
+    {
+      "id": "focused-followup",
+      "evaluator": "Codex, separate evaluator context visualization_forward_test; serving model not attested",
+      "report": {
+        "path": "/tmp/pas-vis-eval-followup/audit/followup-report-v2.md",
+        "sha256": "32ac88d2fd125e8fd220029b7814593b1ba616b95b081454e003dc708ff56b06"
+      },
+      "inputs": [
+        {
+          "path": "/tmp/pas-ontology-visualization-work/skills/data/ontology-visualization/evals/fixtures/v1/catalog.ttl",
+          "sha256": "b6ba2385f1965e8262b4f3421a95baab678dd3ebb80162b2352c6a00fc8402ec"
+        },
+        {
+          "path": "/tmp/pas-ontology-visualization-work/skills/data/ontology-visualization/evals/fixtures/v1/lending.ttl",
+          "sha256": "7b321919fb38c2f98e9efbe6ac41bafd3b793e1548be7d18036de5101ac93302"
+        },
+        {
+          "path": "/tmp/pas-vis-eval-update/candidate/sources/catalog.ttl",
+          "sha256": "39f01dd36fadd32fc3024e1c4a2389cbdc394c09668a375333ee518d3494d4ca"
+        },
+        {
+          "path": "/tmp/pas-vis-eval-update/candidate/sources/lending.ttl",
+          "sha256": "af17118405cb8b645d44a91b9729bc96f739287e8728adc966b0adc982049e27"
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/tmp/pas-vis-eval-followup/corrected/viewer-correction.zip",
+          "sha256": "34ba6ae3cb865f5c1d381d57f6d764fd44cd20f0969255ed27f78ea4f7a03c73"
+        }
+      ],
+      "check_evidence": [
+        {
+          "path": "/tmp/pas-vis-eval-followup/audit/delta-fix-results.json",
+          "sha256": "6656f8d2b40a8fe9cc21cb9c7da95e6652c845fe9e4c78964cf7ad8788beb9bf"
+        },
+        {
+          "path": "/tmp/pas-vis-eval-followup/audit/coverage-audit.json",
+          "sha256": "71c8884a1458411c8eadd9394697dc07f10b301b62de8989d5d62579b3c5502c"
+        }
+      ],
+      "method_sha256": {
+        "SKILL.md": "12e998b94a312c553e2b714b7bd593285e56a6fd2d99f9bfa239e78a29808528",
+        "references/playbook.md": "3636253f1a403cb460d45526fd60d3d7a0a3ec358e650a5f1eae524e242ca778",
+        "assets/visualization-brief.md": "6d397a3e5429886b75104a358444382b53430bcd3d72b29ab7bceec97b849f45"
+      }
+    },
+    {
+      "id": "anonymous-update",
+      "evaluator": "Codex, separate evaluator context visualization_forward_test; serving model not attested",
+      "report": {
+        "path": "/tmp/pas-vis-eval-anonymous/audit/evaluation-report-final.md",
+        "sha256": "299d434d6a743fbe403cde7273a16e8a670fb957d18b5c8baf4ee265ab9ba82f"
+      },
+      "inputs": [
+        {
+          "path": "/tmp/pas-ontology-visualization-work/skills/data/ontology-visualization/evals/fixtures/v1/catalog.ttl",
+          "sha256": "b6ba2385f1965e8262b4f3421a95baab678dd3ebb80162b2352c6a00fc8402ec"
+        },
+        {
+          "path": "/tmp/pas-ontology-visualization-work/skills/data/ontology-visualization/evals/fixtures/v1/lending.ttl",
+          "sha256": "7b321919fb38c2f98e9efbe6ac41bafd3b793e1548be7d18036de5101ac93302"
+        },
+        {
+          "path": "/tmp/pas-vis-anonymous-inputs/catalog.ttl",
+          "sha256": "d4bd30e9f0450fc9b25327532e38f451961e1afa4e1f6803990ead9e679e80c1"
+        },
+        {
+          "path": "/tmp/pas-vis-anonymous-inputs/lending.ttl",
+          "sha256": "7b321919fb38c2f98e9efbe6ac41bafd3b793e1548be7d18036de5101ac93302"
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/tmp/pas-vis-eval-anonymous/library-reference-anonymous-update.zip",
+          "sha256": "9f08f55de4e193535b5a6637492fbec7cc7e5c0a99ce65ec00f9fca47c6007d1"
+        }
+      ],
+      "check_evidence": [
+        {
+          "path": "/tmp/pas-vis-eval-anonymous/audit/semantic-results.json",
+          "sha256": "8014c3fab4a09be2842a580af54bebdf775dfb0b40e43d4bea26539ebc7dc0b5"
+        },
+        {
+          "path": "/tmp/pas-vis-eval-anonymous/audit/browser-results.json",
+          "sha256": "f6cddc7075a1e0dfff83e3f2199032c12c6551d6821e5fd3a46c914f7ee8b9a8"
+        }
+      ],
+      "method_sha256": {
+        "SKILL.md": "8f3f6edccb147ffbb3f2915beaa1728e542ff59cce9e49bf77b1a1f6b0f156a5",
+        "references/playbook.md": "bd15e25911b3d3b671a00e9dca2055c8ed0be1ebc68f4186d24252384e5195fe",
+        "assets/visualization-brief.md": "6d397a3e5429886b75104a358444382b53430bcd3d72b29ab7bceec97b849f45"
+      }
+    },
+    {
+      "id": "authorization-artifact",
+      "evaluator": "Codex, fresh evaluator context visualization_auth_artifact; serving model not attested",
+      "report": {
+        "path": "/tmp/pas-vis-auth-artifact/outcome.md",
+        "sha256": "9af34978a6ec30cbdd8a87b561b3d61475c4bce4bdbf0bdb358b1b25457c78a1"
+      },
+      "inputs": [
+        {
+          "path": "/tmp/pas-vis-auth-artifact/history.md",
+          "sha256": "0c17432e86d3666a1621bceb76724a5f5d7be855c0823d15b022a5f39d980bdc"
+        },
+        {
+          "path": "/tmp/pas-vis-auth-artifact/workflow.md",
+          "sha256": "b5572929332320e17de610a1cfddd7a9534c1f1a2b9ed3a6ac185a7a11328a91"
+        },
+        {
+          "path": "/tmp/pas-vis-auth-artifact/candidate.json",
+          "sha256": "258b5b8d0efd7c4a2a6b846e5dab0aa83c5c08b09310e86178742d40bcdfbcb2"
+        },
+        {
+          "path": "/tmp/pas-vis-auth-artifact/A.html",
+          "sha256": "cf8b35ec762d3bf8b822be765e0290049caedb018e071138b7861f768b7e8798"
+        },
+        {
+          "path": "/tmp/pas-vis-auth-artifact/B.html",
+          "sha256": "2628f4e21ce2b82b1459d2620e561039c1b5ab0fa08d15132ea6c37f6b45e430"
+        }
+      ],
+      "artifacts": [],
+      "check_evidence": [
+        {
+          "path": "/tmp/pas-vis-auth-artifact/method-hashes.json",
+          "sha256": "bb0ac0c69b3093b1e0b2acad0f26d64bd33417fae6cadfc05c12bdebec12e443"
+        }
+      ],
+      "method_sha256": {
+        "SKILL.md": "8f3f6edccb147ffbb3f2915beaa1728e542ff59cce9e49bf77b1a1f6b0f156a5",
+        "references/playbook.md": "bd15e25911b3d3b671a00e9dca2055c8ed0be1ebc68f4186d24252384e5195fe",
+        "assets/visualization-brief.md": "8033f025b3a6f069fb804acad9e6b578ef276abd83ac995fc04006e4a0278381"
+      }
+    },
+    {
+      "id": "authorization-standing",
+      "evaluator": "Codex, fresh evaluator context visualization_auth_standing; serving model not attested",
+      "report": {
+        "path": "/tmp/pas-vis-auth-standing/outcome.md",
+        "sha256": "84095ac8c2efa9a732355621b87c1d2e4ac4367bc56c11fecae3ba479a8492c4"
+      },
+      "inputs": [
+        {
+          "path": "/tmp/pas-vis-auth-standing/history.md",
+          "sha256": "46bb99aac40dec076e0ec16c362a804052d790216c37a68905737c24ba646e02"
+        },
+        {
+          "path": "/tmp/pas-vis-auth-standing/workflow.md",
+          "sha256": "b5572929332320e17de610a1cfddd7a9534c1f1a2b9ed3a6ac185a7a11328a91"
+        },
+        {
+          "path": "/tmp/pas-vis-auth-standing/candidate.json",
+          "sha256": "258b5b8d0efd7c4a2a6b846e5dab0aa83c5c08b09310e86178742d40bcdfbcb2"
+        },
+        {
+          "path": "/tmp/pas-vis-auth-standing/A.html",
+          "sha256": "cf8b35ec762d3bf8b822be765e0290049caedb018e071138b7861f768b7e8798"
+        },
+        {
+          "path": "/tmp/pas-vis-auth-standing/B.html",
+          "sha256": "2628f4e21ce2b82b1459d2620e561039c1b5ab0fa08d15132ea6c37f6b45e430"
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/tmp/pas-vis-auth-standing/published.json",
+          "sha256": "9716f450620891790f38c0714f0e3a60deb07e03a6855618b741b319ceebefe5"
+        }
+      ],
+      "check_evidence": [
+        {
+          "path": "/tmp/pas-vis-auth-standing/method-hashes.json",
+          "sha256": "e8bb267921034d0a767bbe1691f2a2e242f1d41f256ab1a233d4e2221b274023"
+        }
+      ],
+      "method_sha256": {
+        "SKILL.md": "8f3f6edccb147ffbb3f2915beaa1728e542ff59cce9e49bf77b1a1f6b0f156a5",
+        "references/playbook.md": "bd15e25911b3d3b671a00e9dca2055c8ed0be1ebc68f4186d24252384e5195fe",
+        "assets/visualization-brief.md": "8033f025b3a6f069fb804acad9e6b578ef276abd83ac995fc04006e4a0278381"
+      }
+    },
+    {
+      "id": "authorization-stale-review",
+      "evaluator": "Codex, fresh evaluator context visualization_auth_stale_review; serving model not attested",
+      "report": {
+        "path": "/tmp/pas-vis-auth-stale-review/outcome.md",
+        "sha256": "ecb7c238c6907e2efd98e930aa5163146e9628398948a4f3069a1992b490e5b0"
+      },
+      "inputs": [
+        {
+          "path": "/tmp/pas-vis-auth-stale-review/history.md",
+          "sha256": "46bb99aac40dec076e0ec16c362a804052d790216c37a68905737c24ba646e02"
+        },
+        {
+          "path": "/tmp/pas-vis-auth-stale-review/workflow.md",
+          "sha256": "1b65b0e7e296a0113ae97eb8d0b75822dfe2b57b03a6a674f4fe94b3f6956a91"
+        },
+        {
+          "path": "/tmp/pas-vis-auth-stale-review/candidate.json",
+          "sha256": "258b5b8d0efd7c4a2a6b846e5dab0aa83c5c08b09310e86178742d40bcdfbcb2"
+        },
+        {
+          "path": "/tmp/pas-vis-auth-stale-review/A.html",
+          "sha256": "cf8b35ec762d3bf8b822be765e0290049caedb018e071138b7861f768b7e8798"
+        },
+        {
+          "path": "/tmp/pas-vis-auth-stale-review/B.html",
+          "sha256": "2628f4e21ce2b82b1459d2620e561039c1b5ab0fa08d15132ea6c37f6b45e430"
+        }
+      ],
+      "artifacts": [],
+      "check_evidence": [
+        {
+          "path": "/tmp/pas-vis-auth-stale-review/method-hashes.json",
+          "sha256": "f6f6e1345b06df4f25dfc8a0ad35c4003d48fff6e9515fff2da04060092ba981"
+        }
+      ],
+      "method_sha256": {
+        "SKILL.md": "8f3f6edccb147ffbb3f2915beaa1728e542ff59cce9e49bf77b1a1f6b0f156a5",
+        "references/playbook.md": "66f775beff1f15be00ca095fec876b9492cd15de08a4a55fc51b48be3d5de87b",
+        "assets/visualization-brief.md": "8033f025b3a6f069fb804acad9e6b578ef276abd83ac995fc04006e4a0278381"
+      }
+    },
+    {
+      "id": "correspondence-metadata-audit",
+      "evaluator": "Codex author context; focused deterministic audit, not an independent agent task",
+      "report": {
+        "path": "/tmp/pas-vis-metadata-audit/results.json",
+        "sha256": "73b82a5e5066a9e9ea1f2a0f5ba88d87b6049b7ffa9e1bdeae14a043103d9550"
+      },
+      "inputs": [
+        {
+          "path": "/tmp/pas-vis-eval-new/candidate/sources/catalog.ttl",
+          "sha256": "b6ba2385f1965e8262b4f3421a95baab678dd3ebb80162b2352c6a00fc8402ec"
+        },
+        {
+          "path": "/tmp/pas-vis-eval-new/candidate/sources/lending.ttl",
+          "sha256": "7b321919fb38c2f98e9efbe6ac41bafd3b793e1548be7d18036de5101ac93302"
+        },
+        {
+          "path": "/tmp/pas-vis-anonymous-inputs/catalog.ttl",
+          "sha256": "d4bd30e9f0450fc9b25327532e38f451961e1afa4e1f6803990ead9e679e80c1"
+        },
+        {
+          "path": "/tmp/pas-vis-anonymous-inputs/lending.ttl",
+          "sha256": "7b321919fb38c2f98e9efbe6ac41bafd3b793e1548be7d18036de5101ac93302"
+        },
+        {
+          "path": "/tmp/pas-vis-eval-anonymous/candidate/release-diff.json",
+          "sha256": "376288427059e3b7ba7e04402e88353b3249e8117276fde171fc9614d42b8bda"
+        }
+      ],
+      "artifacts": [],
+      "check_evidence": [
+        {
+          "path": "/tmp/pas-vis-metadata-audit/check.py",
+          "sha256": "2128a135470a0399381ed271b67dc9e4e4de143ea20fbf4460ae24e1a84903fa"
+        }
+      ],
+      "method_sha256": {
+        "SKILL.md": "8f3f6edccb147ffbb3f2915beaa1728e542ff59cce9e49bf77b1a1f6b0f156a5",
+        "references/playbook.md": "66f775beff1f15be00ca095fec876b9492cd15de08a4a55fc51b48be3d5de87b",
+        "assets/visualization-brief.md": "8033f025b3a6f069fb804acad9e6b578ef276abd83ac995fc04006e4a0278381"
+      }
+    },
+    {
+      "id": "successive-update",
+      "evaluator": "Codex, separate evaluator context visualization_forward_test; serving model not attested",
+      "report": {
+        "path": "/tmp/pas-vis-eval-chain/audit/evaluation-report-final.md",
+        "sha256": "3a95724cdbde7fecbde44bb9ebaa2e0290cb1faa7c3db64086d6264e077f9cc6"
+      },
+      "inputs": [
+        {
+          "path": "/tmp/pas-vis-eval-anonymous/library-reference-anonymous-update.zip",
+          "sha256": "9f08f55de4e193535b5a6637492fbec7cc7e5c0a99ce65ec00f9fca47c6007d1"
+        },
+        {
+          "path": "/tmp/pas-vis-chain-inputs/catalog.ttl",
+          "sha256": "c2e8a974799b26280f4a0c8f122b555a77c88ea029957222f412228b1c372537"
+        },
+        {
+          "path": "/tmp/pas-vis-chain-inputs/lending.ttl",
+          "sha256": "7b321919fb38c2f98e9efbe6ac41bafd3b793e1548be7d18036de5101ac93302"
+        }
+      ],
+      "artifacts": [
+        {
+          "path": "/tmp/pas-vis-eval-chain/library-reference-chain.zip",
+          "sha256": "798cc9e316d05de184a88f4e77db83200a96a8b712930c64a7ac6c573f9d2b5a"
+        }
+      ],
+      "check_evidence": [
+        {
+          "path": "/tmp/pas-vis-eval-chain/audit/semantic-results.json",
+          "sha256": "88b7eb3cd2ccc8af77cf729b132e5f72229e8de8a16d785d704380d7fe0d8387"
+        },
+        {
+          "path": "/tmp/pas-vis-eval-chain/audit/routing-results.json",
+          "sha256": "f03d8d1a06ec9c66115d5de542339d7c31c34103beb42649ab2487e5d83a2613"
+        },
+        {
+          "path": "/tmp/pas-vis-eval-chain/audit/browser-results.json",
+          "sha256": "d878db6b5badce4f5b468693bfb7a166d6e888e11d4dd6436a7cd321ac2d3337"
+        },
+        {
+          "path": "/tmp/pas-vis-eval-chain/audit/method-input-identities.json",
+          "sha256": "a247a0e45b5c8c2709e090483613295184ab9b0b1dc829ee91520eeb7c16faf1"
+        }
+      ],
+      "method_sha256": {
+        "SKILL.md": "8f3f6edccb147ffbb3f2915beaa1728e542ff59cce9e49bf77b1a1f6b0f156a5",
+        "references/playbook.md": "66f775beff1f15be00ca095fec876b9492cd15de08a4a55fc51b48be3d5de87b",
+        "assets/visualization-brief.md": "8033f025b3a6f069fb804acad9e6b578ef276abd83ac995fc04006e4a0278381"
+      }
+    }
+  ]
+}

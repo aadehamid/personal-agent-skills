@@ -1,0 +1,21 @@
+@prefix cat: <https://example.org/catalog/> .
+@prefix loan: <https://example.org/lending/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+loan: a owl:Ontology ; owl:versionInfo "1.0.0" ; owl:imports cat: .
+loan:Loan a owl:Class ; rdfs:label "Loan"@en ;
+  skos:definition "Permission to borrow an item for a period."@en .
+loan:item a owl:ObjectProperty ; rdfs:label "item"@en ;
+  rdfs:domain loan:Loan ; rdfs:range cat:Item .
+loan:Status a skos:ConceptScheme ; rdfs:label "Loan status"@en .
+loan:History a skos:Concept ; skos:prefLabel "History"@en ;
+  skos:inScheme loan:Status ; skos:definition "A closed loan status."@en .
+loan:LoanShape a sh:NodeShape ; sh:targetClass loan:Loan ; sh:property _:detail .
+_:detail sh:path loan:item ; sh:maxCount 1 .
+loan:sample a loan:Loan ; rdfs:label "Sample loan"@en ;
+  loan:sequence "01"^^xsd:integer ;
+  rdfs:seeAlso <https://example.org/external/policy> .

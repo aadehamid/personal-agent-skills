@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ontology visualization"
+  short_description: "Build and maintain clear ontology viewers"
+  default_prompt: "Use $ontology-visualization to build or update an ontology viewer from the selected release and verify its meaning and usability."
