@@ -1,0 +1,158 @@
+{
+  "date": "2026-11-08",
+  "scope": "Task 6 guided paths; see results-2026-11-08.md for limits.",
+  "storage": "Local artifacts remain outside skill source. Temporary paths may not survive cleanup; rerun the task if evidence is unavailable.",
+  "evaluator": "Codex, separate guided_skill_eval context; not an independent model review",
+  "report": {
+    "path": "/tmp/visualization-guided-eval/report.md",
+    "sha256": "4aaffb078e4cdffc574671d28b5fd2b300b8fdec1e2a23d6e22ba2b2c6c5b167"
+  },
+  "files": [
+    {
+      "path": "/tmp/visualization-guided-eval/catalog.ttl",
+      "sha256": "b6ba2385f1965e8262b4f3421a95baab678dd3ebb80162b2352c6a00fc8402ec"
+    },
+    {
+      "path": "/tmp/visualization-guided-eval/workflow-original.ttl",
+      "sha256": "0d4480ee3e79ffd905ddd894430a55423d5c26bf0f19058272671da9acb5685f"
+    },
+    {
+      "path": "/tmp/visualization-guided-eval/workflow.ttl",
+      "sha256": "ebffc1d3e31d59530d4d4a4b68666432f9dc236c0c33f04aa0f8752c962af6d0"
+    },
+    {
+      "path": "/tmp/pas-visualization-guided-paths/skills/data/ontology-visualization/SKILL.md",
+      "sha256": "8f3f6edccb147ffbb3f2915beaa1728e542ff59cce9e49bf77b1a1f6b0f156a5"
+    },
+    {
+      "path": "/tmp/pas-visualization-guided-paths/skills/data/ontology-visualization/references/playbook.md",
+      "sha256": "bb33feac7926c4f657bd5a0e8b1b75fa6f0ffbee305a64def8bc88674f567984"
+    },
+    {
+      "path": "/tmp/pas-visualization-guided-paths/skills/data/ontology-visualization/assets/visualization-brief.md",
+      "sha256": "8033f025b3a6f069fb804acad9e6b578ef276abd83ac995fc04006e4a0278381"
+    },
+    {
+      "path": "/tmp/visualization-guided-eval/brief.md",
+      "sha256": "10733314b44bf49597939464c134c8ab722e69d99aaf5979cc4ae4041a7bffe9"
+    },
+    {
+      "path": "/tmp/visualization-guided-eval/build.py",
+      "sha256": "618d7288b80a5718d6027395a4739294988a90475df02230768a58d589be6e53"
+    },
+    {
+      "path": "/tmp/visualization-guided-eval/viewer.html",
+      "sha256": "affde1130569716af5b6f491d1a24c79600777c42092ef43422bfbf8161d2d34"
+    },
+    {
+      "path": "/tmp/visualization-guided-eval/test_semantics.py",
+      "sha256": "d163206cf425e835191b660f0c9a92417ba85c2345288be744b26c964ff89458"
+    },
+    {
+      "path": "/tmp/visualization-guided-eval/test_browser.cjs",
+      "sha256": "c1652acfc21d28e5c6239a87c99abbeecdf50065f890bf00bdae6f22536bfa1d"
+    },
+    {
+      "path": "/tmp/visualization-guided-eval/candidate/index.html",
+      "sha256": "17cc2264a4d32a98b539a8697ce67c73f2d9916ea85a9dda8b86075095119d70"
+    },
+    {
+      "path": "/tmp/visualization-guided-eval/candidate/statements.json",
+      "sha256": "6c7da380c2d1a1da9a53ec9924a6b981429aeca6e0ecbdea3df3cacc5c15409c"
+    },
+    {
+      "path": "/tmp/visualization-guided-eval/library-viewer-candidate.zip",
+      "sha256": "29903560a6a5f5654279c33408790b72997c9e724456aff0a42207819c146df9"
+    }
+  ],
+  "followup": {
+    "scope": "Exact path assertions and corresponding UI mutation controls on unchanged candidate and extracted archive. Original trial preserved.",
+    "files": [
+      {
+        "path": "/tmp/visualization-guided-eval-followup/followup-report.md",
+        "sha256": "596e304dfbd33ea42f7279b3cb143bfde0043029d50cfb04280cfc4936888833"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup/followup-hashes.json",
+        "sha256": "0414a09a34d3b75e93e8477840c41a6efbc6c11927d7ff99aae985011710e520"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup/test_guided_followup.cjs",
+        "sha256": "aeb97f0918f2cd43b2d6716996dfc369014e079896900a1a72984ce457401d17"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup/followup-candidate-results.json",
+        "sha256": "f234c12c520032daaf609cb063f5b31451cd36d3df5aeff0842da8dc46afe477"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup/followup-extracted-results.json",
+        "sha256": "d7a32c502b379e40c607fc7fd62c8511bbed6b8129dc6b09ee3c26bae0ba8b6c"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup/preservation-results.json",
+        "sha256": "0e3997d1e50e6ba1cb41af1b99e84b0b86ee1ec4cbbca9dbeeb04ae257576369"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup/original-manifest.json",
+        "sha256": "aa490615ff224223d88b76e64fdde38f0b1ec4535cef8436e92284c71e2ba0e3"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup/candidate/index.html",
+        "sha256": "17cc2264a4d32a98b539a8697ce67c73f2d9916ea85a9dda8b86075095119d70"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup/candidate/statements.json",
+        "sha256": "6c7da380c2d1a1da9a53ec9924a6b981429aeca6e0ecbdea3df3cacc5c15409c"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup/library-viewer-candidate.zip",
+        "sha256": "29903560a6a5f5654279c33408790b72997c9e724456aff0a42207819c146df9"
+      }
+    ]
+  },
+  "restart_oracle_followup": {
+    "scope": "Original path start and current term differ at the limit. A keep-old-origin mutation fails on build and extracted archive; all ten cases pass and catch their mutations. Earlier evidence and artifact bytes remain unchanged.",
+    "files": [
+      {
+        "path": "/tmp/visualization-guided-eval-followup2/followup2-report.md",
+        "sha256": "3d097b1ee193f303d190884a735d72e9a24da0d8e8946311a681da11498e8a8f"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup2/followup2-hashes.json",
+        "sha256": "1ade181e141ec8d69618795ff78ef1b758ff4485f93eed178b8bbe88ad79bb1f"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup2/test_guided_followup.cjs",
+        "sha256": "172ec4591c2afdcc88655e08578e3ec2a7265cb4ed7b847eb1fc75d44efbadad"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup2/followup-candidate-results.json",
+        "sha256": "f234c12c520032daaf609cb063f5b31451cd36d3df5aeff0842da8dc46afe477"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup2/followup-extracted-results.json",
+        "sha256": "d7a32c502b379e40c607fc7fd62c8511bbed6b8129dc6b09ee3c26bae0ba8b6c"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup2/candidate/index.html",
+        "sha256": "17cc2264a4d32a98b539a8697ce67c73f2d9916ea85a9dda8b86075095119d70"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup2/candidate/statements.json",
+        "sha256": "6c7da380c2d1a1da9a53ec9924a6b981429aeca6e0ecbdea3df3cacc5c15409c"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup2/library-viewer-candidate.zip",
+        "sha256": "29903560a6a5f5654279c33408790b72997c9e724456aff0a42207819c146df9"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup2/followup2-preservation-results.json",
+        "sha256": "911393422e65b1a7f525ebb07941a14fa172ded3bcbb88d8788f75d2f8fcdcc9"
+      },
+      {
+        "path": "/tmp/visualization-guided-eval-followup2/prior-folders-manifest.json",
+        "sha256": "8648dfead30e009895b5f05ae85758378eb8ec3ce7e4c2b02a64ee1386336880"
+      }
+    ]
+  }
+}

@@ -121,6 +121,28 @@ pending B's required review; standing permission itself remains valid.
 Record the simulated action and its reasoning. This does not establish live
 deployment coverage.
 
+## Task 6: Guided paths
+
+Use the Catalog and Workflow files from `fixtures/v1` in a separate workspace.
+
+Request:
+
+> Use the ontology-visualization skill to build a small offline candidate for
+> library staff. They should start at Circulation or Acquisition, follow its
+> stages and processes, descend through the task hierarchy and explore the
+> connected catalog concepts. Keep a path they can reopen later. Preserve the
+> input files. Test the candidate locally; publication is not authorized.
+
+Assess the actual browser behavior and source fidelity. Request precedes Return
+under the integer datatype rules, with the original lexical values retained.
+Selection has no invented position. Issue and IssueTask remain distinct.
+Both IssueTask parents are available, the rootless cycle stays finite, and
+incoming links retain their recorded direction. Saved paths keep their starting
+context on reload. Check missing guided entries, markup in labels and the
+chosen trail limit with browser fixtures. A model-only test does not establish
+that these UI behaviors work. Input hashes and the source-backed statement set
+must remain unchanged.
+
 ## Record the outcome
 
 Record the skill commit or file hashes, evaluator, input hashes, artifact paths,
@@ -129,4 +151,5 @@ source. Repeat only the affected tasks after a change. Do not mark an unexecuted
 task as passed.
 
 The [2026-11-07 results](results-2026-11-07.md) record the initial trials and
-focused follow-up. Re-run the applicable tasks when the method changes.
+focused follow-up. The [2026-11-08 results](results-2026-11-08.md) record the
+guided-path trial. Re-run the applicable tasks when the method changes.

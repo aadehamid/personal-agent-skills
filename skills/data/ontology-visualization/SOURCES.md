@@ -12,7 +12,8 @@ examples. No project code or ontology data is copied into the skill.
 ## Standards
 
 The playbook paraphrases these sources. No specification text is vendored.
-Check the cited sections when changing the semantic contract. Read 2026-11-07.
+Check the cited sections when changing the semantic contract. Sources were read
+2026-11-07 unless a row records another date.
 
 | Source | Version and date | Use |
 |---|---|---|
@@ -20,6 +21,7 @@ Check the cited sections when changing the semantic contract. Read 2026-11-07.
 | [RDF Schema 1.1](https://www.w3.org/TR/rdf-schema/) | W3C Recommendation, 25 February 2014 | Sections 3.1 to 3.4: range, domain, subclass and subproperty semantics. |
 | [SKOS Reference](https://www.w3.org/TR/skos-reference/) | W3C Recommendation, 18 August 2009 | Concepts, schemes, labels, documentation and semantic relations. |
 | [Shapes Constraint Language](https://www.w3.org/TR/shacl/) | W3C Recommendation, 20 July 2017 | Targets, property paths and cardinality constraints. |
+| [XML Schema Definition Language 1.1, Part 2: Datatypes](https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/) | W3C Recommendation, 5 April 2012; read 2026-11-08 | Integer lexical forms and the whitespace facet used when reading stage order. |
 
 ## Viewer design references
 

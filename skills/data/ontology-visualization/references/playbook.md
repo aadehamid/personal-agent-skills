@@ -128,6 +128,27 @@ a statement list that exposes the same meaning without relying on colour,
 position or a pointer device. Label any graph limit and provide the complete
 list. Handle cycles and multiple parents without inventing a single parent.
 
+### Follow a guided path
+
+When readers start from a process, lifecycle or value stream, keep that entry
+available as they explore. Let them descend through the recorded hierarchy to
+its deepest level, then follow connected concepts across modules. Show the
+selected concept's parents, children and adjacent statements. A connection card
+should name both endpoints and the predicate, with the source direction visible
+even when the reader follows an incoming link.
+
+Treat hierarchy, membership and sequence as separate relations. Order stages
+only when the source supplies an order; disclose absent or conflicting positions.
+Parse an ordering literal according to its declared datatype while preserving
+its original lexical form. Keep member processes distinct from the taxonomy
+concepts they realize, including when their labels match.
+
+Retain the actual statements followed in a reading trail. Validate saved paths
+against the current snapshot and keep their title and starting context
+consistent with the path. Explain any restart at a trail limit. If a guided
+entry is absent from the selected release, mark it unavailable while keeping
+the supported reference pages usable.
+
 ### Keep navigation readable
 
 Provide search over names, definitions and identifiers, with filters that match
@@ -198,6 +219,13 @@ navigating away and confirm that it cannot select or label a different term.
 Inspect screenshots and read the text.
 Automated overflow checks do not prove that a phone user can see both endpoints
 of a relationship. Test a long term and a densely connected term.
+
+For guided paths, render synthetic multiple-parent and cyclic hierarchies in
+the browser. Exercise the trail limit, saved paths from another starting view,
+missing entry concepts and labels containing markup. Model tests alone do not
+exercise tree expansion, heading rendering or browser history. Check that the
+browser tests fail when the corresponding UI behavior is deliberately broken
+in a disposable copy.
 
 For an offline promise, block and count HTTP requests, open through `file:`, and
 exercise navigation. Test the extracted delivery archive as well as the build

@@ -27,8 +27,11 @@ review requirements.
 | `evals/README.md` | Evaluator | Behavioral tasks and assessment criteria. |
 | `evals/evidence-2026-11-07.json` | Maintainer | Local evaluation reports, inputs, artifact paths and hashes. |
 | `evals/results-2026-11-07.md` | Person and maintainer | Observed results, corrections and coverage limits. |
+| `evals/evidence-2026-11-08.json` | Maintainer | Guided-path trial artifacts and hashes. |
+| `evals/results-2026-11-08.md` | Person and maintainer | Guided-path trial results, fixture correction and limits. |
 | `evals/fixtures/v1/catalog.ttl` | Evaluator and test tools | Catalog classes, a taxonomy, multilingual definitions and a constraint. |
 | `evals/fixtures/v1/lending.ttl` | Evaluator and test tools | Lending terms, a cross-module range, a second constraint and a lexical literal. |
+| `evals/fixtures/v1/workflow.ttl` | Evaluator and test tools | Guided paths, stage order, shared parents and a cyclic hierarchy. |
 | `README.md` | Person | This overview and current status. |
 
 ## Status
@@ -48,3 +51,9 @@ across three releases. Further focused checks cover correspondence metadata and
 a review that applies only to the previous candidate.
 See the evaluation results for method hashes and coverage, and the pull request for repository
 checks and review. No renderer or hosting service is installed by the skill.
+
+A guided-path trial passed on 2026-11-08 using Catalog and Workflow fixtures.
+It exercised stage order, shared parents, cycles, saved paths and cross-module
+connections in an extracted offline candidate. A review follow-up strengthened
+the path assertions and added UI mutation controls. The results record the
+fixture correction, Chrome-only coverage and other limits.
