@@ -367,7 +367,7 @@ class RexReview(unittest.TestCase):
     def test_each_kind_starts_with_herdr_reviews_flags(self):
         self.run_case("ok", kind="kimi")
         a = self.created_with("split")
-        self.assertEqual(a[a.index("--") + 1:], ["kimi", "-m", "kimi-code/k3.1-pro", "-y"])
+        self.assertEqual(a[a.index("--") + 1:], ["kimi", "-m", "kimi-code/k3.1-pro", "--auto"])
         self.run_case("ok", kind="cursor")
         a = self.created_with("split")
         self.assertEqual(a[a.index("--") + 1:], ["cursor-agent", "--model", "cursor-grok-4.6-medium",

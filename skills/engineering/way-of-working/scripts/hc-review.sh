@@ -157,7 +157,7 @@ prompt="Read AGENTS.md and the repository's review standards file (for example R
 
 step="starting the reviewer"
 if [ "$kind" = kimi ]; then
-  agent_cmd=(kimi) agent_args=(-m "$model" -y)
+  agent_cmd=(kimi) agent_args=(-m "$model" --auto)
 elif [ "$kind" = cursor ]; then
   agent_cmd=(cursor-agent) agent_args=(--model "$model" --sandbox enabled --force --trust)
 else

@@ -197,9 +197,12 @@ step="starting the reviewer"
 # Start a reviewer only if the pane has none; a reused tab keeps its reviewer.
 # Different model from the writer, no approval prompts, sandboxed with network
 # (Claude writing: Codex on gpt-6-luna at medium reasoning, the owner's choice;
-# --kind and --model pick another reviewer when the owner asks). Kimi has no sandbox,
-# so it runs with -y: routine commands run, risky actions still ask, and a question
-# leaves the pane blocked, which the prompt step below reports.
+# --kind and --model pick another reviewer when the owner asks). Kimi has no sandbox
+# and no `--sandbox` flag; since 2026-11-08 (EPG-DEC-0001, the owner asked after its
+# read-approval prompts blocked a review) it runs with --auto (Never Ask: everything
+# runs and is decided automatically), not -y, whose approval prompts block the pane
+# and stall the review; a question leaves the pane blocked, which the prompt step
+# below reports.
 pane_agent=$(herdr pane get "$review_pane" | jget result.pane.agent)
 if [ -n "$pane_agent" ]; then
   # A running reviewer keeps the flags it started with, such as the sandbox's writable folders.
@@ -211,7 +214,7 @@ if [ -z "$pane_agent" ]; then
   # hash of its kind and model, and reviewers on different models run side by side.
   name="rev-$(printf '%s' "$slug" | cut -c1-19)-$reviewer_hash"
   if [ "$kind" = kimi ]; then
-    agent_args=(-m "$model" -y)
+    agent_args=(-m "$model" --auto)
   elif [ "$kind" = cursor ]; then
     # Sandboxed, no approval prompts, workspace trusted: the Cursor match for Codex's flags.
     agent_args=(--model "$model" --sandbox enabled --force --trust)

@@ -541,7 +541,7 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(created[created.index("--label") + 1], "review-repo-kimi-" + reviewer_hash("kimi:kimi-code/k3.1-pro"))
         start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
         self.assertEqual(start[start.index("--kind") + 1], "kimi")
-        self.assertEqual(start[start.index("--") + 1:], ["-m", "kimi-code/k3.1-pro", "-y"])
+        self.assertEqual(start[start.index("--") + 1:], ["-m", "kimi-code/k3.1-pro", "--auto"])
         self.assertRegex(start[2], r"^rev-repo-[0-9a-f]{8}$")
         self.assertIn("agent prompt", calls)
 
@@ -552,7 +552,7 @@ class HerdrReview(unittest.TestCase):
         created = [a for a in self.argv if a[:2] == ["tab", "create"]][0]
         self.assertEqual(created[created.index("--label") + 1], "review-repo-kimi-" + reviewer_hash("kimi:kimi-code/k3-256k"))
         start = [a for a in self.argv if a[:2] == ["agent", "start"]][0]
-        self.assertEqual(start[start.index("--") + 1:], ["-m", "kimi-code/k3-256k", "-y"])
+        self.assertEqual(start[start.index("--") + 1:], ["-m", "kimi-code/k3-256k", "--auto"])
         self.assertEqual(start[2], "rev-repo-" + hashlib.sha1(b"kimi:kimi-code/k3-256k").hexdigest()[:8])
 
     def test_models_that_differ_only_in_punctuation_get_different_tabs(self):

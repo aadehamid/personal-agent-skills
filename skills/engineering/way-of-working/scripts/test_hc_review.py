@@ -237,7 +237,7 @@ class HcReview(unittest.TestCase):
         r, calls = self.run_case("ok", kind="kimi")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         _, cmd = self.launch()
-        self.assertEqual(cmd, ["kimi", "-m", "kimi-code/k3.1-pro", "-y"])
+        self.assertEqual(cmd, ["kimi", "-m", "kimi-code/k3.1-pro", "--auto"])
         sends = [a for a in self.argv if a[0] == "send"]
         self.assertEqual(len(sends), 1)
         self.assertTrue(sends[0][2].startswith("Read AGENTS.md"))
