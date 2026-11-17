@@ -1,6 +1,6 @@
 # Hazards
 
-Each of these cost time on a real unsupervised run. Read this file before the first rebase, the first test run inside a worktree, the first reviewer you start, and the first run that takes longer than ten minutes.
+Each of these cost time on a real unsupervised run. Read this file when `SKILL.md` step 4 says to.
 
 ## Git state
 
@@ -27,7 +27,7 @@ Each of these cost time on a real unsupervised run. Read this file before the fi
 
 ## Long runs and proofs
 
-- **Check free disk before a long run, and remove the temporary folders of your finished runs.** Run `df -h` on the volume the run writes to. A check that fails for space looks like a failed test, and a package cache or the folders of earlier runs can hold tens of gigabytes. Remove only folders this run made.
+- **Check free disk before a long run, and remove the temporary folders of your finished runs.** Run `df -h` on the volume the run writes to. A check that fails for space looks like a failed test, and a package cache or the folders of earlier runs can hold tens of gigabytes. Remove only folders this run made, and leave the proof kit (`SKILL.md` step 7).
 - **Make the log show progress.** Run with unbuffered output (`python -u`, or `PYTHONUNBUFFERED=1`) and one line per unit of work, and tell the owner the log's path. A buffered log looks idle for the first hour. Estimate the run's length from its first timed units.
 - **Prove the effect, not the exit code.** After a command that should change state, read that state. `python -m package.module` ends 0 and does nothing when the module has no entry point.
 - **Copy each command from the document under test.** A command typed from memory tests your memory of the document.

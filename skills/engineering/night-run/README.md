@@ -11,9 +11,9 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 | Path | Read by | What it does |
 |---|---|---|
 | `SKILL.md` | agent, every run | The seven steps of a run, from loading the standards to the morning summary. Its description makes agents load it when you say you are leaving them to work alone. |
-| `references/brief.md` | agent, at the start and end | The brief template, the log entry types, and the morning summary template. |
+| `references/brief.md` | agent, at the start and end | The brief template, what a done line and a Target are, the log entry types, and the morning summary template. |
 | `references/loop.md` | agent, for each item | How one item ships: branch, check, independent review, PR review, merge. Also how decisions get recorded, and what to do when a tool stalls. |
-| `references/hazards.md` | agent, before the first rebase, worktree test or reviewer | The git, reviewer and record-keeping mistakes that cost time on a real run. |
+| `references/hazards.md` | agent, when `SKILL.md` step 4 says to | The git, reviewer, long-run and record-keeping mistakes that cost time on a real run. |
 | `SOURCES.md` | you | Where each rule came from. |
 | `README.md` | you | This file. |
 
@@ -25,4 +25,4 @@ The skill relies on `way-of-working` for the pull-request loop and on `clear-wri
 
 ## Status
 
-- Built from one run, so far: the 2026-10-13 run on Engineering_Drawing_to_Graph (see `SOURCES.md`). After the next run, check whether the hazards list still matches what went wrong.
+- Built from two runs, so far: the 2026-10-13 run on Engineering_Drawing_to_Graph and a release-packaging run of 2026-11-11 to 2026-11-15 (see `SOURCES.md`). After the next run, check whether the hazards list still matches what went wrong.
