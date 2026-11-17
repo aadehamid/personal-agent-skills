@@ -72,7 +72,7 @@ End the log with this section:
 ```markdown
 ## Summary (<time> UTC)
 
-<One sentence: is the goal met? If not, what is left?>
+<One sentence: is every done line Met? If not, which lines are Blocked, and what is left?>
 
 | Done line | Met or Blocked | Evidence, as "Done lines" defines it, and where it ran; or the log entry that blocks the line |
 |---|---|---|
