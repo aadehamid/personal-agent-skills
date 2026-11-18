@@ -2,6 +2,19 @@
 
 My own skills for Claude Code and other agents. Each skill is a folder with a `SKILL.md`, filed under a category.
 
+## Home Repo
+
+This repository is also my Home Repo: the place I start an agent session when a
+task spans more than one repo. `AGENTS.md` holds an "Other Repos" section that
+maps each repo to its local path, with a "clone from <remote> if missing"
+fallback, so an agent started here can reach any of them without duplicating
+skills or steering.
+
+Start a session here for cross-repo work, or when I want the full shared context
+in one place. For work in a single repo, start in that repo as usual — the
+skills install globally, so this repo is a map and a shared home, not a daily
+requirement.
+
 ## Skills
 
 | Category | Skill | What it does |
