@@ -1,6 +1,6 @@
 # Personal calibration
 
-Last run: 2026-10-03. Sessions read: 3 (last 60 days, the sampler found only 3). This is a small sample. Rules marked "tentative" rest on one or two passages. Rerun calibrate when more sessions exist.
+Last run: 2026-10-03. Sessions read: 3 (last 60 days, the sampler found only 3). This is a small sample. Rules marked "tentative" rest on one or two passages, or on an instruction whose words were not saved. Rerun calibrate when more sessions exist.
 
 ## Emphasize
 - Rule 1 (one idea per sentence), applied to colons and semicolons: Claude joins clauses with colons and semicolons, sometimes two colons in one line. Example: "**Checks:** all five passed: Cursor Bugbot, the Cursor Approval Agent, ..." and "I didn't merge it; that happened from your account." Rewrite: "All five checks passed. I didn't merge the PR. You merged it from your account." Tentative.
