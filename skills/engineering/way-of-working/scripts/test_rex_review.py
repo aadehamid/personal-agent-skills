@@ -11,6 +11,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import textwrap
@@ -569,6 +570,21 @@ class RexReview(unittest.TestCase):
         self.assertEqual(r.stdout, "EARLIER REVIEW\n")
         self.assertNotIn("send", calls)
 
+    def outside_file(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "outside log.txt")
+        with open(path, "w") as f:
+            f.write("evidence")
+        return path
+
+    def test_an_earlier_report_does_not_stand_in_when_evidence_is_attached(self):
+        outside = self.outside_file()
+        r, calls = self.run_case("reuse,reusebusy,busyreport", kind="kimi", git_repo=True, extra=("--attach", outside))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.stdout, "REVIEW FINDINGS\n")   # not the report that never saw the evidence
+        self.assertIn("send", calls)
+
     def test_a_prompt_that_stays_unsent_stops_after_three_enters(self):
         # Finding 6.
         r, _ = self.run_case("neverenter")
@@ -699,6 +715,14 @@ class RexReview(unittest.TestCase):
             r, calls = self.run_case("ok", script=script, extra=("--host", "tmux"))
             self.assertEqual(r.returncode, 2, script)
             self.assertEqual(calls, [])
+
+    def test_attached_evidence_is_named_and_removed_after_the_report(self):
+        outside = self.outside_file()
+        r, _ = self.run_case("ok", extra=("--attach", outside))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        prompt = next(a[-1] for a in self.argv if a[0] == "send")
+        folder = prompt.split("The attached evidence is in ")[1].split(", listed")[0]
+        self.assertFalse(os.path.exists(folder))
 
     def test_the_copy_is_removed(self):
         self.run_case("ok")

@@ -11,6 +11,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import textwrap
@@ -409,6 +410,22 @@ class HcReview(unittest.TestCase):
         r, calls = self.run_case("ok", script=HERDR_SCRIPT, extra=("--host", "tmux"))
         self.assertEqual(r.returncode, 2)
         self.assertIn("--host must be herdr, rex or hc", r.stderr)
+
+    def outside_file(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "outside log.txt")
+        with open(path, "w") as f:
+            f.write("evidence")
+        return path
+
+    def test_attached_evidence_is_named_and_removed_after_the_report(self):
+        outside = self.outside_file()
+        r, _ = self.run_case("ok", extra=("--attach", outside))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        prompt = next(a for a in self.argv if a[0] == "run")[-1]
+        folder = prompt.split("The attached evidence is in ")[1].split(", listed")[0]
+        self.assertFalse(os.path.exists(folder))
 
     def test_the_copy_is_removed(self):
         self.run_case("ok")

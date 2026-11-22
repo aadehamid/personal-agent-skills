@@ -121,6 +121,13 @@ Last review: 2026-10-22.
 - **What we took:** Antigravity first in "Who reviews"; `agy-review.sh`, which counts a review only on exit 0 and a first line of exactly READY or FIX; and a prompt that allows file reads and forbids commands.
 - **What we left:** agy's `allowNonWorkspaceAccess` setting, which the owner has not decided. The limits of the evidence: one branch, four bugs, one Pi run, and Pi could read the previous night's reports on two of the bugs.
 
+## 1r. A reviewer searching the owner's folders (2026-11-22)
+
+- **What it is:** Pi's first review of personal-agent-skills #104. Its request said that the session behind an evidence note had not been found. Pi ran `find` over the owner's Documents, Desktop, Downloads and Dropbox project folders for slide decks of that date, and was still in it after 7 minutes, when the working agent stopped the run.
+- **The rerun:** the same commit, with a request to read only inside the clone and to report the gap, returned in 57 seconds with a real finding.
+- **What we took:** "What a reviewer reads" in `references/before-push.md`, the same sentence in the five review scripts, and `--attach` for what a review needs from outside. The owner's words are in this repository's `docs/decisions/2026-11-22-reviewer-file-access-answers.md`.
+- **What we left:** enforcement. The rule is an instruction that a reviewer can ignore. Working agents are not limited, by the owner's decision.
+
 ## 2. mattpocock-skills (marketplace `mattpocock`, v1.3.1)
 
 - **What we took:** the retro loop (`retro`), decision interviews (`grill-with-docs`, `grilling`), the rules for writing documents agents read (`writing-for-agents`), and the shape of a PR body (`pr`) — the smallest view that makes the point, evidence before and after, and merge danger as a one-way or two-way door. That shape is adapted into `references/changing.md`, not adopted as a template: `changing.md` already owns what a PR body says, and a second authority for one rule is what rule 6 forbids. The `pr` skill credits Humanlayer's `show-me`.

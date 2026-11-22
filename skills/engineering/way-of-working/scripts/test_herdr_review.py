@@ -8,6 +8,7 @@ import json
 import os
 import re
 import stat
+import shutil
 import subprocess
 import tempfile
 import textwrap
@@ -607,6 +608,51 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(calls.count("agent prompt"), 2)
         self.assertIn("REVIEW FINDINGS", r.stdout)
+
+    def outside_file(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "outside log.txt")
+        with open(path, "w") as f:
+            f.write("evidence")
+        return path
+
+    def test_the_read_rule_is_in_the_prompt(self):
+        self.run_case("newtab,fresh")
+        prompt = [a for a in self.argv if a[:2] == ["agent", "prompt"]][0][3]
+        self.assertIn("Read and search only the repository under review", prompt)
+        self.assertNotIn("The attached evidence is in", prompt)
+
+    def test_attached_evidence_is_named_and_removed_after_the_report(self):
+        r, _ = self.run_case("newtab,fresh", extra=("--attach", self.outside_file()))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        prompt = [a for a in self.argv if a[:2] == ["agent", "prompt"]][0][3]
+        folder = prompt.split("The attached evidence is in ")[1].split(", listed")[0]
+        self.assertTrue(folder.startswith(self.tmpdir))
+        self.assertFalse(os.path.exists(folder))
+        self.assertTrue(prompt.endswith("Then reply with that path."))   # the scrolled-box check reads this ending
+
+    def test_cursor_gets_its_evidence_where_its_sandbox_reads(self):
+        self.run_case("newtab,fresh", extra=("--kind", "cursor", "--attach", self.outside_file()))
+        prompt = [a for a in self.argv if a[:2] == ["agent", "prompt"]][0][3]
+        self.assertIn("The attached evidence is in " + self.review_dir, prompt)
+
+    def test_evidence_is_removed_when_no_prompt_was_sent(self):
+        r, _ = self.run_case("newtab,fresh", extra=("--attach", self.outside_file()),
+                             env_extra={"HERDR_WORKSPACE_ID": ""})
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual([n for n in os.listdir(self.tmpdir) if n.startswith("review-evidence-")], [])
+
+    def test_evidence_stays_while_the_reviewer_may_still_read_it(self):
+        r, _ = self.run_case("newtab,fresh,stalled", extra=("--attach", self.outside_file()))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(len([n for n in os.listdir(self.tmpdir) if n.startswith("review-evidence-")]), 1)
+        self.assertIn("Evidence kept", r.stderr)
+
+    def test_a_bad_attach_stops_before_the_prompt(self):
+        r, calls = self.run_case("newtab,fresh", extra=("--attach", "gone.txt"))
+        self.assertEqual(r.returncode, 2)
+        self.assertNotIn("agent prompt", calls)
 
     def test_prompt_names_the_exact_report_path(self):
         with open(SCRIPT) as f:
