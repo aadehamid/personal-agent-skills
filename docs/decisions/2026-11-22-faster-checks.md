@@ -28,6 +28,9 @@ These are the agent's choices, made under that request. They are not the owner's
 - Suggestion 4 is not done. The setting is the owner's to change, and GitHub refuses branch protection on this
   repository while it is private, as it normally is (see the two readings under Evidence).
 
+Note, 2026-11-22: [Antigravity is the first independent reviewer](2026-11-22-antigravity-first.md) extends the side-by-side
+choice to Antigravity, which also reviews in its own clone.
+
 ## Evidence
 
 Wall times the working agent measured around each script run on the owner's Mac, 2026-11-22 (UTC):
