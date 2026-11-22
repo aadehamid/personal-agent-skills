@@ -12,8 +12,10 @@
 # The prompt holds the diff, and the full text of the changed text files when they fit in one argument (see
 # max below); otherwise it tells agy to read them. Antigravity runs headless in plan mode and the sandbox,
 # in a clone of <head>: it can read that clone's files and the attached copies, and cannot run commands or tests.
-# The clone holds committed files only. It is the working folder and not a wall: whether agy may read
-# outside it is agy's own allowNonWorkspaceAccess setting, which this script does not touch.
+# The clone holds committed files only. Each run is locked with agy's --settings, which is never saved: no
+# reads outside the clone and the attached copies, and no commands, MCP tools or file writes. The denies are
+# explicit because a saved allow rule, such as command(cp), otherwise runs even outside the sandbox. Web
+# search stays open: no permission rule tried closes it, so only the prompt forbids it (SOURCES.md, 1s).
 #
 # agy exits 0 when it wrote no review, in two ways (found 2026-11-22, SOURCES.md 1q):
 #   - it asks for a shell command, headless mode refuses and cancels the turn: stdout is empty and only
@@ -30,6 +32,7 @@
 set -euo pipefail
 
 model="gemini-4-neon-xhigh"
+lock='{"allowNonWorkspaceAccess":false,"permissions":{"deny":["command(*)","unsandboxed(*)","mcp(*)","write_file(*)","read_url(*)"]}}'
 here=$(cd "$(dirname "$0")" && pwd)
 head="" since="" verify="" attach=() attach_args=""
 usage() { echo "$1" >&2; echo "usage: $0 --head <sha> [--since <sha>] [--verify <claims>] [--attach <path>]..." >&2; exit 2; }
@@ -106,6 +109,7 @@ fi
   echo "You run headless. You may read files in this repository with your file-reading tool. You cannot run shell commands: never request one, because the request ends the run with no review. Do not write a plan file: your reply is the report itself."
   echo
   echo "$scope"
+  echo "Do not search the web: a search query would carry this repository's text out of the review."
   echo "You are the independent reviewer for this change, before it is pushed for review. Review alone, with no subagents."
   echo "Read the repository's agent instructions and review standards files if it has them (AGENTS.md, CLAUDE.md, REVIEW_STANDARDS.md), and apply them."
   echo "Look for anything that lets a wrong result through, breaks a stated rule, or makes a description untrue. Do not report style. For each finding, give the file, the line and why it is a defect, name the kind of defect, and list every place in the repository that has it, including places outside the diff. Say when a finding needs a test run to prove. Also say how this could pass review while still being wrong."
@@ -140,7 +144,7 @@ fi
 code=0
 add_dir=()
 [ -z "$evidence" ] || add_dir=(--add-dir "$evidence")
-(cd "$run/repo" && agy ${add_dir[@]+"${add_dir[@]}"} --model "$model" --mode plan --sandbox --print-timeout 1700s -p="$(cat "$run/prompt")") \
+(cd "$run/repo" && agy --settings "$lock" ${add_dir[@]+"${add_dir[@]}"} --model "$model" --mode plan --sandbox --print-timeout 1700s -p="$(cat "$run/prompt")") \
   < /dev/null > "$run/stdout" 2> "$run/stderr" || code=$?
 first=$(head -n 1 "$run/stdout")
 if [ "$code" -ne 0 ] || { [ "$first" != READY ] && [ "$first" != FIX ]; }; then

@@ -1,0 +1,40 @@
+# Antigravity reviews are locked per run
+
+Status: Proposed  
+Date: 2026-11-22
+
+## Context
+
+This is the agent's account. The project's assistant relayed the owner's choice on a decision card, "Turn it off
+for reviews", about agy's `allowNonWorkspaceAccess`. Testing then showed that the setting alone is not enough:
+a saved `command(cp)` allow rule copied an outside file into the workspace, outside the sandbox, with the
+setting off, and its contents reached the model.
+
+## Decision
+
+Proposed: agy-review.sh turns outside access off and denies the routes out, on each review run only.
+
+## Implementation choices
+
+These are the agent's choices, not the owner's words.
+
+- The lock is agy's `--settings` flag, which lasts one run. No saved agy or Gemini setting is changed, so agy
+  as a working agent keeps its access, as [the reviewer file access record](2026-11-22-reviewer-file-access.md)
+  decides for working agents.
+- Commands, unsandboxed commands, MCP tools, file writes and URL reads are denied explicitly, because a saved
+  allow rule wins over a setting.
+- Web search stays open. No permission rule tried closes it. The prompt forbids it, which is an instruction
+  and not a wall.
+
+## Evidence
+
+The test tables are in way-of-working `SOURCES.md`, 1s.
+
+## Alternatives considered
+
+Turn the saved setting off: it leaves the `cp` route open and also limits agy as a working agent. Delete the
+saved allow rules: that is the owner's edit, and a later rule would open the route again.
+
+## Recorded words
+
+In [the answers file](2026-11-22-antigravity-lock-answers.md).

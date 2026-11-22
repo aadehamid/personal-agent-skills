@@ -27,6 +27,9 @@ These are the agent's choices, not the owner's words.
 - Not decided: agy's `allowNonWorkspaceAccess` setting, which lets it read outside the clone. The owner has that
   question open, and nothing here changes the setting.
 
+Note, 2026-11-22: [Antigravity reviews are locked per run](2026-11-22-antigravity-lock.md) proposes the answer
+to the point left open above, for review runs only.
+
 ## Evidence
 
 The run table, the sealed answer key's hash and the log lines are in way-of-working `SOURCES.md`, 1q.
