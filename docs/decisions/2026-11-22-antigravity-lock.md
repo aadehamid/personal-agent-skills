@@ -6,13 +6,15 @@ Date: 2026-11-22
 ## Context
 
 This is the agent's account. The project's assistant relayed the owner's choice on a decision card, "Turn it off
-for reviews", about agy's `allowNonWorkspaceAccess`. Testing then showed that the setting alone is not enough:
+for reviews", about agy's `allowNonWorkspaceAccess`, the point that
+[Antigravity is the first independent reviewer](2026-11-22-antigravity-first.md) left open. The link between
+the card and that setting is the assistant's account: the agent never saw the card. Testing then showed that the setting alone is not enough:
 a saved `command(cp)` allow rule copied an outside file into the workspace, outside the sandbox, with the
 setting off, and its contents reached the model.
 
 ## Decision
 
-Proposed: agy-review.sh turns outside access off and denies the routes out, on each review run only.
+Proposed, from the relayed words: turn it off for reviews.
 
 ## Implementation choices
 
@@ -23,12 +25,14 @@ These are the agent's choices, not the owner's words.
   decides for working agents.
 - Commands, unsandboxed commands, MCP tools, file writes and URL reads are denied explicitly, because a saved
   allow rule wins over a setting.
+- Skills and instruction files outside the clone cannot be read. The prompt says to load none. That line is not
+  tested live yet, and this record is not to be decided before it is.
 - Web search stays open. No permission rule tried closes it. The prompt forbids it, which is an instruction
   and not a wall.
 
 ## Evidence
 
-The test tables are in way-of-working `SOURCES.md`, 1s.
+The test table is in way-of-working `SOURCES.md`, 1s.
 
 ## Alternatives considered
 
@@ -37,4 +41,6 @@ saved allow rules: that is the owner's edit, and a later rule would open the rou
 
 ## Recorded words
 
-In [the answers file](2026-11-22-antigravity-lock-answers.md).
+From [the answers file](2026-11-22-antigravity-lock-answers.md), relayed and not received directly:
+
+> Turn it off for reviews

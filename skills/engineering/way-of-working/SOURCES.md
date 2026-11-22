@@ -135,16 +135,18 @@ Last review: 2026-10-22.
 
   | Route | No lock | Outside access off | The lock |
   |---|---|---|---|
-  | Read outside (home, temporary folder, symlink) | leaked, 2 of 2 | blocked, 4 of 4 | blocked by the same setting |
+  | Read outside (home, temporary folder, symlink) | leaked, 2 of 2 | blocked, 4 of 4, each cancelling the turn | blocked by the same setting, cancelling the turn |
   | `cp` from outside, then read | not tested | leaked: a saved `command(cp)` rule ran it with `BypassSandbox` | refused |
   | MCP tool | not tested | not granted headless, which cancels the turn | refused |
   | File write inside, edit outside | not tested | not granted headless, which cancels the turn | refused |
-  | File write outside | not tested | not granted headless, which cancels the turn | one attempt, agy did not start |
+  | File write outside | not tested | not granted headless, which cancels the turn | refused |
   | URL read | not tested | not tested | no such tool in the session, which used web search |
   | Web search | not tested | open | **open**: five spellings of a deny rule and `*` did not close it |
 
   The outside-access column for MCP, writes and search also had commands denied.
-- **Reviews still work:** on the planted bugs of 1q, four runs with outside access off and three more with commands also denied each found 4 of 4, one of each set with `--attach`. All their file reads stayed inside the clone and the attached copy.
+- **Reviews still work:** on the planted bugs of 1q, four runs with outside access off and three more with commands also denied each found 4 of 4, one of each set with `--attach`. All their file reads stayed inside the clone and the attached copy. One run with the committed five-rule lock also found 4 of 4.
+- **Where they did not work:** on a throwaway repository without the skills, the one locked run that started asked to read outside, was refused, and lost the review. The other three, the only `--attach` case with the five-rule lock among them, hit agy's quota. The prompt now says to load no skill from outside. That fix is not yet tested live.
+- **Not tested:** an edit inside the workspace, a saved allow rule for MCP or writes against the denies, and whether a subagent inherits the lock.
 - **What we took:** the `lock=` line in `agy-review.sh`, passed on every run, and a prompt line against web search.
 - **What we left:** the owner's saved settings and allow rules, untouched. A wall for Pi, Kimi, Codex and the Cursor agent CLI, whose limit is still the prompt alone.
 

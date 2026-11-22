@@ -22,6 +22,7 @@ LOCK = {"allowNonWorkspaceAccess": False,
 DENIED = ('jetski: no output produced — a tool required the "command" permission that headless mode cannot prompt '
           "for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json (e.g. "
           "command(<target>)). Alternatively, re-run with --dangerously-skip-permissions to auto-approve all tools.\n")
+DENIED_READ = DENIED.replace('"command"', '"read_file"').replace("command(<target>)", "read_file(<target>)")
 DENIED_JSON = ('{"conversation_id":"c","status":"SUCCESS","response":"","num_turns":1,'
                '"denied_actions":[{"action":"command","display_name":"Bash"}]}\n')
 PLAN_FILE = "[implementation_plan.md](file:///home/u/.gemini/antigravity-cli/brain/c/implementation_plan.md)"
@@ -285,6 +286,15 @@ class AgyReview(unittest.TestCase):
             argv = json.load(f)["argv"]
         self.assertEqual(argv[argv.index("--add-dir") + 1], folder)
         self.assertFalse(os.path.exists(folder))
+
+    def test_a_refused_outside_read_is_not_a_review(self):
+        r = self.review("--head", self.head, out="", err=DENIED_READ)
+        self.assertUnavailable(r)
+        self.assertIn('"read_file" permission', r.stderr)
+
+    def test_the_prompt_rules_out_outside_skills(self):
+        self.review("--head", self.head)
+        self.assertIn("load no skill and open no instruction file from outside them", self.prompt())
 
     def test_every_kind_of_run_is_locked(self):
         note = os.path.join(self.root, "note.txt")

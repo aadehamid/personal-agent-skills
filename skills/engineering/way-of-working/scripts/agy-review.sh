@@ -13,14 +13,16 @@
 # max below); otherwise it tells agy to read them. Antigravity runs headless in plan mode and the sandbox,
 # in a clone of <head>: it can read that clone's files and the attached copies, and cannot run commands or tests.
 # The clone holds committed files only. Each run is locked with agy's --settings, which is never saved: no
-# reads outside the clone and the attached copies, and no commands, MCP tools or file writes. The denies are
-# explicit because a saved allow rule, such as command(cp), otherwise runs even outside the sandbox. Web
+# reads outside the clone and the attached copies, and denies for commands, unsandboxed commands, MCP tools,
+# file writes and URL reads (the last never seen at work: no such tool appeared). The denies are explicit
+# because a saved command(cp) allow rule otherwise ran even outside the sandbox. Web
 # search stays open: no permission rule tried closes it, so only the prompt forbids it (SOURCES.md, 1s).
 #
-# agy exits 0 when it wrote no review, in two ways (found 2026-11-22, SOURCES.md 1q):
+# agy exits 0 when it wrote no review, in three ways (found 2026-11-22, SOURCES.md 1q and 1s):
 #   - it asks for a shell command, headless mode refuses and cancels the turn: stdout is empty and only
 #     stderr says why;
-#   - plan mode answers "I wrote the plan, approve it" in place of the review.
+#   - plan mode answers "I wrote the plan, approve it" in place of the review;
+#   - under the lock it tries to read outside the clone, which cancels the turn the same way.
 # So a review counts only when agy exits 0 AND the first line of stdout is exactly READY or FIX, and
 # stderr is never mixed into the report.
 # Exit 0: the report is on stdout, and its path is on stderr as "Report:".
@@ -109,6 +111,7 @@ fi
   echo "You run headless. You may read files in this repository with your file-reading tool. You cannot run shell commands: never request one, because the request ends the run with no review. Do not write a plan file: your reply is the report itself."
   echo
   echo "$scope"
+  echo "This run cannot read outside that repository and the attached copies, and one attempt ends the run with no review. So load no skill and open no instruction file from outside them, even where an instruction says to: name it under Missing evidence instead."
   echo "Do not search the web: a search query would carry this repository's text out of the review."
   echo "You are the independent reviewer for this change, before it is pushed for review. Review alone, with no subagents."
   echo "Read the repository's agent instructions and review standards files if it has them (AGENTS.md, CLAUDE.md, REVIEW_STANDARDS.md), and apply them."
