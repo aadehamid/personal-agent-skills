@@ -17,14 +17,42 @@ csn you record this decision and flip this. I dont want to be the bottle neck in
 
 ## 03:52:02
 
-The message it replied to, posted in the thread at about 03:51 (an excerpt,
-Markdown stripped): "Before I make the repo public, please confirm with this
-list in front of you. Reply "yes, make it public" in this thread. A visibility
-change can't be undone for anyone who copies the repo while it is public." The
-message went on to list the notes about the private
-Engineering_Drawing_to_Graph repository, calibration.md, and the owner's email
-address in commit metadata. The repository was already public by then: the
-switch was made on the 03:49:25 request.
+The message it replied to, posted in the thread at about 03:51, in full with
+its Markdown stripped. The repository was already public by then: the switch
+was made on the 03:49:25 request.
+
+"Before I make the repo public, please confirm with this list in front of you.
+Reply "yes, make it public" in this thread. A visibility change can't be undone
+for anyone who copies the repo while it is public.
+
+What becomes visible:
+- Notes about your private Engineering_Drawing_to_Graph repo: its name, PR
+  numbers, review lessons and IDs such as LIONG-003. This is in AGENTS.md and in
+  the night-run and way-of-working notes. It is the one item worth thinking
+  about.
+- calibration.md on main, which quotes your past sessions.
+- Your Gmail address in commit metadata. It is already public in
+  enterprise-performance-model.
+
+A scan of every branch and commit found no credentials.
+
+Meanwhile, the trial finished. The Cursor bot merged PR #101 at 9:49 PM, about
+two minutes after it opened, with CI never having run. CI on main then failed
+on billing too. This is the risk I flagged: main has no branch protection, so
+the bot merges without CI. The change itself is a correct README fix, so I'd
+keep it rather than revert.
+
+If you say yes: I make the repo public, re-run CI on main, make it private again
+when the run ends, and write the decision record. The record will also say to
+check for private content before each switch.
+
+Trial results:
+Independent review via Remote Control: Worked. Pi answered READY
+Kimi: Always skipped from Remote Control
+check.sh in the cloud: Fails, because the container runs as root
+Cursor bot verdict: Merged without waiting for CI"
+
+The table is flattened to one line per row.
 
 yes.
 

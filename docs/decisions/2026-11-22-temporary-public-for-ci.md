@@ -12,14 +12,17 @@ Successful runs fall in between. GitHub does not bill standard runners on
 public repositories. On 2026-11-22 the owner described a usual way of handling
 this, and asked for this switch.
 
+The order of events, in UTC on 2026-11-22: the owner asked for the switch at
+03:49:25. Claude made the switch on that request, and the repository read
+PUBLIC at 03:50:47. The list of what becomes visible reached the owner in the
+thread at about 03:51, after the switch. The owner replied "yes." at 03:52:02.
+
 ## Decision
 
 The owner's practice is to make the repository public temporarily and switch
 it back to private when done. On 2026-11-22 the owner asked Claude to record
 this and make the switch, so as not to be the bottleneck when not watching,
-and later replied "yes." after the list of what becomes visible was posted.
-The switch was made on the 03:49:25 request. The "yes." at 03:52:02 came
-after the switch and did not precede it.
+and later replied "yes.".
 
 At 03:55 the owner added that it is okay to flip a private repo public to be
 able to run CI without billing issues, and to flip it back to private once a
@@ -29,9 +32,13 @@ session is complete, and asked for this as a project instruction.
 
 These are the agent's choices, not the owner's words. This record governs
 this repository. Before the switch, Claude searched for content that relies on the
-repository being private, as `way-of-working` `references/changing.md` asks,
-and listed it in the thread. While public, Claude re-runs the blocked CI runs,
-and switches back to private once the open pull request for this record and its
+repository being private, as `way-of-working` `references/changing.md` asks.
+That rule also asks to tell the owner before the change. This time the list
+reached the owner only after the switch (see Context). Before a future switch,
+Claude posts the list in the thread before switching, without waiting for an
+answer. Claude does not switch, and asks the owner, if the search finds a
+credential or a record that requires the repository to stay private. While
+public, Claude re-runs the blocked CI runs, and switches back to private once the open pull request for this record and its
 CI have finished. Claude reads the visibility back after each change.
 
 ## Evidence
