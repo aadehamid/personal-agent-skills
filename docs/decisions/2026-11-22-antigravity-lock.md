@@ -1,6 +1,6 @@
 # Antigravity reviews are locked per run
 
-Status: Proposed  
+Status: Decided  
 Date: 2026-11-22
 
 ## Context
@@ -14,7 +14,7 @@ setting off, and its contents reached the model.
 
 ## Decision
 
-Proposed, from the relayed words: turn it off for reviews.
+The owner said "Ship it", answering the question in the answers file about shipping the Antigravity lock.
 
 ## Implementation choices
 
@@ -41,6 +41,10 @@ saved allow rules: that is the owner's edit, and a later rule would open the rou
 
 ## Recorded words
 
-From [the answers file](2026-11-22-antigravity-lock-answers.md), relayed and not received directly:
+From [the answers file](2026-11-22-antigravity-lock-answers.md), 18:02:52 UTC, received directly:
+
+> Ship it
+
+Earlier, relayed and not received directly:
 
 > Turn it off for reviews

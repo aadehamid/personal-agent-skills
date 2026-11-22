@@ -130,7 +130,7 @@ Last review: 2026-10-22.
 
 ## 1s. The Antigravity lock (2026-11-22)
 
-- **What it is:** tests of agy 1.5.14's routes out of a review, on harmless decoy files with random markers, prompted by the owner's card choice, relayed by the project's assistant: "Turn it off for reviews". The record is `docs/decisions/2026-11-22-antigravity-lock.md` in this repository.
+- **What it is:** tests of agy 1.5.14's routes out of a review, on harmless decoy files with random markers, prompted by the owner's card choice, relayed by the project's assistant: "Turn it off for reviews". The owner's decision, received directly at 18:02:52 UTC: "Ship it". The record is `docs/decisions/2026-11-22-antigravity-lock.md` in this repository.
 - **The routes:**
 
   | Route | No lock | Outside access off | The lock |

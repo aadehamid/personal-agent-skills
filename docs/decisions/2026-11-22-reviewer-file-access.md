@@ -44,7 +44,7 @@ These are the agent's choices, not the owner's words.
 - Evidence is removed when the script knows the review ended. Where a reviewer may still be running, it is kept
   and its path printed.
 - In Rex, an earlier run's report does not stand in for a run that has attached evidence.
-- (Note, 2026-11-22: [Antigravity reviews are locked per run](2026-11-22-antigravity-lock.md) proposes to enforce
+- (Note, 2026-11-22: [Antigravity reviews are locked per run](2026-11-22-antigravity-lock.md) decides to enforce
   part of it for Antigravity: not web search. For the other reviewers the next point still holds.)
 - The rule is an instruction. No sandbox enforces it, and agy's `allowNonWorkspaceAccess` setting stays the
   owner's open question ([the Antigravity record](2026-11-22-antigravity-first.md)).
