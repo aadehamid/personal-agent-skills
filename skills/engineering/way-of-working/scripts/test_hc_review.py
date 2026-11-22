@@ -333,9 +333,12 @@ class HcReview(unittest.TestCase):
         return [n for n in os.listdir(self.tmpdir) if n.startswith("review-evidence-")]
 
     def test_evidence_goes_when_the_reviewer_never_got_the_prompt_or_ended(self):
-        for scenario, kind in (("ok,notsent", "codex"), ("limit", "cursor")):
-            r, _ = self.run_case(scenario, kind=kind, extra=("--attach", self.outside_file()))
+        for scenario, kind, why in (("ok,notsent", "codex", "hc did not send the prompt"),
+                                    ("limit", "cursor", "usage limit")):
+            r, calls = self.run_case(scenario, kind=kind, extra=("--attach", self.outside_file()))
             self.assertEqual(r.returncode, 1, scenario)
+            self.assertIn("run", calls, scenario)
+            self.assertIn(why, r.stdout, scenario)
             self.assertEqual(self.evidence_left(), [], scenario)
 
     def test_a_usage_limit_names_the_next_reviewer(self):

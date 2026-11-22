@@ -650,8 +650,10 @@ class HerdrReview(unittest.TestCase):
         self.assertIn("Evidence kept", r.stderr)
 
     def test_evidence_goes_when_a_blocked_reviewer_refused_the_prompt(self):
-        r, _ = self.run_case("blockedrej", extra=("--attach", self.outside_file()))
+        r, calls = self.run_case("blockedrej", extra=("--attach", self.outside_file()))
         self.assertEqual(r.returncode, 1)
+        self.assertIn("agent prompt", calls)
+        self.assertIn("agent_blocked", r.stdout)
         self.assertEqual([n for n in os.listdir(self.tmpdir) if n.startswith("review-evidence-")], [])
 
     def test_a_bad_attach_stops_before_the_prompt(self):

@@ -589,16 +589,21 @@ class RexReview(unittest.TestCase):
         return [n for n in os.listdir(self.tmpdir) if n.startswith("review-evidence-")]
 
     def test_an_earlier_report_is_no_fallback_either_when_evidence_is_attached(self):
-        r, _ = self.run_case("reuse,reusebusy,busyreport,noreport", kind="kimi", git_repo=True,
-                             extra=("--attach", self.outside_file()))
+        r, calls = self.run_case("reuse,reusebusy,busyreport,noreport", kind="kimi", git_repo=True,
+                                 extra=("--attach", self.outside_file()))
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("send", calls)
+        self.assertIn("no skill report for this run", r.stdout)
         self.assertNotIn("EARLIER REVIEW", r.stdout)
 
     def test_evidence_goes_when_the_reviewer_is_known_to_have_ended(self):
-        for scenario in ("dies,noreport", "limitafter", "noreport"):
-            r, _ = self.run_case(scenario, kind="kimi" if scenario == "limitafter" else "codex",
+        for scenario, why in (("dies,noreport", "the reviewer exited"), ("limitafter", "usage limit"),
+                              ("noreport", "finished without writing the report")):
+            r, calls = self.run_case(scenario, kind="kimi" if scenario == "limitafter" else "codex",
                                  extra=("--attach", self.outside_file()))
             self.assertEqual(r.returncode, 1, scenario)
+            self.assertIn("send", calls, scenario)
+            self.assertIn(why, r.stdout, scenario)
             self.assertEqual(self.evidence_left(), [], scenario)
 
     def test_the_next_reviewer_is_handed_the_same_files(self):

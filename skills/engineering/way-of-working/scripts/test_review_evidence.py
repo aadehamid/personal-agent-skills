@@ -131,7 +131,10 @@ class Evidence(unittest.TestCase):
         return "locked"
 
     def test_a_read_only_folder_gives_a_copy_that_can_be_removed(self):
-        out = self.attach(self.read_only_folder()).stdout.strip()
+        done = self.attach(self.read_only_folder())
+        self.assertEqual(done.returncode, 0, done.stderr)
+        out = done.stdout.strip()
+        self.assertEqual(self.read(out, "1-locked", "inner", "file.txt"), "body\n")
         subprocess.run(["rm", "-rf", out], check=True, capture_output=True)
 
     @unittest.skipIf(os.geteuid() == 0, "root reads every file")
