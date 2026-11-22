@@ -649,9 +649,15 @@ class HerdrReview(unittest.TestCase):
         self.assertEqual(len([n for n in os.listdir(self.tmpdir) if n.startswith("review-evidence-")]), 1)
         self.assertIn("Evidence kept", r.stderr)
 
+    def test_evidence_goes_when_a_blocked_reviewer_refused_the_prompt(self):
+        r, _ = self.run_case("blockedrej", extra=("--attach", self.outside_file()))
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual([n for n in os.listdir(self.tmpdir) if n.startswith("review-evidence-")], [])
+
     def test_a_bad_attach_stops_before_the_prompt(self):
         r, calls = self.run_case("newtab,fresh", extra=("--attach", "gone.txt"))
         self.assertEqual(r.returncode, 2)
+        self.assertIn("no such file or folder", r.stderr)
         self.assertNotIn("agent prompt", calls)
 
     def test_prompt_names_the_exact_report_path(self):

@@ -69,3 +69,13 @@ Shall I build that reviewers-only version after Antigravity ships? A "yes" is en
 ```text
 Yes
 ```
+
+## 13:51:47, the agent, after the answer
+
+```text
+Your yes is saved. Antigravity hasn't shipped yet: pull request 105 is open and being handled in Set up reviews and speed up CI. I'm watching for its merge for the next 4 hours and will start from the new main when it lands, since both changes edit the same files.
+
+That pull request adds Antigravity as a reviewer with its own script, so I'll include it in the reviewer rule, making five scripts instead of four. Working agents are untouched. You don't need to do anything.
+```
+
+The two links in that last message are shown as their titles.

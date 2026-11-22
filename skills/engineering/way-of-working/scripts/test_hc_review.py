@@ -329,6 +329,15 @@ class HcReview(unittest.TestCase):
         self.assertNotIn("keys", calls)
         self.assertRegex(r.stdout.splitlines()[-2], r"waiting on a question")
 
+    def evidence_left(self):
+        return [n for n in os.listdir(self.tmpdir) if n.startswith("review-evidence-")]
+
+    def test_evidence_goes_when_the_reviewer_never_got_the_prompt_or_ended(self):
+        for scenario, kind in (("ok,notsent", "codex"), ("limit", "cursor")):
+            r, _ = self.run_case(scenario, kind=kind, extra=("--attach", self.outside_file()))
+            self.assertEqual(r.returncode, 1, scenario)
+            self.assertEqual(self.evidence_left(), [], scenario)
+
     def test_a_usage_limit_names_the_next_reviewer(self):
         r, calls = self.run_case("limit", kind="cursor")
         self.assertEqual(r.returncode, 1)

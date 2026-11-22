@@ -120,14 +120,37 @@ class Evidence(unittest.TestCase):
         self.write("folder/real.txt")
         os.mkfifo(os.path.join(self.root, "pipe"))
         os.mkfifo(os.path.join(self.root, "folder", "pipe"))
-        self.refused("pipe")
-        self.refused("folder")
+        self.assertIn("not a file or folder", self.refused("pipe"))
+        self.assertIn("special file", self.refused("folder"))
+
+    def read_only_folder(self):
+        self.write("locked/inner/file.txt")
+        for part in ("locked/inner", "locked"):
+            os.chmod(os.path.join(self.root, part), 0o555)
+            self.addCleanup(os.chmod, os.path.join(self.root, part), 0o755)
+        return "locked"
+
+    def test_a_read_only_folder_gives_a_copy_that_can_be_removed(self):
+        out = self.attach(self.read_only_folder()).stdout.strip()
+        subprocess.run(["rm", "-rf", out], check=True, capture_output=True)
+
+    @unittest.skipIf(os.geteuid() == 0, "root reads every file")
+    def test_a_failed_copy_after_a_read_only_folder_leaves_nothing(self):
+        bad = self.write("bad.txt")
+        os.chmod(bad, 0)
+        self.assertIn("the copy failed", self.refused(self.read_only_folder(), bad))
+
+    def test_a_link_to_a_folder_named_directly_is_copied_as_the_folder(self):
+        self.write("real/file.txt", "content")
+        os.symlink(os.path.join(self.root, "real"), os.path.join(self.root, "link"))
+        out = self.attach("link").stdout.strip()
+        self.assertEqual(self.read(out, "1-link", "file.txt"), "content")
 
     @unittest.skipIf(os.geteuid() == 0, "root reads every file")
     def test_an_unreadable_file_leaves_no_copy(self):
         good, bad = self.write("good.txt"), self.write("bad.txt")
         os.chmod(bad, 0)
-        self.refused(good, bad)
+        self.assertIn("the copy failed", self.refused(good, bad))
 
 
 if __name__ == "__main__":

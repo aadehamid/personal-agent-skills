@@ -15,9 +15,11 @@ and whether the rule should apply to all agents.
 
 Working agents should have access to files and folders outside of the repository.
 
-The owner answered "Yes" to this:
+The owner answered "Yes" to this, quoted in full with bold and code markers removed:
 
-> That leaves reviewers only. Pi, Kimi, Codex and Cursor CLI would read the repo, their skill and scratch files, and whatever the working agent attaches with `--attach`. The working agent can attach a file from anywhere, so a reviewer can still get an outside file when it needs one.
+> Agreed. Working agents keep their access to files and folders outside the repo, with no new rule and no need to ask you first. I've dropped that half of the proposal.
+>
+> That leaves reviewers only. Pi, Kimi, Codex and Cursor CLI would read the repo, their skill and scratch files, and whatever the working agent attaches with --attach. The working agent can attach a file from anywhere, so a reviewer can still get an outside file when it needs one.
 >
 > Shall I build that reviewers-only version after Antigravity ships? A "yes" is enough.
 
@@ -27,13 +29,13 @@ These are the agent's choices, not the owner's words.
 
 - Antigravity is covered too. The question named four reviewers because `agy-review.sh` had not merged yet. It
   merged in pull request 105 before this change started. The agent told the owner at 13:51:47 that it would
-  include it.
+  include it, as the answers file records.
 - One helper, `review-evidence.sh`, does the copying. The two sentences of the rule are repeated in the five
   scripts, with a test that fails when they differ, because sourcing a shared library broke tests when it was
   tried (issue 85).
 - A folder holding a link or a special file is refused, so a copy cannot lead back out to what nobody attached.
-- Evidence is removed when the review ends. Where a Herdr, Rex or Herdr app reviewer may still be running, it
-  is kept and its path printed.
+- Evidence is removed when the script knows the review ended. Where a reviewer may still be running, it is kept
+  and its path printed.
 - In Rex, an earlier run's report does not stand in for a run that has attached evidence.
 - The rule is an instruction. No sandbox enforces it, and agy's `allowNonWorkspaceAccess` setting stays the
   owner's open question ([the Antigravity record](2026-11-22-antigravity-first.md)).

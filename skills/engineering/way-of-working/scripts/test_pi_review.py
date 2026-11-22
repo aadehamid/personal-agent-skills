@@ -400,6 +400,17 @@ class PiReview(unittest.TestCase):
         finally:
             os.killpg(self.pane_group(), 9)
 
+    def test_evidence_stays_for_a_pi_that_could_not_be_stopped(self):
+        r = self.run_case("hang,infofail", "--role", "independent", "--head", self.head, "--attach",
+                          self.outside_file(), herdr=True, sleep="0.05")
+        try:
+            folder = re.search(r"The attached evidence is in (\S+?), listed", self.prompt()).group(1)
+            self.addCleanup(shutil.rmtree, folder, True)
+            self.assertTrue(os.path.exists(folder))
+            self.assertIn("Evidence kept", r.stderr)
+        finally:
+            os.killpg(self.pane_group(), 9)
+
     def test_inside_herdr_the_panes_own_shell_is_never_stopped(self):
         r = self.run_case("hang,shellfront", "--role", "independent", "--head", self.head, herdr=True, sleep="0.05")
         try:
@@ -606,9 +617,10 @@ class PiReview(unittest.TestCase):
             self.assertFalse(os.path.exists(folder))
 
     def test_a_bad_attach_stops_before_pi_runs(self):
-        for extra in (("--attach",), ("--attach", "gone.txt")):
+        for extra, why in ((("--attach",), "--attach needs a value"), (("--attach", "gone.txt"), "no such file or folder")):
             r = self.run_case("ready", "--role", "independent", "--head", self.head, *extra)
             self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn(why, r.stderr)
             self.assertFalse(os.path.exists(os.path.join(self.state, "prompt")))
 
     def test_verify_claims_reach_the_prompt(self):

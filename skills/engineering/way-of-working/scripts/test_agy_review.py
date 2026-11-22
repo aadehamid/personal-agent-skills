@@ -288,7 +288,9 @@ class AgyReview(unittest.TestCase):
         self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith("review-evidence-")], [])
 
     def test_an_attach_that_is_not_there_is_a_bad_argument(self):
-        self.assertEqual(self.review("--head", self.head, "--attach", "gone.txt").returncode, 2)
+        r = self.review("--head", self.head, "--attach", "gone.txt")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("no such file or folder", r.stderr)
 
     def test_the_clone_is_removed_pass_or_fail(self):
         for out in ("READY\n", ""):

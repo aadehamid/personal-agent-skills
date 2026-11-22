@@ -585,6 +585,26 @@ class RexReview(unittest.TestCase):
         self.assertEqual(r.stdout, "REVIEW FINDINGS\n")   # not the report that never saw the evidence
         self.assertIn("send", calls)
 
+    def evidence_left(self):
+        return [n for n in os.listdir(self.tmpdir) if n.startswith("review-evidence-")]
+
+    def test_an_earlier_report_is_no_fallback_either_when_evidence_is_attached(self):
+        r, _ = self.run_case("reuse,reusebusy,busyreport,noreport", kind="kimi", git_repo=True,
+                             extra=("--attach", self.outside_file()))
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertNotIn("EARLIER REVIEW", r.stdout)
+
+    def test_evidence_goes_when_the_reviewer_is_known_to_have_ended(self):
+        for scenario in ("dies,noreport", "limitafter", "noreport"):
+            r, _ = self.run_case(scenario, kind="kimi" if scenario == "limitafter" else "codex",
+                                 extra=("--attach", self.outside_file()))
+            self.assertEqual(r.returncode, 1, scenario)
+            self.assertEqual(self.evidence_left(), [], scenario)
+
+    def test_the_next_reviewer_is_handed_the_same_files(self):
+        r, _ = self.run_case("limitafter", kind="kimi", extra=("--attach", self.outside_file()))
+        self.assertRegex(r.stdout.splitlines()[-1], r"--attach \S*outside\\ log\.txt$")
+
     def test_a_prompt_that_stays_unsent_stops_after_three_enters(self):
         # Finding 6.
         r, _ = self.run_case("neverenter")

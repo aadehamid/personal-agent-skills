@@ -15,7 +15,12 @@ set -euo pipefail
 parent=$1
 shift
 dest="" copied=""
-trap '[ -n "$copied" ] || [ -z "$dest" ] || rm -rf "$dest"' EXIT
+discard() {
+  [ -z "$copied" ] && [ -n "$dest" ] || return 0
+  chmod -R u+rwX "$dest" 2>/dev/null || true
+  rm -rf "$dest"
+}
+trap discard EXIT
 trap 'exit 2' TERM INT HUP
 refuse() { echo "cannot attach '$1': $2" >&2; exit 2; }
 # A path that starts with "-" would read as an option to find and cp.
@@ -46,5 +51,7 @@ for given in "$@"; do
   fi
   printf '%s <- %s\n' "$copy" "$given" >> "$dest/MANIFEST.txt"
 done
+# cp keeps a read-only folder read-only, and the caller must be able to remove the copy.
+chmod -R u+rwX "$dest" || refuse "$1" "the copy cannot be made removable"
 copied=1
 echo "$dest"
