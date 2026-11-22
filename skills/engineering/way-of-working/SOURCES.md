@@ -119,14 +119,37 @@ Last review: 2026-10-22.
   Standard output had 0 bytes and standard error 303. With JSON output the same failure reads `"status":"SUCCESS","response":""` with `denied_actions`. Plan mode has a second one: it answers that it wrote a plan to approve, also with exit 0.
 - **The runner, live:** `agy-review.sh` as committed in this change reviewed the same planted commit twice and found 4 of 4 both times, in 375 and 506 seconds. All 155 file reads stayed inside its clones, and both transcripts name Gemini 4 Neon (XHigh). A Pi review of this change took 233 seconds in the same minutes, so putting Antigravity first makes a review round longer.
 - **What we took:** Antigravity first in "Who reviews"; `agy-review.sh`, which counts a review only on exit 0 and a first line of exactly READY or FIX; and a prompt that allows file reads and forbids commands.
-- **What we left:** agy's `allowNonWorkspaceAccess` setting, which the owner has not decided. The limits of the evidence: one branch, four bugs, one Pi run, and Pi could read the previous night's reports on two of the bugs.
+- **What we left:** agy's `allowNonWorkspaceAccess` setting, which the owner had not decided when this was written. (Decided later that day: see 1s and the record it names.) The limits of the evidence: one branch, four bugs, one Pi run, and Pi could read the previous night's reports on two of the bugs.
 
 ## 1r. A reviewer searching the owner's folders (2026-11-22)
 
 - **What it is:** Pi's first review of personal-agent-skills #104. Its request said that the session behind an evidence note had not been found. Pi ran `find` over the owner's Documents, Desktop, Downloads and Dropbox project folders for slide decks of that date, and was still in it after 7 minutes, when the working agent stopped the run.
 - **The rerun:** the same commit, with a request to read only inside the clone and to report the gap, returned in 57 seconds with a real finding.
 - **What we took:** "What a reviewer reads" in `references/before-push.md`, the same rule in the five review scripts, and `--attach` for what a review needs from outside. The owner's words are in this repository's `docs/decisions/2026-11-22-reviewer-file-access-answers.md`.
-- **What we left:** enforcement. The rule is an instruction that a reviewer can ignore. Working agents are not limited, by the owner's decision.
+- **What we left:** enforcement. The rule is an instruction that a reviewer can ignore. (Later that day 1s enforced part of it for Antigravity, web search excepted. It still holds for the other reviewers.) Working agents are not limited, by the owner's decision.
+
+## 1s. The Antigravity lock (2026-11-22)
+
+- **What it is:** tests of agy 1.5.14's routes out of a review, on harmless decoy files with random markers, prompted by the owner's card choice, relayed by the project's assistant: "Turn it off for reviews". The owner's decision, received directly at 18:02:52 UTC: "Ship it". The record is `docs/decisions/2026-11-22-antigravity-lock.md` in this repository.
+- **The routes:**
+
+  | Route | No lock | Outside access off | The lock |
+  |---|---|---|---|
+  | Read outside (home, temporary folder, symlink) | leaked, 2 of 2 | blocked, 4 of 4, each cancelling the turn | blocked by the same setting, cancelling the turn |
+  | `cp` from outside, then read | not tested | leaked: a saved `command(cp)` rule ran it with `BypassSandbox` | refused |
+  | MCP tool | not tested | not granted headless, which cancels the turn | refused |
+  | File write inside, edit outside | not tested | not granted headless, which cancels the turn | refused |
+  | File write outside | not tested | not granted headless, which cancels the turn | refused |
+  | URL read | not tested | not tested | no such tool in the session, which used web search |
+  | Web search | not tested | open | **open**: five spellings of a deny rule and `*` did not close it |
+
+  The outside-access column for MCP, writes and search also had commands denied. The file-write-outside cell under the lock was corrected in c77bac4: that route's first attempt never started (agy's backend returned no conversation), and one retry after 953ebab, with the same five-rule lock, exited 0 in 34 seconds, answered REFUSED on a `write_file` permission error and wrote no file.
+- **Reviews still work:** on the planted bugs of 1q, four runs with outside access off and three more with commands also denied each found 4 of 4, one of each set with `--attach`. All their file reads stayed inside the clone and the attached copy. One run with the committed five-rule lock also found 4 of 4.
+- **Where they did not work:** on a throwaway repository without the skills, the one locked run that started asked to read outside, was refused, and lost the review. The other three, the only `--attach` case with the five-rule lock among them, hit agy's quota. The prompt now says to load no skill from outside.
+- **That fix, live:** after the quota reset, two runs one after the other of `agy-review.sh` at c77bac4, on a throwaway repository without the skills whose instructions say to load them, with two planted bugs (a boundary, and a limit that contradicts an unchanged policy file). Both exited 0 with FIX in 158 and 180 seconds, found 2 of 2, and named the outside skills under Missing evidence. The second used `--attach` and quoted the file. All 59 paths they tried were inside the clone and the attached copy, with no permission refusal. Two runs do not show that a model never tries: when it does, the script reports not available.
+- **Not tested:** an edit inside the workspace, a saved allow rule for MCP or writes against the denies, and whether a subagent inherits the lock.
+- **What we took:** the `lock=` line in `agy-review.sh`, passed on every run, and a prompt line against web search.
+- **What we left:** the owner's saved settings and allow rules, untouched. A wall for Pi, Kimi, Codex and the Cursor agent CLI, whose limit is still the prompt alone.
 
 ## 2. mattpocock-skills (marketplace `mattpocock`, v1.3.1)
 

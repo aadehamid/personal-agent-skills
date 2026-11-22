@@ -17,5 +17,6 @@ skipped question as agreement is recorded here.
 | 2026-11-22 | [Make the check and review flow faster with no drop in quality](2026-11-22-faster-checks.md) | Decided |
 | 2026-11-22 | [Antigravity is the first independent reviewer](2026-11-22-antigravity-first.md) | Decided |
 | 2026-11-22 | [Reviewers read the repository and what they are handed](2026-11-22-reviewer-file-access.md) | Decided |
+| 2026-11-22 | [Antigravity reviews are locked per run](2026-11-22-antigravity-lock.md) | Decided |
 
 Existing skills' source and change notes remain where their READMEs identify them.

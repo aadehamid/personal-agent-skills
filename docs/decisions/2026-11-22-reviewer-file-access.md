@@ -44,8 +44,11 @@ These are the agent's choices, not the owner's words.
 - Evidence is removed when the script knows the review ended. Where a reviewer may still be running, it is kept
   and its path printed.
 - In Rex, an earlier run's report does not stand in for a run that has attached evidence.
-- The rule is an instruction. No sandbox enforces it, and agy's `allowNonWorkspaceAccess` setting stays the
-  owner's open question ([the Antigravity record](2026-11-22-antigravity-first.md)).
+- The rule is an instruction. When this was written no sandbox enforced it, and agy's `allowNonWorkspaceAccess`
+  setting was the owner's open question ([the Antigravity record](2026-11-22-antigravity-first.md)).
+  Amended 2026-11-22 by [Antigravity reviews are locked per run](2026-11-22-antigravity-lock.md), which closed that
+  question: each review run through `agy-review.sh` passes `--settings` with outside access off, and the saved
+  setting stays unchanged. Web search stays open. For the other reviewers the rule is still only an instruction.
 - The Codex plugin path has no script, so the working agent puts the rule in that request itself.
 
 ## Evidence

@@ -24,8 +24,11 @@ These are the agent's choices, not the owner's words.
 - A review counts only when agy exits 0 and the first line is exactly READY or FIX.
 - It reviews in a throwaway clone, may read files there, and runs no commands. The check runs beside it, as with
   Pi. The author runs any test a finding needs.
-- Not decided: agy's `allowNonWorkspaceAccess` setting, which lets it read outside the clone. The owner has that
-  question open, and nothing here changes the setting.
+- Not decided by this record: agy's `allowNonWorkspaceAccess` setting, which lets it read outside the clone. The
+  owner had that question open when this was written, and nothing here changes the setting.
+  Amended 2026-11-22 by [Antigravity reviews are locked per run](2026-11-22-antigravity-lock.md), which closed that
+  question: each review run through `agy-review.sh` passes `--settings` with outside access off, and the saved
+  setting stays unchanged.
 
 ## Evidence
 
