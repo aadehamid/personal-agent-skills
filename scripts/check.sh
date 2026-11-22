@@ -55,16 +55,21 @@ echo "== project-discovery validate =="
 
 echo
 echo "== check guard and way-of-working scripts =="
-python3 scripts/test_tree_state.py
-python3 scripts/test_pre_push_hook.py
-python3 scripts/test_link_skills.py
-python3 scripts/test_playbook_html.py
-python3 skills/engineering/way-of-working/scripts/test_herdr_review.py
-python3 skills/engineering/way-of-working/scripts/test_rex_review.py
-python3 skills/engineering/way-of-working/scripts/test_hc_review.py
-python3 skills/engineering/way-of-working/scripts/test_pi_review.py
-python3 skills/engineering/way-of-working/scripts/test_pr_scripts.py
-python3 skills/engineering/way-of-working/scripts/test_stop_cursor_review.py
+# These suites spend their time starting processes (each case runs a script against stub programs), so they run
+# in parallel: one worker per core, at most 8. Every case makes its own temporary folders, so order does not
+# matter. Keep it so when adding a case. Each file still runs alone with python3 <file>.
+uv run --no-project --with pytest==9.2.0 --with pytest-xdist==3.8.0 python3 -m pytest -q -p no:cacheprovider \
+  -n auto --maxprocesses=8 \
+  scripts/test_tree_state.py \
+  scripts/test_pre_push_hook.py \
+  scripts/test_link_skills.py \
+  scripts/test_playbook_html.py \
+  skills/engineering/way-of-working/scripts/test_herdr_review.py \
+  skills/engineering/way-of-working/scripts/test_rex_review.py \
+  skills/engineering/way-of-working/scripts/test_hc_review.py \
+  skills/engineering/way-of-working/scripts/test_pi_review.py \
+  skills/engineering/way-of-working/scripts/test_pr_scripts.py \
+  skills/engineering/way-of-working/scripts/test_stop_cursor_review.py
 
 echo
 echo "== ontology skill scripts =="
