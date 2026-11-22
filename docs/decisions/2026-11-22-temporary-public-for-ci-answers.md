@@ -1,6 +1,7 @@
 # Recorded answers, 2026-11-22
 
-The owner's messages in the project thread, verbatim, with their times (UTC).
+The owner's messages, verbatim, with their times (2026-11-22, UTC). The first
+three are from the project thread and the last from the project chat.
 
 ## 03:47:56
 
@@ -16,12 +17,14 @@ csn you record this decision and flip this. I dont want to be the bottle neck in
 
 ## 03:52:02
 
-The question it answered, posted in the thread at about 03:51 (Markdown
-stripped): "Before I make the repo public, please confirm with this list in
-front of you. Reply "yes, make it public" in this thread. A visibility change
-can't be undone for anyone who copies the repo while it is public." The list
-named the notes about the private Engineering_Drawing_to_Graph repository,
-calibration.md, and the owner's email address in commit metadata.
+The message it replied to, posted in the thread at about 03:51 (an excerpt,
+Markdown stripped): "Before I make the repo public, please confirm with this
+list in front of you. Reply "yes, make it public" in this thread. A visibility
+change can't be undone for anyone who copies the repo while it is public." The
+message went on to list the notes about the private
+Engineering_Drawing_to_Graph repository, calibration.md, and the owner's email
+address in commit metadata. The repository was already public by then: the
+switch was made on the 03:49:25 request.
 
 yes.
 
