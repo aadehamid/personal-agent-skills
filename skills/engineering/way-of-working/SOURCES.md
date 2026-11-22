@@ -87,6 +87,12 @@ Last review: 2026-10-22.
   - `references/documents.md`, "Dates": on #402 the E2 landing was dated 2026-10-28 in five places and 2026-10-29 in two, because the run crossed midnight in UTC; a quick check held it.
   - `references/deciding.md`, "Save the owner's words before anything cites them": on #407 the README said use cases 19 to 21 were agreed with the owner, with no saved answer behind it; Pi's first round held it.
 
+## 1p. The check and review timing on personal-agent-skills (2026-11-22)
+
+- **What it is:** the owner asked for an analysis of the time taken and where the bottleneck is, at the end of the session that produced pull requests #101 and #102, then asked for the suggested fixes to be worked, side-by-side runs among them. The owner's words are in this repository's `docs/decisions/2026-11-22-faster-checks-answers.md`.
+- **What we took:** run the check and Pi's review together, and tell Pi not to repeat the whole check. The evidence is the wall time the working agent measured around each script run on the owner's Mac, listed with its commit in `docs/decisions/2026-11-22-faster-checks.md`, "Evidence".
+- **What we left:** side-by-side runs for Kimi, Codex and the Cursor agent CLI. They share the working tree the check guards, so checking first with them is the agent's choice, not the owner's words.
+
 ## 2. mattpocock-skills (marketplace `mattpocock`, v1.3.1)
 
 - **What we took:** the retro loop (`retro`), decision interviews (`grill-with-docs`, `grilling`), the rules for writing documents agents read (`writing-for-agents`), and the shape of a PR body (`pr`) — the smallest view that makes the point, evidence before and after, and merge danger as a one-way or two-way door. That shape is adapted into `references/changing.md`, not adopted as a template: `changing.md` already owns what a PR body says, and a second authority for one rule is what rule 6 forbids. The `pr` skill credits Humanlayer's `show-me`.

@@ -55,16 +55,32 @@ echo "== project-discovery validate =="
 
 echo
 echo "== check guard and way-of-working scripts =="
-python3 scripts/test_tree_state.py
-python3 scripts/test_pre_push_hook.py
-python3 scripts/test_link_skills.py
-python3 scripts/test_playbook_html.py
-python3 skills/engineering/way-of-working/scripts/test_herdr_review.py
-python3 skills/engineering/way-of-working/scripts/test_rex_review.py
-python3 skills/engineering/way-of-working/scripts/test_hc_review.py
-python3 skills/engineering/way-of-working/scripts/test_pi_review.py
-python3 skills/engineering/way-of-working/scripts/test_pr_scripts.py
-python3 skills/engineering/way-of-working/scripts/test_stop_cursor_review.py
+# These suites spend their time starting processes (each case runs a script against stub programs), so they run
+# in parallel: one worker per core, at most 8. Every case makes its own temporary folders, so order does not
+# matter. Keep it so when adding a case. Each file still runs alone with python3 <file>.
+suites=(
+  scripts/test_tree_state.py
+  scripts/test_pre_push_hook.py
+  scripts/test_link_skills.py
+  scripts/test_playbook_html.py
+  skills/engineering/way-of-working/scripts/test_herdr_review.py
+  skills/engineering/way-of-working/scripts/test_rex_review.py
+  skills/engineering/way-of-working/scripts/test_hc_review.py
+  skills/engineering/way-of-working/scripts/test_pi_review.py
+  skills/engineering/way-of-working/scripts/test_pr_scripts.py
+  skills/engineering/way-of-working/scripts/test_stop_cursor_review.py
+)
+# No config file and no PYTEST_ADDOPTS: either could leave tests out without failing.
+run_pytest() {
+  PYTEST_ADDOPTS= uv run --no-project --with pytest==9.2.0 --with pytest-xdist==3.8.0 python3 -m pytest \
+    -c /dev/null --rootdir . -q -p no:cacheprovider "$@"
+}
+# pytest fails only when all the files together hold no test. unittest failed each such file, so ask per file.
+collected="$(run_pytest --collect-only "${suites[@]}")" || { printf '%s\n' "$collected" >&2; exit 1; }
+for suite in "${suites[@]}"; do
+  grep -q "^$suite::" <<<"$collected" || { echo "FAIL: $suite has no tests." >&2; exit 1; }
+done
+run_pytest -n auto --maxprocesses=8 "${suites[@]}"
 
 echo
 echo "== ontology skill scripts =="
