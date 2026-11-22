@@ -89,7 +89,7 @@ Last review: 2026-10-22.
 
 ## 1p. The check and review timing on personal-agent-skills (2026-11-22)
 
-- **What it is:** the owner asked where the time went on pull requests #101 and #102, then asked for the fixes to be worked, side-by-side runs among them. The owner's words are in this repository's `docs/decisions/2026-11-22-faster-checks-answers.md`.
+- **What it is:** the owner asked for an analysis of the time taken and where the bottleneck is, at the end of the session that produced pull requests #101 and #102, then asked for the suggested fixes to be worked, side-by-side runs among them. The owner's words are in this repository's `docs/decisions/2026-11-22-faster-checks-answers.md`.
 - **What we took:** run the check and Pi's review together, and tell Pi not to repeat the whole check. The evidence is the wall time the working agent measured around each script run on the owner's Mac, listed with its commit in `docs/decisions/2026-11-22-faster-checks.md`, "Evidence".
 - **What we left:** side-by-side runs for Kimi, Codex and the Cursor agent CLI. They share the working tree the check guards, so checking first with them is the agent's choice, not the owner's words.
 
