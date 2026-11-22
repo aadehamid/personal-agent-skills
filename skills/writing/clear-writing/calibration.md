@@ -1,6 +1,6 @@
 # Personal calibration
 
-Last run: 2026-10-03. Sessions read: 3 (last 60 days, the sampler found only 3). This is a small sample. Rules marked "tentative" rest on one or two passages. Rerun calibrate when more sessions exist.
+Last run: 2026-10-03. Sessions read: 3 (last 60 days, the sampler found only 3). This is a small sample. Rules marked "tentative" rest on one or two passages, or on an instruction whose words were not saved. Rerun calibrate when more sessions exist.
 
 ## Emphasize
 - Rule 1 (one idea per sentence), applied to colons and semicolons: Claude joins clauses with colons and semicolons, sometimes two colons in one line. Example: "**Checks:** all five passed: Cursor Bugbot, the Cursor Approval Agent, ..." and "I didn't merge it; that happened from your account." Rewrite: "All five checks passed. I didn't merge the PR. You merged it from your account." Tentative.
@@ -13,6 +13,7 @@ Last run: 2026-10-03. Sessions read: 3 (last 60 days, the sampler found only 3).
 - Rule 4 (topic sentence first): neutral. Claude already opens with the answer, for example "Yes, the updates are in the repo." and "I couldn't find that session."
 
 ## Added rules
+- Apply clear-writing to every audience-facing text, including presentation headlines, slide body copy, speaker notes, handouts, and supporting documents. Slide layout remains out of scope. Run the final AI-tells check on every deck before delivery. Evidence: an agent's note of a user instruction on 2026-11-08, before ontology deck production. The user's words were not saved, so this is tentative.
 - Give a yes/no question one answer, and do not hedge it in the next sentence. Evidence: Claude wrote "**Do the Downloads files need deleting?** No. Git ignores them, ... You can remove them to keep the folder tidy." The user then asked again: "Should I delete the 4 files in my local Download folder then?" Rewrite: "Yes, you can delete them. The repo has identical copies." This is the only direct follow-up in the sample, so it is tentative, but it is the strongest evidence found.
 - Use prose, not bold "Label:" lead-ins and bullets. Every long reply in the sample used them: "**Two things for you to decide:**", "**What happens next:**", "**How I installed it:**", "**Two things to know:**". Rewrite the "What happens next" block as: "A background watcher checks the PR about every 2.5 minutes for up to 8 hours. I'll handle new feedback and tell you if the PR is merged or closed." Supported by the 2026-10-03 blind review (see Register notes).
 - Do not recap what an earlier message already reported. Evidence: the "PR is merged" reply has a section "What happened while I watched (about 7 minutes):" that repeats the HOLD review fixes reported two messages before. Rewrite: "PR #198 is merged (commit `c13dd2e`). To catch up, run `git checkout main && git pull`." Tentative.
