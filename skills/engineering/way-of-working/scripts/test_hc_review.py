@@ -11,6 +11,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import textwrap
@@ -328,6 +329,18 @@ class HcReview(unittest.TestCase):
         self.assertNotIn("keys", calls)
         self.assertRegex(r.stdout.splitlines()[-2], r"waiting on a question")
 
+    def evidence_left(self):
+        return [n for n in os.listdir(self.tmpdir) if n.startswith("review-evidence-")]
+
+    def test_evidence_goes_when_the_reviewer_never_got_the_prompt_or_ended(self):
+        for scenario, kind, why in (("ok,notsent", "codex", "hc did not send the prompt"),
+                                    ("limit", "cursor", "usage limit")):
+            r, calls = self.run_case(scenario, kind=kind, extra=("--attach", self.outside_file()))
+            self.assertEqual(r.returncode, 1, scenario)
+            self.assertIn("run", calls, scenario)
+            self.assertIn(why, r.stdout, scenario)
+            self.assertEqual(self.evidence_left(), [], scenario)
+
     def test_a_usage_limit_names_the_next_reviewer(self):
         r, calls = self.run_case("limit", kind="cursor")
         self.assertEqual(r.returncode, 1)
@@ -409,6 +422,22 @@ class HcReview(unittest.TestCase):
         r, calls = self.run_case("ok", script=HERDR_SCRIPT, extra=("--host", "tmux"))
         self.assertEqual(r.returncode, 2)
         self.assertIn("--host must be herdr, rex or hc", r.stderr)
+
+    def outside_file(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "outside log.txt")
+        with open(path, "w") as f:
+            f.write("evidence")
+        return path
+
+    def test_attached_evidence_is_named_and_removed_after_the_report(self):
+        outside = self.outside_file()
+        r, _ = self.run_case("ok", extra=("--attach", outside))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        prompt = next(a for a in self.argv if a[0] == "run")[-1]
+        folder = prompt.split("The attached evidence is in ")[1].split(", listed")[0]
+        self.assertFalse(os.path.exists(folder))
 
     def test_the_copy_is_removed(self):
         self.run_case("ok")

@@ -6,6 +6,7 @@ must get. Conversation IDs and home paths are replaced, and long reviews are cut
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -192,7 +193,7 @@ class AgyReview(unittest.TestCase):
                                      "ends the run with no review. Do not write a plan file: your reply is the "
                                      "report itself.\n"))
         self.assertIn("Its first line is exactly READY or FIX.", p)
-        self.assertIn("Read and search only inside this repository", p)
+        self.assertIn("Read and search only the repository under review", p)
         self.assertIn("Verify: the sweep is complete.", p)
         self.assertIn("===== git diff origin/main...%s =====" % self.head, p)
         self.assertIn("+first change", p)
@@ -262,6 +263,34 @@ class AgyReview(unittest.TestCase):
             with self.subTest(var):
                 r = self.review("--head", self.head, out="", extra={var: "x"})
                 self.assertIn("herdr-review.sh --kind kimi --branch topic --verify ", r.stdout.splitlines()[-1])
+
+    def outside_file(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "outside log.txt")
+        with open(path, "w") as f:
+            f.write("evidence")
+        return path
+
+    def test_attached_evidence_is_readable_named_and_removed(self):
+        outside = self.outside_file()
+        self.review("--head", self.head, "--attach", outside)
+        folder = re.search(r"The attached evidence is in (\S+?), listed", self.prompt()).group(1)
+        with open(self.seen_path) as f:
+            argv = json.load(f)["argv"]
+        self.assertEqual(argv[argv.index("--add-dir") + 1], folder)
+        self.assertFalse(os.path.exists(folder))
+
+    def test_next_keeps_the_attached_files(self):
+        outside = self.outside_file()
+        r = self.review("--head", self.head, "--attach", outside, out="")
+        self.assertIn("--attach", r.stdout.splitlines()[-1])
+        self.assertEqual([n for n in os.listdir(self.tmp) if n.startswith("review-evidence-")], [])
+
+    def test_an_attach_that_is_not_there_is_a_bad_argument(self):
+        r = self.review("--head", self.head, "--attach", "gone.txt")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("no such file or folder", r.stderr)
 
     def test_the_clone_is_removed_pass_or_fail(self):
         for out in ("READY\n", ""):

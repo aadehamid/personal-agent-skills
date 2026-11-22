@@ -400,6 +400,17 @@ class PiReview(unittest.TestCase):
         finally:
             os.killpg(self.pane_group(), 9)
 
+    def test_evidence_stays_for_a_pi_that_could_not_be_stopped(self):
+        r = self.run_case("hang,infofail", "--role", "independent", "--head", self.head, "--attach",
+                          self.outside_file(), herdr=True, sleep="0.05")
+        try:
+            folder = re.search(r"The attached evidence is in (\S+?), listed", self.prompt()).group(1)
+            self.addCleanup(shutil.rmtree, folder, True)
+            self.assertTrue(os.path.exists(folder))
+            self.assertIn("Evidence kept", r.stderr)
+        finally:
+            os.killpg(self.pane_group(), 9)
+
     def test_inside_herdr_the_panes_own_shell_is_never_stopped(self):
         r = self.run_case("hang,shellfront", "--role", "independent", "--head", self.head, herdr=True, sleep="0.05")
         try:
@@ -582,6 +593,35 @@ class PiReview(unittest.TestCase):
         r = self.run_case("nothing", "--role", "independent", "--head", self.head, herdr=True)
         self.assertEqual(r.returncode, 1)
         self.assertNotIn(["tab", "close", "w2:t5"], self.herdr_calls())
+
+    def test_the_read_rule_reaches_both_roles(self):
+        for scenario, args in (("ready", ("--role", "independent")), ("merge", ("--role", "pr", "--pr", "7"))):
+            self.run_case(scenario, *args, "--head", self.head)
+            self.assertIn("Read and search only the repository under review", self.prompt())
+            self.assertNotIn("The attached evidence is in", self.prompt())
+
+    def outside_file(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder, True)
+        path = os.path.join(folder, "outside log.txt")
+        with open(path, "w") as f:
+            f.write("evidence")
+        return path
+
+    def test_attached_evidence_is_named_and_removed_pass_or_fail(self):
+        outside = self.outside_file()
+        for scenario, code in (("ready", 0), ("nothing", 1)):
+            r = self.run_case(scenario, "--role", "independent", "--head", self.head, "--attach", outside)
+            self.assertEqual(r.returncode, code, r.stdout + r.stderr)
+            folder = re.search(r"The attached evidence is in (\S+?), listed", self.prompt()).group(1)
+            self.assertFalse(os.path.exists(folder))
+
+    def test_a_bad_attach_stops_before_pi_runs(self):
+        for extra, why in ((("--attach",), "--attach needs a value"), (("--attach", "gone.txt"), "no such file or folder")):
+            r = self.run_case("ready", "--role", "independent", "--head", self.head, *extra)
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn(why, r.stderr)
+            self.assertFalse(os.path.exists(os.path.join(self.state, "prompt")))
 
     def test_verify_claims_reach_the_prompt(self):
         r = self.run_case("ready", "--role", "independent", "--head", self.head, "--verify", "the loader refuses bad keys")
