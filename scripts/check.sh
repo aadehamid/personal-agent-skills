@@ -67,6 +67,7 @@ suites=(
   skills/engineering/way-of-working/scripts/test_rex_review.py
   skills/engineering/way-of-working/scripts/test_hc_review.py
   skills/engineering/way-of-working/scripts/test_pi_review.py
+  skills/engineering/way-of-working/scripts/test_agy_review.py
   skills/engineering/way-of-working/scripts/test_pr_scripts.py
   skills/engineering/way-of-working/scripts/test_stop_cursor_review.py
 )

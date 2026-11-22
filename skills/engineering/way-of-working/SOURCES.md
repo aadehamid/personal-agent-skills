@@ -93,6 +93,33 @@ Last review: 2026-10-22.
 - **What we took:** run the check and Pi's review together, and tell Pi not to repeat the whole check. The evidence is the wall time the working agent measured around each script run on the owner's Mac, listed with its commit in `docs/decisions/2026-11-22-faster-checks.md`, "Evidence".
 - **What we left:** side-by-side runs for Kimi, Codex and the Cursor agent CLI. They share the working tree the check guards, so checking first with them is the agent's choice, not the owner's words.
 
+## 1q. Antigravity as an independent reviewer (2026-11-22)
+
+- **What it is:** a planted-bug test of Antigravity (agy 1.5.14, gemini-4-neon-xhigh) against Pi on this repository, then a diagnosis of its empty reviews. The owner's words, as relayed by the project's assistant: "Instead of PI can this be antigravity", "Xhigh", and the decision card's option "Yes, after a planted-bug test". The record and the answers file are `docs/decisions/2026-11-22-antigravity-first.md` and `2026-11-22-antigravity-first-answers.md` in this repository.
+- **The test:** four bugs on f6b6b08, proved against that base, with the answer key written and hashed before any reviewer ran (sha256 `70a64d6cf2d8190cc4c2cc09e7fd32343d392bac9f7e51c498bc863641e34c93`): a tree guard that stops hashing permission bits, an empty-suite guard that matches the folder in place of the file, a `grep -E` pattern that breaks merged-PR detection, and a rule changed in one file and not in its copies.
+
+  | Run, every agy exit 0 | Runs | Review | Bugs caught | Seconds |
+  |---|---|---|---|---|
+  | Pi, independent | 1 | yes | 4 of 4 | 268 |
+  | agy, plain prompt | 5 | none | none | 18 to 41 |
+  | agy, the diff only | 1 | none | none | 37 |
+  | agy, a forced `echo`, with and without the sandbox | 2 | none | not scored | 11 to 14 |
+  | agy, a probe that plan mode answered with a plan | 3 | none | not scored | 41 to 72 |
+  | agy, told it has no tools | 4 | yes | 3, and the contradiction in part | 233 to 275 |
+  | agy, may read files and runs no commands | 3 | yes | 4 of 4 in each | 288 to 324 |
+
+  Two more file-reading runs are left out, because their prompt hinted at the fourth bug.
+- **The root cause:** headless mode refuses a shell command and cancels the turn, and agy still exits 0. Its log, for the first empty run:
+
+  ```text
+  tool_confirmation_manager.go:222] Print mode: soft-denying tool confirmation "Bash" at step 9
+  rpcs_backend.go:484] CancelCascadeInvocation requested
+  ```
+
+  Standard output had 0 bytes and standard error 303. With JSON output the same failure reads `"status":"SUCCESS","response":""` with `denied_actions`. Plan mode has a second one: it answers that it wrote a plan to approve, also with exit 0.
+- **What we took:** Antigravity first in "Who reviews"; `agy-review.sh`, which counts a review only on exit 0 and a first line of exactly READY or FIX; and a prompt that allows file reads and forbids commands.
+- **What we left:** agy's `allowNonWorkspaceAccess` setting, which the owner has not decided. The limits of the evidence: one branch, four bugs, one Pi run, and Pi could read the previous night's reports on two of the bugs.
+
 ## 2. mattpocock-skills (marketplace `mattpocock`, v1.3.1)
 
 - **What we took:** the retro loop (`retro`), decision interviews (`grill-with-docs`, `grilling`), the rules for writing documents agents read (`writing-for-agents`), and the shape of a PR body (`pr`) — the smallest view that makes the point, evidence before and after, and merge danger as a one-way or two-way door. That shape is adapted into `references/changing.md`, not adopted as a template: `changing.md` already owns what a PR body says, and a second authority for one rule is what rule 6 forbids. The `pr` skill credits Humanlayer's `show-me`.
