@@ -29,6 +29,9 @@ These are the agent's choices, not the owner's words.
 
 The run table, the sealed answer key's hash and the log lines are in way-of-working `SOURCES.md`, 1q.
 
+A cost the agent found after the owner's relayed choice: the runner took 375 and 506 seconds live, where Pi's
+reviews took 81 to 268 seconds when they did not rerun the check. A review round gets longer.
+
 ## Alternatives considered
 
 Keep the order as it was, which does not answer the owner's request. Use the prompt that

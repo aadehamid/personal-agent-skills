@@ -6,9 +6,10 @@
 #                      whole change against the default branch on origin.
 #   --verify <claims>  What the reviewer must check, as for pi-review.sh.
 #   Run from the repository under review, as a background job the harness reports back on (Claude Code:
-#   run_in_background): a review takes about five minutes.
-# The prompt holds the diff and the full text of the changed files. Antigravity runs headless in plan mode
-# and the sandbox, in a clone of <head>: it can read that clone's files and cannot run commands or tests.
+#   run_in_background): a review takes about five to nine minutes.
+# The prompt holds the diff, and the full text of the changed text files when they fit in one argument (see
+# max below); otherwise it tells agy to read them. Antigravity runs headless in plan mode and the sandbox,
+# in a clone of <head>: it can read that clone's files and cannot run commands or tests.
 # The clone holds committed files only. It is the working folder and not a wall: whether agy may read
 # outside it is agy's own allowNonWorkspaceAccess setting, which this script does not touch.
 #
