@@ -13,9 +13,16 @@ and whether the rule should apply to all agents.
 
 ## Decision
 
-Working agents should have access to files and folders outside of the repository.
+The owner said, at 13:50:45 UTC:
 
-The owner answered "Yes" to this, quoted in full with bold and code markers removed:
+> Working agents should have access to files and folders outside if the repo
+
+The owner said, at 13:51:20 UTC:
+
+> Yes
+
+That "Yes" accepted the agent's recommendation of 13:50:50. These are the agent's words, quoted in full with bold
+and code markers removed:
 
 > Agreed. Working agents keep their access to files and folders outside the repo, with no new rule and no need to ask you first. I've dropped that half of the proposal.
 >
@@ -48,7 +55,8 @@ The stall and the rerun are in the thread of pull request 104 and in way-of-work
 ## Alternatives considered
 
 - Keep reviewers inside the clone with no way to attach a file. The owner's first question showed the gap.
-- Limit working agents too. The owner declined it in the words under Decision.
+- Limit working agents too. The agent proposed it at 13:49:10, and the owner answered at 13:50:45 that working
+  agents should have access outside the repo.
 - Enforce the rule with an operating-system sandbox. It is a larger change, left until a reviewer strays again.
 
 ## Recorded words
