@@ -12,6 +12,8 @@ Run these before you open a PR and again before every review-fix push. Fixes cau
 
    **Commit the change first, and leave the working tree clean.** A branch review reads committed commits only, so an uncommitted fix is not reviewed at all — an agent that reviews, then edits, then pushes has reviewed the wrong thing. Note the commit you reviewed; if HEAD moves before the push, review again, within the round limit under "Re-review after fixing" below.
 
+   **With Pi, run the check script and the review side by side.** Start both on the same commit, as background jobs, and wait for both results before you push. Pi reviews in its own clone, so neither disturbs the other. Add "The check script runs separately on this commit; do not run it again" to `--verify`, or Pi can spend several minutes repeating it. If either leads to a fix, both results are stale: run both on the new commit, within the round limit below. Kimi, Codex and the Cursor agent CLI share your working tree, and a check can fail when the tree changes under it, so with them run the check first.
+
    **With Herdr** (the working agent is inside a Herdr pane), spawn a reviewer agent in its own pane — a different kind/model from the writer — and have it run the `ce-code-review` skill, which does a structured multi-agent review (risk-based reviewer selection, parallel reviewers, a cross-model adversarial pass, a validator, and a rendered report). **Reuse the review tab for this repo and reviewer rather than opening a new one for every review.** It is named `review-<repo>-<kind>-<hash>` (the repo's directory name, then the reviewer's kind and a hash of its kind, model and, for Kimi, launch mode) so it is findable:
 
       ```sh
