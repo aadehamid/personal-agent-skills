@@ -119,14 +119,14 @@ Last review: 2026-10-22.
   Standard output had 0 bytes and standard error 303. With JSON output the same failure reads `"status":"SUCCESS","response":""` with `denied_actions`. Plan mode has a second one: it answers that it wrote a plan to approve, also with exit 0.
 - **The runner, live:** `agy-review.sh` as committed in this change reviewed the same planted commit twice and found 4 of 4 both times, in 375 and 506 seconds. All 155 file reads stayed inside its clones, and both transcripts name Gemini 4 Neon (XHigh). A Pi review of this change took 233 seconds in the same minutes, so putting Antigravity first makes a review round longer.
 - **What we took:** Antigravity first in "Who reviews"; `agy-review.sh`, which counts a review only on exit 0 and a first line of exactly READY or FIX; and a prompt that allows file reads and forbids commands.
-- **What we left:** agy's `allowNonWorkspaceAccess` setting, which the owner has not decided. The limits of the evidence: one branch, four bugs, one Pi run, and Pi could read the previous night's reports on two of the bugs.
+- **What we left:** agy's `allowNonWorkspaceAccess` setting, which the owner has not decided. (Open when this was written. Decided later that day: 1s.) The limits of the evidence: one branch, four bugs, one Pi run, and Pi could read the previous night's reports on two of the bugs.
 
 ## 1r. A reviewer searching the owner's folders (2026-11-22)
 
 - **What it is:** Pi's first review of personal-agent-skills #104. Its request said that the session behind an evidence note had not been found. Pi ran `find` over the owner's Documents, Desktop, Downloads and Dropbox project folders for slide decks of that date, and was still in it after 7 minutes, when the working agent stopped the run.
 - **The rerun:** the same commit, with a request to read only inside the clone and to report the gap, returned in 57 seconds with a real finding.
 - **What we took:** "What a reviewer reads" in `references/before-push.md`, the same rule in the five review scripts, and `--attach` for what a review needs from outside. The owner's words are in this repository's `docs/decisions/2026-11-22-reviewer-file-access-answers.md`.
-- **What we left:** enforcement. The rule is an instruction that a reviewer can ignore. Working agents are not limited, by the owner's decision.
+- **What we left:** enforcement. The rule is an instruction that a reviewer can ignore. (Later that day 1s enforced part of it for Antigravity, web search excepted. It still holds for the other reviewers.) Working agents are not limited, by the owner's decision.
 
 ## 1s. The Antigravity lock (2026-11-22)
 

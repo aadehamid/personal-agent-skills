@@ -14,7 +14,12 @@ setting off, and its contents reached the model.
 
 ## Decision
 
-The owner said "Ship it", answering the question in the answers file about shipping the Antigravity lock.
+The owner said "Ship it" to this proposal, quoted from the agent's message with its Markdown stripped. The
+answers file holds the whole message.
+
+> Since you asked "What are we shipping?", here it is simply. When Antigravity reviews your code, it currently can read any file on your Mac and can run cp and git clone without asking, so what it reads could reach Google. The change puts each review in a locked room: it reads only a copy of the repo plus files handed to it, and can't run commands, use MCP tools or write files. Your own Antigravity sessions and saved settings don't change.
+>
+> Three limits: web search stays open (only the prompt forbids it), a review that tries to reach outside is cancelled and the next reviewer takes over, and the other reviewers have no such lock.
 
 ## Implementation choices
 
