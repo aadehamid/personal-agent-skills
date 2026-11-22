@@ -119,7 +119,7 @@ Last review: 2026-10-22.
   Standard output had 0 bytes and standard error 303. With JSON output the same failure reads `"status":"SUCCESS","response":""` with `denied_actions`. Plan mode has a second one: it answers that it wrote a plan to approve, also with exit 0.
 - **The runner, live:** `agy-review.sh` as committed in this change reviewed the same planted commit twice and found 4 of 4 both times, in 375 and 506 seconds. All 155 file reads stayed inside its clones, and both transcripts name Gemini 4 Neon (XHigh). A Pi review of this change took 233 seconds in the same minutes, so putting Antigravity first makes a review round longer.
 - **What we took:** Antigravity first in "Who reviews"; `agy-review.sh`, which counts a review only on exit 0 and a first line of exactly READY or FIX; and a prompt that allows file reads and forbids commands.
-- **What we left:** agy's `allowNonWorkspaceAccess` setting, which the owner had not decided when this was written. (Decided later that day, 1s: review runs turn it off with `--settings`, and the saved setting stays unchanged.) The limits of the evidence: one branch, four bugs, one Pi run, and Pi could read the previous night's reports on two of the bugs.
+- **What we left:** agy's `allowNonWorkspaceAccess` setting, which the owner had not decided when this was written. (Decided later that day: see 1s and the record it names.) The limits of the evidence: one branch, four bugs, one Pi run, and Pi could read the previous night's reports on two of the bugs.
 
 ## 1r. A reviewer searching the owner's folders (2026-11-22)
 
