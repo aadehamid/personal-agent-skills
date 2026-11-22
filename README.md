@@ -11,7 +11,7 @@ fallback, so an agent started here can reach any of them without duplicating
 skills or steering.
 
 Start a session here for cross-repo work, or when I want the full shared context
-in one place. For work in a single repo, start in that repo as usual — the
+in one place. For work in a single repo, start in that repo as usual. The
 skills install globally, so this repo is a map and a shared home, not a daily
 requirement.
 
