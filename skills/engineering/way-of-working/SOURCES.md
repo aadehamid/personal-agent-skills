@@ -89,9 +89,9 @@ Last review: 2026-10-22.
 
 ## 1p. The check and review timing on personal-agent-skills (2026-11-22)
 
-- **What it is:** the owner asked where the time went on pull requests #101 and #102 and approved running the check script and the Pi review side by side.
-- **What we took:** run the two together when Pi is the reviewer, and tell Pi not to repeat the check. Run one after the other, they took 380 and 433 seconds on #101's change. Side by side they took 349 seconds in all on #102's second round. Pi's two reviews that reran the check took 433 and 442 seconds, and the two that did not took 112 and 81.
-- **What we left:** the same for Kimi, Codex and the Cursor agent CLI, which share the working tree the check guards.
+- **What it is:** the owner asked where the time went on pull requests #101 and #102, then asked for the fixes to be worked, side-by-side runs among them. The owner's words are in this repository's `docs/decisions/2026-11-22-faster-checks-answers.md`.
+- **What we took:** run the check and Pi's review together, and tell Pi not to repeat the whole check. The evidence is the wall time the working agent measured around each script run on the owner's Mac, listed with its commit in `docs/decisions/2026-11-22-faster-checks.md`, "Evidence".
+- **What we left:** side-by-side runs for Kimi, Codex and the Cursor agent CLI. They share the working tree the check guards, so checking first with them is the agent's choice, not the owner's words.
 
 ## 2. mattpocock-skills (marketplace `mattpocock`, v1.3.1)
 

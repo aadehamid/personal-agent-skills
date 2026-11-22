@@ -14,5 +14,6 @@ skipped question as agreement is recorded here.
 | 2026-11-07 | [A reusable ontology visualization skill](2026-11-07-ontology-visualization.md) | Decided |
 | 2026-11-08 | [The Kimi reviewer runs with --auto (Never Ask)](2026-11-08-kimi-reviewer-never-ask.md) | Decided |
 | 2026-11-22 | [Make this repository public for a short time so CI can run](2026-11-22-temporary-public-for-ci.md) | Decided |
+| 2026-11-22 | [Make the check and review flow faster with no drop in quality](2026-11-22-faster-checks.md) | Decided |
 
 Existing skills' source and change notes remain where their READMEs identify them.
