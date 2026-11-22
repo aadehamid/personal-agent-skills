@@ -95,7 +95,7 @@ Last review: 2026-10-22.
 
 ## 1q. Antigravity as an independent reviewer (2026-11-22)
 
-- **What it is:** a planted-bug test of Antigravity (agy 1.5.14, gemini-4-neon-xhigh) against Pi on this repository, then a diagnosis of its empty reviews. The owner's words, as relayed by the project's assistant: "Instead of PI can this be antigravity", "Xhigh", and the decision card's option "Yes, after a planted-bug test". The record and the answers file are `docs/decisions/2026-11-22-antigravity-first.md` and `2026-11-22-antigravity-first-answers.md` in this repository.
+- **What it is:** a planted-bug test of Antigravity (agy 1.5.14, gemini-4-neon-xhigh) against Pi on this repository, then a diagnosis of its empty reviews. The owner's decision, received directly at 13:43:05 UTC: "Ship antigravity FIRST". Earlier words, as relayed by the project's assistant: "Instead of PI can this be antigravity", "Xhigh", and the decision card's option "Yes, after a planted-bug test". The record and the answers file are `docs/decisions/2026-11-22-antigravity-first.md` and `2026-11-22-antigravity-first-answers.md` in this repository.
 - **The test:** four bugs on f6b6b08, proved against that base, with the answer key written and hashed before any reviewer ran (sha256 `70a64d6cf2d8190cc4c2cc09e7fd32343d392bac9f7e51c498bc863641e34c93`): a tree guard that stops hashing permission bits, an empty-suite guard that matches the folder in place of the file, a `grep -E` pattern that breaks merged-PR detection, and a rule changed in one file and not in its copies.
 
   | Run, every agy exit 0 | Runs | Review | Bugs caught | Seconds |
