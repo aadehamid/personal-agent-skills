@@ -25,8 +25,8 @@ These are the agent's choices, not the owner's words.
   decides for working agents.
 - Commands, unsandboxed commands, MCP tools, file writes and URL reads are denied explicitly, because a saved
   allow rule wins over a setting.
-- Skills and instruction files outside the clone cannot be read. The prompt says to load none. That line is not
-  tested live yet, and this record is not to be decided before it is.
+- Skills and instruction files outside the clone cannot be read. The prompt says to load none. Two live runs on a
+  repository without the skills passed with that line (way-of-working `SOURCES.md`, 1s).
 - Web search stays open. No permission rule tried closes it. The prompt forbids it, which is an instruction
   and not a wall.
 
