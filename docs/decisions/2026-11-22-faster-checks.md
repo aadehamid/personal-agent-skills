@@ -24,9 +24,8 @@ These are the agent's choices, made under that request. They are not the owner's
 - Suggestion 3 applies to Pi only, which reviews in its own clone. With Kimi, Codex and the Cursor agent CLI,
   which share the working tree, the check runs first. Pi is told not to repeat the whole check, and may run
   any test it needs.
-- Suggestion 4 is not done. GitHub refuses branch protection on this repository while it is private (HTTP 403,
-  "Upgrade to GitHub Pro or make this repository public to enable this feature"), and the setting is the
-  owner's to change.
+- Suggestion 4 is not done. The setting is the owner's to change, and GitHub refuses branch protection on this
+  repository while it is private, as it normally is (see the two readings under Evidence).
 
 ## Evidence
 
@@ -41,6 +40,13 @@ Wall times the working agent measured around each script run on the owner's Mac,
 | d4aec1e (this change, round 1) | 99 s | 168 s | no | side by side |
 
 The commits are the local ones the agent tested, some of which were rebuilt from patches and never pushed.
+
+Branch protection, read twice with `gh api repos/aadehamid/personal-agent-skills/branches/main/protection`:
+
+- 2026-11-22 04:39 UTC, repository private: HTTP 403, "Upgrade to GitHub Pro or make this repository public to
+  enable this feature."
+- 2026-11-22 05:28 UTC, repository public for this pull request's CI: HTTP 404, "Branch not protected". The
+  refusal was gone and no protection was set. The agent did not try to set any.
 
 ## Alternatives considered
 
