@@ -31,9 +31,9 @@ The person is usually not an ontology builder. Say what a step does in their wor
    Then stop and wait: end your turn with the plan and the question.
    Done when the person has said yes to these proposals in this conversation, after seeing the plan. A yes to an earlier change does not carry over.
 5. **Apply, one proposal per run, in the printed order.** Run the apply step with each proposal folder. It works in a temporary copy and writes and commits the release only when every check passes.
-   Run each apply once. If you are not sure whether a run happened, look at the last commit first: a proposal whose commit is there is applied.
+   Run each apply once, without a pipe, so its exit status and last lines are its own, and show the last commit after each. If you are not sure whether a run happened, look at the last commit first: a proposal whose commit is there is applied.
    Done when each run ends with the line that starts `Done.` and names what changed, and the last commit, shown as the handout's step "See the commit" shows it, names the proposal.
-6. **Check the release and load the stores, once, after the last apply.** Follow the handout's section "Check the release and recover", its part "After every change", in its order: the full check, the load, the store check. When every apply's last line said no store needs loading, the full check is enough.
+6. **Check the release and load the stores, once, after the last apply.** Follow the handout's section "Check the release and recover", its part "After every change", in its order: the full check, the load, the store check. Only when every apply's last line said no store needs loading is the full check enough; one such line among others is not.
    Done when each step ends on the line the handout names for it.
 7. **Give people the new forms.** Follow the handout's "Refresh what people use": after a change made with a form, its part "After a change of sections 3 to 5"; after the person changed the forms' settings, its part "After you change the forms' settings". Ask the person for the path of the team's shared folder; do not guess it.
    Done when that part's last step ends on the line the handout names.
