@@ -2,7 +2,7 @@
 
 An agent skill that takes a filled change form for a released ontology and drives it through the release's own commands to a checked, committed release: check the form, turn it into a proposal, show the plan and get a yes, apply it, run the release's check, load and check the stores, and give people the new forms.
 
-It gives no command of its own. Every command comes from the release's guides, `HANDOUT.md` and the sections of `HOW-TO-UPDATE.md` it or the skill names; the release's doc test runs or checks their command blocks. The skill adds the order, the yes before an apply, and plain-word answers to a refusal. A few words it relies on, such as a check ending "not complete", come from what the commands print, which the guides show only in part.
+It gives no command of its own. Every command comes from the release's guides: `HANDOUT.md`, and the sections of `HOW-TO-UPDATE.md` and `kpi-intake/README.md` that it or the skill names; the release's doc test runs or checks their command blocks. The skill adds the order, the yes before an apply, and plain-word answers to a refusal. A few words it relies on, such as a check ending "not complete", come from what the commands print, which the guides show only in part.
 
 This README is for people. Agents read `SKILL.md`.
 
