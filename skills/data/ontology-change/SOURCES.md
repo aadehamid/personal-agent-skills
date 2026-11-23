@@ -9,7 +9,7 @@ This file lists what the ontology-change skill draws on. Agents do not read it.
 
 ## 2. The release's guides
 
-- **What it is:** `HANDOUT.md`, "Running and changing your ontology", and `HOW-TO-UPDATE.md`, in the KPI Store release repository, as they stood on branch `feat/handout` at b3b1924 on 2026-11-22 (the handout's pull request, not yet merged into `kpi-store/1.2`). The release's doc test runs or checks their command blocks.
+- **What it is:** `HANDOUT.md`, "Running and changing your ontology", and `HOW-TO-UPDATE.md`, in the KPI Store release repository, as they stood at b3b1924 on 2026-11-22, the head of the handout's pull request #71, which merged into `kpi-store/1.2` as 7c98cbd on 2026-11-23; the three files are the same on both commits. The release's doc test runs or checks their command blocks.
 - **Also:** `kpi-intake/README.md` in the same release, for who does what in a KPI interview, the routes and the workbook check.
 - **What the skill took:** the order of the steps, the headings it names, and the lines it expects.
 - **Snapshots:** `upstream/HANDOUT.md`, `upstream/HOW-TO-UPDATE.md` and `upstream/kpi-intake-README.md` hold the three files at b3b1924 (local only, not tracked).
