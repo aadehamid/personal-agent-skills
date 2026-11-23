@@ -15,27 +15,34 @@ description: >-
 
 You drive the release's commands; you never do their work. The commands check, build and release the ontology, and they refuse rather than guess. Your job is to run them in the right order, show the person what each will do before it changes anything, and turn each refusal into the next thing to do, in plain words.
 
-**The release's handout is the only source for commands.** Every command, option and expected line is in `HANDOUT.md` at the top of the release folder, and in the sections of the guides it names. Run them as written there. This skill names the handout's parts by their headings; it holds no command of its own.
+**The release's guides are the only source for commands.** Every command and option is in `HANDOUT.md` at the top of the release folder, or in the section of `HOW-TO-UPDATE.md` that this skill or the handout names. Run them as written there, and read what each command prints: its own output says what it found and what to do next. This skill gives no command of its own. It names the guides' sections by their headings; the handout numbers its sections ("3. Make an everyday change with a form"), and this skill leaves the number out.
 
 The person is usually not an ontology builder. Say what a step does in their words, with one sentence each, and name a file by its path.
+
+## Before the steps: is this a change with a form?
+
+- **No filled form yet** (the person asks to add a KPI, a measure, a system, a role, a process or a module): tell them which form fits, from the table in the handout's "Make an everyday change with a form", where the blank forms are and how to fill one, as that section says, and who signs it, as `kpi-intake/README.md` says. Stop until a filled form comes back.
+- **The person wants an AI's help with a form or with new modelling:** follow the handout's "Let an AI help". When it ends with a signed form, start the steps below.
+- **The person changed the forms' settings** (`kpi-intake/settings.toml`): follow the handout's "After you change the forms' settings" instead of these steps.
+- **The person has a newer release:** follow the handout's "Upgrade the tools from a newer release" instead of these steps.
 
 ## The steps
 
 1. **Find the release and the form.** Read the handout's "What is inside the release" and "The conventions". Then find the row for the change in the table of "Make an everyday change with a form" (a new module: "Add a module"), and read the section of `HOW-TO-UPDATE.md` it names. With a KPI form and the forms it waits on, read each form's section and "Propose a KPI with the forms it waits on".
    Done when you can name the release folder, the filled form, the form's kind, and the guide section for it, and the form sits in a folder beside the release folder, not inside it. If it is inside, ask the person to move it; do not move it yourself.
 2. **Check each form.** Run the form check the handout's first step gives, once per form. It changes nothing.
-   Done when each form's check ends with the line the handout shows for a complete, signed form, with one exception: a KPI form whose only things to settle are routes to a domain activation or a process map request (the check lists them under "Routing", and ends "not complete" with exit status 1). Check those forms too; when each of them is complete and signed, the KPI form goes on with them to step 3. When a routed form is missing, tell the person which form to fill and who signs it, as the check says. For anything else the check names as missing, tell the person, and stop until the form comes back. Never answer a question or sign for anyone.
+   Done when each form's check ends with the line the handout shows for a complete, signed form, with one exception: a KPI form whose only open items are routes to a domain activation or a process map request. Its check then ends "not complete" with exit status 1 and names each route and the form it needs. Check those forms too; when each of them is complete and signed, the KPI form goes on with them to step 3. When a routed form is missing, tell the person which form to fill and who signs it, as the check says. For anything else the check names as missing, tell the person, and stop until the form comes back. Never answer a question or sign for anyone.
 3. **Turn the forms into proposals.** Run the propose step. It changes nothing in the ontology. A KPI form that waits on other forms goes in one propose run with those forms, as `HOW-TO-UPDATE.md`, "Propose a KPI with the forms it waits on", shows; every other form gets a run of its own. A propose or apply run can take several minutes: wait for it to end, and never start a second run beside it.
    Done when it has named each proposal folder it wrote. When it prints an order to apply them in, write that order down exactly: step 5 follows it.
-4. **Show the plan, and get a yes.** Read each proposal's `summary.txt`. Tell the person what the change adds, which modules it reaches and their route (patch, minor or major), who signed, the apply order when there is one, and every line the summaries and the step 2 checks address to the Architect or flag about the form (such as "For the Architect" or "Checks against the ontology"). Say when there is none. The handout asks the Architect to read the summary too.
+4. **Show the plan, and get a yes.** Read each proposal's `summary.txt`. Tell the person what the change adds, which modules it reaches and their route (patch, minor or major), who signed, the apply order when there is one, and every note that the summaries and the step 2 checks address to the Architect or raise about the form. Say when there is none. The handout asks the Architect to read the summary too.
    Then stop and wait: end your turn with the plan and the question.
    Done when the person has said yes to these proposals in this conversation, after seeing the plan. A yes to an earlier change does not carry over.
 5. **Apply, one proposal per run, in the printed order.** Run the apply step with each proposal folder. It works in a temporary copy and writes and commits the release only when every check passes.
    Run each apply once, without a pipe, so its exit status and last lines are its own, and show the last commit after each. If you are not sure whether a run happened, look at the last commit first: a proposal whose commit is there is applied.
-   Done when each run ends with the line that starts `Done.` and names what changed, and the last commit, shown as the handout's step "See the commit" shows it, names the proposal.
-6. **Check the release and load the stores, once, after the last apply.** Follow the handout's section "Check the release and recover", its part "After every change", in its order: the full check, the load, the store check. Only when every apply's last line said no store needs loading is the full check enough; one such line among others is not.
+   Done when each run ends with a line that starts `Done.` and names what changed, then the line after it, which says what to run next; and the last commit, shown as the handout's step "See the commit" shows it, names the proposal.
+6. **Check the release and load the stores, once, after the last apply.** Follow the handout's section "Check the release and recover", its part "After every change", in its order: the full check, the load, the store check. Only when the line after `Done.` said that no store needs loading, for every apply, is the full check enough; one such line among others is not.
    Done when each step ends on the line the handout names for it.
-7. **Give people the new forms.** Follow the handout's "Refresh what people use": after a change made with a form, its part "After a change of sections 3 to 5"; after the person changed the forms' settings, its part "After you change the forms' settings". Ask the person for the path of the team's shared folder; do not guess it.
+7. **Give people the new forms.** Follow the handout's "Refresh what people use", its part "After a change of sections 3 to 5: give people the new forms". Ask the person for the path of the team's shared folder; do not guess it.
    Done when that part's last step ends on the line the handout names.
 
 ## When a command refuses or fails
@@ -50,7 +57,6 @@ Never get past a refusal another way: no other option, no edit of a table, a Tur
 
 ## Rules at every step
 
-- **Ask before anything that empties or replaces a store.** The handout's "Replace what a store holds, or reset every store" types a word to confirm; only the person gives it.
+- **Never replace or reset a store on your own.** The handout's "Replace what a store holds, or reset every store" deletes data and needs written authorization for the exact environment first. Run it only when the person asks for it and has that authorization. The reset asks for a typed word: only the person types it.
 - **Keep secrets out of the conversation.** Never print the local settings file or a sign-in file; name a key when you need to, never its value.
-- **Forms and proposals stay outside the release folder,** as the handout says, so an upgrade never touches them.
-- **Upgrades are not changes.** When the person has a newer release, follow the handout's "Upgrade the tools from a newer release" instead of these steps.
+- **Forms, proposals and settings files stay outside the release folder,** as the handout's "The conventions" says: the release folder is zipped and uploaded. `HOW-TO-UPDATE.md` adds that the apply refuses a release with files that are not committed.
