@@ -13,6 +13,7 @@ This README is for people. Agents read `SKILL.md`.
 | `SKILL.md` | the agent | The steps, the cases before them, the refusal procedure and the rules. |
 | `README.md` | you | This page. |
 | `SOURCES.md` | you | Where the skill comes from, and when to check it again. |
+| `upstream/` | you | Local snapshots of the release's three guides, for the update check in `SOURCES.md`. Not tracked. |
 
 ## Status
 
