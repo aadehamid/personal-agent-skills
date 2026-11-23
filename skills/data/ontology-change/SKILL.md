@@ -22,7 +22,7 @@ The person is usually not an ontology builder. Say what a step does in their wor
 ## Before the steps: is this a change with a form?
 
 - **No filled form yet** (the person asks to add a KPI, a measure, a system, a role, a process or a module): tell them which form fits, from the table in the handout's "Make an everyday change with a form", and where the blank forms are, as that section says. Who signs depends on the form and its route: take it from the form's own section, the one that section's table names in `HOW-TO-UPDATE.md`. For a KPI, `kpi-intake/README.md`, "Who does what" and "How an interview runs", say how the interview fills the form. Stop until a filled form comes back.
-- **The person wants an AI's help with a form or with new modelling:** follow the handout's "Let an AI help". When it ends with a signed form, start the steps below.
+- **The person wants an AI's help with a form or with new modelling:** follow the handout's "Let an AI help" only as far as the signatures: in "Suggestions for a form", until the form holds the answers the person accepted and the signers have signed it; in "A draft of new modelling", through its step 4, where the three signers sign. Do not run that section's propose-and-apply step. With the signed form, start the steps below at step 1, so the person sees the plan and says yes before anything is applied.
 - **The person changed the forms' settings** (`kpi-intake/settings.toml`): follow the handout's "After you change the forms' settings" instead of these steps.
 - **The person has a newer release:** follow the handout's "Upgrade the tools from a newer release" instead of these steps.
 
