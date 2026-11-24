@@ -178,6 +178,24 @@ class GuardTest(unittest.TestCase):
         self.start([fake, os.path.join(self.repo, "scripts", "check.sh")])
         self.assert_allowed(self.edit(os.path.join(self.repo, "a.py")))
 
+    def test_list_says_so_when_it_cannot_look_and_the_hook_still_lets_edits_through(self):
+        if os.path.isdir("/proc/self/fd"):
+            self.skipTest("this system is read through /proc, not lsof")
+        stubs = os.path.join(self.base, "stubs")
+        os.makedirs(stubs)
+        lsof = os.path.join(stubs, "lsof")
+        with open(lsof, "w") as f:
+            f.write("#!/bin/sh\necho 'lsof: cannot read the process table' >&2\nexit 1\n")
+        os.chmod(lsof, 0o755)
+        env = dict(os.environ, PATH=stubs + os.pathsep + os.environ["PATH"])
+        out = subprocess.run([sys.executable, GUARD, "--list"], capture_output=True, text=True, env=env, timeout=60)
+        self.assertEqual((out.returncode, out.stdout), (1, ""))
+        self.assertIn("lsof exited 1: lsof: cannot read the process table", out.stderr)
+        event = json.dumps({"tool_name": "Edit", "tool_input": {"file_path": os.path.join(self.repo, "a.py")}})
+        hook = subprocess.run([sys.executable, GUARD], input=event, capture_output=True, text=True, env=env,
+                              timeout=60)
+        self.assertEqual(hook.returncode, 0)
+
     def test_input_it_cannot_read_never_blocks(self):
         self.start_check()
         inside = os.path.join(self.repo, "a.py")

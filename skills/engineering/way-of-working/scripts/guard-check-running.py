@@ -73,8 +73,10 @@ def open_checks() -> list[tuple[str, str]]:
         run = subprocess.run(args, capture_output=True, text=True, timeout=10)
     except subprocess.SubprocessError as error:
         raise OSError(f"lsof did not answer: {error}") from error
-    if run.returncode not in (0, 1):     # 1: no process matched
-        raise OSError(f"lsof failed: {run.stderr.strip()}")
+    # lsof exits 1 both when no process matched and on an error; only an error writes to stderr (-w silences
+    # warnings).
+    if run.returncode not in (0, 1) or (run.returncode == 1 and run.stderr.strip()):
+        raise OSError(f"lsof exited {run.returncode}: {run.stderr.strip() or 'no message'}")
     pid, shell = "", False
     for line in run.stdout.splitlines():
         if line.startswith("p"):
