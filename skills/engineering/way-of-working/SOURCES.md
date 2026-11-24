@@ -153,9 +153,10 @@ Last review: 2026-10-22.
 
 ## 1t. The KPI Store 1.2 night run retro (2026-11-24)
 
-- **What it is:** the retro of a six-day night run in the downstream ontology release repository, read from its night log. Two costs led it. CI jobs were cancelled at their time limit about eight times, each costing a rerun of one to four hours, because each limit was raised a small step after each cancel while the suite kept growing. And the agent edited a worktree while its check script ran five times, each time throwing away a run of 20 to 30 minutes, although the rule was already in its notes.
-- **What we took:** two bullets in `references/guardrails.md`, "One check script, run everywhere": leave a folder alone while its check runs, enforced in Claude Code by `scripts/guard-check-running.py`; and give each CI job a limit of about twice its longest recent run. The owner asked for the high-priority items of the retro to be addressed.
+- **What it is:** the retro of a six-day night run in the downstream ontology release repository, read from its night log. Two costs led it. CI jobs were cancelled at their time limit about eight times, each costing a cancelled run of 45 minutes to three hours, because each limit was raised a small step after each cancel while the suite kept growing. And the agent edited a worktree while its check script ran five times, each time throwing away a run of 20 to 30 minutes, although the rule was already in its notes.
+- **What we took:** two bullets in `references/guardrails.md`, "One check script, run everywhere": leave a folder alone while its check runs, enforced in Claude Code by `scripts/guard-check-running.py`; and give each CI job a limit of about twice its longest recent run. The owner's words, in the session of 2026-11-24 that ran the retro: "can you address the high priority items", after the retro named these two as the costliest.
 - **What we left:** shell edits. The guard sees Edit, Write, MultiEdit and NotebookEdit, not `sed -i`, a redirect or `git commit`, because telling a shell write from a read needs guessing.
+- **Round 1 of its review** (Antigravity) found that the first version read the process table's command lines, which `ps` cuts at 80 columns without `-ww` and which flags and spaces broke. The guard now finds a check by the script file its shell holds open (tested with bash, sh, zsh, dash, flags, spaces and an `exec` from a hook) and compares folders by file identity.
 
 ## 2. mattpocock-skills (marketplace `mattpocock`, v1.3.1)
 
