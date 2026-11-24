@@ -194,7 +194,7 @@ class GuardTest(unittest.TestCase):
         event = json.dumps({"tool_name": "Edit", "tool_input": {"file_path": os.path.join(self.repo, "a.py")}})
         hook = subprocess.run([sys.executable, GUARD], input=event, capture_output=True, text=True, env=env,
                               timeout=60)
-        self.assertEqual(hook.returncode, 0)
+        self.assert_allowed(hook)
 
     def test_input_it_cannot_read_never_blocks(self):
         self.start_check()
