@@ -40,15 +40,21 @@ def is_check(path: str) -> bool:
     return path.endswith(os.sep + CHECK)
 
 
+def is_shell(name: str) -> bool:
+    return os.path.basename(name).lstrip("-") in SHELLS
+
+
 def open_checks() -> list[tuple[str, str]]:
-    """(pid, path) for each shell holding a scripts/check.sh open."""
+    """(pid, path) for each shell holding a scripts/check.sh open. Raises OSError when it cannot look."""
     found = []
     if os.path.isdir("/proc/self/fd"):
         for pid in filter(str.isdigit, os.listdir("/proc")):
             try:
-                with open(f"/proc/{pid}/comm") as f:
-                    if f.read().strip() not in SHELLS:
-                        continue
+                # A script run straight from its shebang is named after the script in comm; exe is the shell.
+                with open(f"/proc/{pid}/comm", errors="replace") as f:
+                    comm = f.read().strip()
+                if not (is_shell(comm) or is_shell(os.readlink(f"/proc/{pid}/exe"))):
+                    continue
                 fds = os.listdir(f"/proc/{pid}/fd")
             except OSError:
                 continue
@@ -60,23 +66,31 @@ def open_checks() -> list[tuple[str, str]]:
                 if is_check(path):
                     found.append((pid, path))
         return found
-    args = ["lsof", "-w", "-Fpn"] + [x for shell in SHELLS for x in ("-c", shell)]
+    # -c matches a name's prefix, so the command field is checked exactly below. -n and -P skip the host and port
+    # lookups of sockets, which can stall on a slow network.
+    args = ["lsof", "-w", "-n", "-P", "-Fpcn"] + [x for shell in SHELLS for x in ("-c", shell)]
     try:
-        out = subprocess.run(args, capture_output=True, text=True, timeout=10).stdout
-    except (OSError, subprocess.SubprocessError):
-        return found
-    pid = ""
-    for line in out.splitlines():
+        run = subprocess.run(args, capture_output=True, text=True, timeout=10)
+    except subprocess.SubprocessError as error:
+        raise OSError(f"lsof did not answer: {error}") from error
+    if run.returncode not in (0, 1):     # 1: no process matched
+        raise OSError(f"lsof failed: {run.stderr.strip()}")
+    pid, shell = "", False
+    for line in run.stdout.splitlines():
         if line.startswith("p"):
-            pid = line[1:]
-        elif line.startswith("n") and is_check(line[1:]):
+            pid, shell = line[1:], False
+        elif line.startswith("c"):
+            shell = is_shell(line[1:])
+        elif line.startswith("n") and shell and is_check(line[1:]):
             found.append((pid, line[1:]))
     return found
 
 
 def folders_of(target: str):
     """Every existing folder that holds target, read through its written path and through its real path."""
-    for path in (target, os.path.realpath(target)):
+    # The written path is walked after normpath, which drops "a/.." by text; the real path is resolved from the raw
+    # path, so a "link/.." reaches the folder the system would write to.
+    for path in (os.path.normpath(target), os.path.realpath(target)):
         folder = path
         while True:
             parent = os.path.dirname(folder)
@@ -103,7 +117,6 @@ def refusal(event) -> str | None:
         if not isinstance(base, str) or not os.path.isabs(base):
             return None
         target = os.path.join(base, target)
-    target = os.path.normpath(target)
     checks = []
     for pid, path in open_checks():
         root = os.path.dirname(os.path.dirname(path))
@@ -125,7 +138,12 @@ def refusal(event) -> str | None:
 
 def main() -> int:
     if sys.argv[1:] == ["--list"]:
-        for pid, path in open_checks():
+        try:
+            checks = open_checks()
+        except OSError as error:
+            print(f"cannot list running checks: {error}", file=sys.stderr)
+            return 1
+        for pid, path in checks:
             print(pid, os.path.dirname(os.path.dirname(path)))
         return 0
     try:

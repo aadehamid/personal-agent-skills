@@ -19,7 +19,8 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GUARD = os.path.join(HERE, "guard-check-running.py")
-CHECK_SH = "#!/usr/bin/env bash\ncd /\nsleep 60\n"
+# A direct shebang: a script run from it is named after the script, not the shell, on Linux.
+CHECK_SH = "#!/bin/bash\ncd /\nsleep 60\n"
 
 
 def guard(event):
@@ -55,6 +56,8 @@ class GuardTest(unittest.TestCase):
         return proc
 
     def stop(self, proc):
+        if proc.returncode is not None:  # stopped already: its process group id may belong to someone else now
+            return
         try:
             os.killpg(proc.pid, signal.SIGKILL)
         except ProcessLookupError:
@@ -98,9 +101,11 @@ class GuardTest(unittest.TestCase):
         script = os.path.join(self.repo, "scripts", "check.sh")
         ways = [["bash", "-e", "-x", script], ["bash", "--noprofile", "--norc", script], ["sh", script],
                 ["./scripts/check.sh"], ["bash", "-c", f'exec "{script}"']]
-        ways += [[shell, script] for shell in ("zsh", "dash") if shutil.which(shell)]
+        ways += [["zsh", script], ["dash", script]]
         for way in ways:
             with self.subTest(way=way):
+                if not shutil.which(way[0]) and not way[0].startswith("."):
+                    self.skipTest(f"{way[0]} is not installed here")
                 proc = self.start_check(*way, cwd=self.repo)
                 self.assert_refused(self.edit(os.path.join(self.repo, "a.py")))
                 self.stop(proc)
@@ -120,6 +125,10 @@ class GuardTest(unittest.TestCase):
         self.assert_refused(self.edit(os.path.join(self.repo, "link-out")))
         self.assert_refused(self.edit(os.path.join(outside, "link-in", "a.py")))
         self.assert_allowed(self.edit(os.path.join(outside, "file.txt")))
+        os.makedirs(os.path.join(self.repo, "sub"))
+        os.symlink(os.path.join(self.repo, "sub"), os.path.join(outside, "link-sub"))
+        self.assert_refused(self.edit(os.path.join(outside, "link-sub", "..", "a.py")))
+        self.assert_refused(self.edit(os.path.join("..", "a.py"), cwd=os.path.join(outside, "link-sub")))
 
     def test_the_path_is_matched_by_identity_not_by_letter_case(self):
         upper = self.repo.upper()
@@ -154,6 +163,20 @@ class GuardTest(unittest.TestCase):
         self.assertEqual(out.returncode, 0)
         self.assertIn(f"{proc.pid} {self.repo}\n", out.stdout)
         self.assertNotIn(self.other, out.stdout)
+
+    def test_a_program_named_like_a_shell_is_not_a_check(self):
+        # lsof -c sh matches every name that starts with sh. A copied system binary is killed on macOS and a
+        # symlink takes its target's name, so the stand-in is a small C program built here.
+        compiler = shutil.which("cc")
+        if not compiler:
+            self.skipTest("no C compiler here")
+        source, fake = os.path.join(self.base, "holder.c"), os.path.join(self.base, "shfake")
+        with open(source, "w") as f:
+            f.write('#include <stdio.h>\n#include <unistd.h>\n'
+                    'int main(int c, char **v) { FILE *f = fopen(v[1], "r"); if (!f) return 1; sleep(60); }\n')
+        subprocess.run([compiler, "-o", fake, source], check=True, capture_output=True)
+        self.start([fake, os.path.join(self.repo, "scripts", "check.sh")])
+        self.assert_allowed(self.edit(os.path.join(self.repo, "a.py")))
 
     def test_input_it_cannot_read_never_blocks(self):
         self.start_check()
