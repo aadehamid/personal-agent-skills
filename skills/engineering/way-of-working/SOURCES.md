@@ -151,6 +151,12 @@ Last review: 2026-10-22.
 - **What we took:** the `lock=` line in `agy-review.sh`, passed on every run, and a prompt line against web search.
 - **What we left:** the owner's saved settings and allow rules, untouched. A wall for Pi, Kimi, Codex and the Cursor agent CLI, whose limit is still the prompt alone.
 
+## 1t. The KPI Store 1.2 night run retro (2026-11-24)
+
+- **What it is:** the retro of a six-day night run in the downstream ontology release repository, read from its night log. Two costs led it. CI jobs were cancelled at their time limit about eight times, each costing a rerun of one to four hours, because each limit was raised a small step after each cancel while the suite kept growing. And the agent edited a worktree while its check script ran five times, each time throwing away a run of 20 to 30 minutes, although the rule was already in its notes.
+- **What we took:** two bullets in `references/guardrails.md`, "One check script, run everywhere": leave a folder alone while its check runs, enforced in Claude Code by `scripts/guard-check-running.py`; and give each CI job a limit of about twice its longest recent run. The owner asked for the high-priority items of the retro to be addressed.
+- **What we left:** shell edits. The guard sees Edit, Write, MultiEdit and NotebookEdit, not `sed -i`, a redirect or `git commit`, because telling a shell write from a read needs guessing.
+
 ## 2. mattpocock-skills (marketplace `mattpocock`, v1.3.1)
 
 - **What we took:** the retro loop (`retro`), decision interviews (`grill-with-docs`, `grilling`), the rules for writing documents agents read (`writing-for-agents`), and the shape of a PR body (`pr`) — the smallest view that makes the point, evidence before and after, and merge danger as a one-way or two-way door. That shape is adapted into `references/changing.md`, not adopted as a template: `changing.md` already owns what a PR body says, and a second authority for one rule is what rule 6 forbids. The `pr` skill credits Humanlayer's `show-me`.
