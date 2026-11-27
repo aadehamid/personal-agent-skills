@@ -28,10 +28,15 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cypher_dir="$here/memory"
 tmp=""
 build_dir=""
-# Bash runs this EXIT trap on a normal exit and when SIGINT or SIGTERM ends
-# the script (measured on bash 3.2 and 5.3). Only SIGKILL skips it; init
-# sweeps the builds that leaves.
-trap '[ -z "$tmp" ] || rm -f "$tmp"; [ -z "$build_dir" ] || rm -rf "$build_dir"' EXIT
+cleanup() {
+  [ -z "$tmp" ] || rm -f "$tmp"
+  [ -z "$build_dir" ] || rm -rf "$build_dir"
+}
+# Clean up on a normal exit and on the signals that usually stop a script.
+# SIGKILL, SIGQUIT and a crash skip every trap; init sweeps the builds they leave.
+trap cleanup EXIT
+trap 'cleanup; trap - EXIT; exit 130' INT
+trap 'cleanup; trap - EXIT; exit 143' TERM HUP
 
 store() {
   if [ -n "${PROJECT_MEMORY_DB:-}" ]; then
