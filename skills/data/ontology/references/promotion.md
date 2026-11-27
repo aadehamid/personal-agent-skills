@@ -47,7 +47,7 @@ Two citation rules hold for every verb. **Boundary wording is never a route:** "
 A relation mined from documents (by a script, a model or a person reading a manual) is a candidate, not yet a source row. Review each against these rules before it enters the source; the predicate review above then reads it like any other row. These rules decide what a candidate becomes. Once a verb is in the source, rule 11 holds: promotion never replaces it, and a hold is never a remap.
 
 - **An `enables` link that restates an output dependency** (A enables B only because B uses what A produces) is merged into that dependency. It gives no evidence of its own.
-- **An `enables` link that hides a sequence** (A must finish before B starts) becomes `precedes`, and then needs the evidence `precedes` needs (rule 5; in an industry reference, `industry-reference.md`, rule 9).
+- **An `enables` link that hides a sequence** (A must finish before B starts) becomes `precedes`, and then needs the evidence a `precedes` link between non-siblings needs: the sequence stated in the source or a strict two-way pair (the `precedes` definition below; in an industry reference, `industry-reference.md`, rule 9).
 - **A link from a child to one of its ancestors** duplicates the hierarchy and is rejected.
 - **An explicit reference in the text** (the source's definition or scope note names the target) outranks structural nearness. It is the evidence rule 5 accepts.
 - **Sitting under the same parent is structural nearness,** so it is never evidence on its own for any of these links, `precedes` included: a mined candidate never takes rule 5's exception for siblings.
