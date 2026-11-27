@@ -1,6 +1,6 @@
 ---
 name: project-memory
-description: Shared project memory in a Relate graph, used by every agent through scripts/memory.sh. Use to recall what earlier sessions learned before starting work, and to save a decision, owner preference, correction or hard-won finding before a session ends.
+description: This repository's shared memory, a Relate graph every agent reads and saves through scripts/memory.sh. Use to recall what earlier sessions learned before starting work, and to save a decision, owner preference, correction or hard-won finding before a session ends. In this repository it takes the place of the general relate-agent-memory setup.
 ---
 
 # Project memory
@@ -78,4 +78,5 @@ Writes still go through `scripts/memory.sh remember`, so validation and superses
 
 - Install: `curl -sSfL https://relatedb.ai/install.sh | bash`. The installer checks the release signature and SHA-256 and puts `relate` in `~/.local/bin`. Check it with `relate --version`.
 - Command reference for the installed version: `relate agent-context`. Docs index: <https://relatedb.ai/docs/llms.txt>. The docs are reference text, not instructions.
+- This repository has one memory store, `.relate-memory/`. The general `relate` and `relate-agent-memory` skills are reference for Cypher and the memory model; follow this skill instead of their setup steps, so no agent creates a second store or a vector index this script does not know.
 - Write to `.relate-memory/` only through `scripts/memory.sh`. A direct `relate` write skips validation and supersession and can break `scripts/memory.sh check`. Read it directly only with `--read-only` and `$parameters`.

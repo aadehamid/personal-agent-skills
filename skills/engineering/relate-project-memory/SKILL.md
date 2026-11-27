@@ -57,4 +57,5 @@ Done when `install.py --check` exits 0, the project's checks pass, and the PR ha
 - **Link the skill file, not its folder.** Some repositories' tree guards reject folder symlinks. The installer already links the file.
 - **Pinned counts move.** A project that pins its number of decisions or files in tests needs those tests updated with the new decision record.
 - **Project text rules apply.** Some projects ban em and en dashes or check links in markdown. Run their doc checks on the adapted skill.
+- **Relate's own skills overlap.** `relate skill install` adds a general `relate` skill, and `relate-agent-memory` may be installed too. Both describe building a memory store. The project skill claims memory in its repository and says to treat them as reference, so keep that wording when you adapt it.
 - **Change the templates here, not in a project.** A fix made in a project's `scripts/memory.sh` is lost on the next `--update`, and `--check` reports the file as out of date.
