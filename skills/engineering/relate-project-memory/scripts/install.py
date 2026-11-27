@@ -13,18 +13,24 @@ Files fall in two groups:
                  refuses to overwrite one that differs.
   project-owned  .agents/skills/project-memory/SKILL.md, its .claude link,
                  the Claude SessionStart hook, Gemini's AGENTS.md setting and
-                 the .gitignore lines. The installer creates each one once and
-                 never overwrites it, because the project adapts them.
+                 the .gitignore lines. A plain install creates the missing
+                 ones and adds missing entries; --update never touches them.
 
---check exits 1 if a tool-owned file is missing or differs from the skill's
-template, if the project skill still holds an ADAPT marker or a {{placeholder}},
-or if AGENTS.md does not mention scripts/memory.sh.
+The installer plans every change first. If anything is wrong (a clash, a
+missing argument, a symlink in the way, unreadable JSON) it changes nothing.
+
+--check exits 1 if a tool-owned file is missing, differs from the skill's
+template or has lost its execute bit; if the project skill is missing or still
+holds an ADAPT marker or a {{placeholder}}; if the .claude link is not the
+relative link the installer makes; or if AGENTS.md does not mention
+scripts/memory.sh.
 """
 import argparse
 import json
 import os
 import re
 import sys
+import tempfile
 
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATES = os.path.join(SKILL_DIR, "templates")
@@ -39,14 +45,22 @@ HOOK_COMMAND = (
 )
 GITIGNORE_LINES = [".relate-memory/", ".relate-memory.*"]
 GITIGNORE_HEADER = "# Shared agent memory (scripts/memory.sh). Git ignores it; Dropbox may sync it."
+PLACEHOLDER = re.compile(r"\{\{[^{}\n]+\}\}")
+
+
+class Refusal(Exception):
+    def __init__(self, message, code=2):
+        super().__init__(message)
+        self.code = code
 
 
 def tool_files(tests_dir):
+    # (template, path in the repository, executable)
     return [
-        ("memory.sh", "scripts/memory.sh", 0o755),
-        ("memory/schema.cypher", "scripts/memory/schema.cypher", 0o644),
-        ("memory/remember.cypher", "scripts/memory/remember.cypher", 0o644),
-        ("test_memory.py", os.path.join(tests_dir, "test_memory.py"), 0o644),
+        ("memory.sh", "scripts/memory.sh", True),
+        ("memory/schema.cypher", "scripts/memory/schema.cypher", False),
+        ("memory/remember.cypher", "scripts/memory/remember.cypher", False),
+        ("test_memory.py", os.path.join(tests_dir, "test_memory.py"), False),
     ]
 
 
@@ -55,62 +69,89 @@ def read(path):
         return fh.read()
 
 
+def executable(path):
+    # Git records only the execute bit, and checkouts follow the local umask,
+    # so the owner's execute bit is the only mode worth comparing.
+    return bool(os.stat(path).st_mode & 0o100)
+
+
 class Plan:
-    def __init__(self, repo, dry_run):
+    def __init__(self, repo):
         self.repo = repo
-        self.dry_run = dry_run
-        self.actions = []
+        self.ops = []
 
     def path(self, rel):
         return os.path.join(self.repo, rel)
 
-    def write(self, rel, text, mode=0o644, verb="write"):
-        self.actions.append(f"{verb} {rel}")
-        if self.dry_run:
-            return
-        os.makedirs(os.path.dirname(self.path(rel)), exist_ok=True)
-        with open(self.path(rel), "w", encoding="utf-8") as fh:
-            fh.write(text)
-        os.chmod(self.path(rel), mode)
+    def write(self, rel, text, executable_bit=None, verb="write"):
+        self.ops.append(("write", verb, rel, text, executable_bit))
 
     def link(self, rel, target):
-        self.actions.append(f"link {rel} -> {target}")
-        if self.dry_run:
-            return
-        os.makedirs(os.path.dirname(self.path(rel)), exist_ok=True)
-        os.symlink(target, self.path(rel))
+        self.ops.append(("link", "link", rel, target, None))
+
+    def describe(self):
+        return [f"{verb} {rel}" + (f" -> {payload}" if kind == "link" else "")
+                for kind, verb, rel, payload, _ in self.ops]
+
+    def apply(self):
+        for kind, _, rel, payload, executable_bit in self.ops:
+            target = self.path(rel)
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            if kind == "link":
+                os.symlink(payload, target)
+                continue
+            if executable_bit is None and os.path.exists(target):
+                mode = os.stat(target).st_mode & 0o777  # keep a project file's own mode
+            elif executable_bit:
+                mode = 0o755
+            else:
+                mode = 0o644
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(target), prefix=".install-")
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(payload)
+            os.chmod(tmp, mode)
+            os.replace(tmp, target)  # replaces a file, never writes through a link
 
 
-def install_tool_files(plan, tests_dir, update):
+def plan_tool_files(plan, tests_dir, update):
     clashes = []
-    for template, rel, mode in tool_files(tests_dir):
+    for template, rel, exec_bit in tool_files(tests_dir):
         text = read(os.path.join(TEMPLATES, template))
         target = plan.path(rel)
+        if os.path.islink(target):
+            raise Refusal(f"{rel} is a symlink; remove it and run the installer again")
         if os.path.exists(target):
-            same = read(target) == text and (os.stat(target).st_mode & 0o777) == mode
-            if same:
+            if read(target) == text and executable(target) == exec_bit:
                 continue
-            if not update:
+            if update:
+                plan.write(rel, text, exec_bit, verb="replace")
+            else:
                 clashes.append(rel)
-                continue
-            plan.write(rel, text, mode, verb="replace")
         else:
-            plan.write(rel, text, mode)
-    return clashes
+            plan.write(rel, text, exec_bit)
+    if clashes:
+        raise Refusal("these files differ from the skill's version; rerun with --update to replace them:\n  "
+                      + "\n  ".join(clashes), code=1)
 
 
-def install_project_skill(plan, decision_ref, decision_records):
+def plan_project_skill(plan, decision_ref, decision_records):
     if os.path.lexists(plan.path(PROJECT_SKILL)):
-        return None
+        return
     if not (decision_ref and decision_records):
-        return "creating the project skill needs --decision-ref and --decision-records"
+        raise Refusal("creating the project skill needs --decision-ref and --decision-records")
+    if "\n" in decision_ref or "\n" in decision_records:
+        raise Refusal("--decision-ref and --decision-records must be one line each")
     text = read(os.path.join(TEMPLATES, "project-memory-SKILL.md"))
-    text = text.replace("{{DECISION_REF}}", decision_ref).replace("{{DECISION_RECORDS}}", decision_records)
+    # The reference sits inside JSON strings in the example episode.
+    text = text.replace("{{DECISION_REF}}", json.dumps(decision_ref)[1:-1])
+    text = text.replace("{{DECISION_RECORDS}}", decision_records)
     plan.write(PROJECT_SKILL, text)
-    return None
 
 
-def install_claude_link(plan):
+def plan_claude_link(plan):
+    folder = os.path.dirname(plan.path(CLAUDE_LINK))
+    if os.path.islink(folder):
+        raise Refusal(f"{os.path.dirname(CLAUDE_LINK)} is a symlink; replace it with a folder")
     if not os.path.lexists(plan.path(CLAUDE_LINK)):
         plan.link(CLAUDE_LINK, LINK_TARGET)
 
@@ -118,11 +159,17 @@ def install_claude_link(plan):
 def load_json(plan, rel):
     if not os.path.exists(plan.path(rel)):
         return {}
-    with open(plan.path(rel), encoding="utf-8") as fh:
-        return json.load(fh)
+    try:
+        with open(plan.path(rel), encoding="utf-8") as fh:
+            data = json.load(fh)
+    except ValueError as exc:
+        raise Refusal(f"{rel} is not valid JSON ({exc}); fix it and run the installer again")
+    if not isinstance(data, dict):
+        raise Refusal(f"{rel} is not a JSON object")
+    return data
 
 
-def install_claude_hook(plan):
+def plan_claude_hook(plan):
     rel = ".claude/settings.json"
     settings = load_json(plan, rel)
     groups = settings.setdefault("hooks", {}).setdefault("SessionStart", [])
@@ -133,7 +180,7 @@ def install_claude_hook(plan):
     plan.write(rel, json.dumps(settings, indent=2) + "\n", verb="update")
 
 
-def install_gemini_setting(plan):
+def plan_gemini_setting(plan):
     rel = ".gemini/settings.json"
     settings = load_json(plan, rel)
     context = settings.setdefault("context", {})
@@ -141,52 +188,58 @@ def install_gemini_setting(plan):
     names = [names] if isinstance(names, str) else list(names)
     if "AGENTS.md" in names:
         return
-    if not names and not os.path.exists(plan.path("GEMINI.md")):
-        names = ["AGENTS.md"]
-    else:
-        # Keep the project's own context file and add AGENTS.md beside it.
-        names = (names or ["GEMINI.md"]) + ["AGENTS.md"]
-    context["fileName"] = names
+    if not names and os.path.exists(plan.path("GEMINI.md")):
+        names = ["GEMINI.md"]  # keep the project's own context file
+    context["fileName"] = names + ["AGENTS.md"]
     plan.write(rel, json.dumps(settings, indent=2) + "\n", verb="update")
 
 
-def install_gitignore(plan):
+def ignores(lines, entry):
+    normal = {line.strip().lstrip("/") for line in lines}
+    return entry in normal or ".relate-memory*" in normal
+
+
+def plan_gitignore(plan):
     rel = ".gitignore"
     text = read(plan.path(rel)) if os.path.exists(plan.path(rel)) else ""
-    present = {line.strip() for line in text.splitlines()}
-    missing = [line for line in GITIGNORE_LINES if line not in present]
+    lines = text.splitlines()
+    missing = [entry for entry in GITIGNORE_LINES if not ignores(lines, entry)]
     if not missing:
         return
-    block = ("\n" if text and not text.endswith("\n") else "") + ("\n" if text else "")
-    block += GITIGNORE_HEADER + "\n" + "\n".join(missing) + "\n"
-    plan.write(rel, text + block, verb="update")
+    addition = "" if not text or text.endswith("\n") else "\n"
+    if len(missing) == len(GITIGNORE_LINES):
+        addition += ("\n" if text else "") + GITIGNORE_HEADER + "\n"
+    addition += "\n".join(missing) + "\n"
+    plan.write(rel, text + addition, verb="update")
 
 
 def check(repo, tests_dir):
     problems = []
-    for template, rel, mode in tool_files(tests_dir):
+    for template, rel, exec_bit in tool_files(tests_dir):
         target = os.path.join(repo, rel)
-        if not os.path.exists(target):
-            problems.append(f"{rel}: missing; run install.py")
+        if os.path.islink(target) or not os.path.isfile(target):
+            problems.append(f"{rel}: missing or not a plain file; run install.py")
         elif read(target) != read(os.path.join(TEMPLATES, template)):
             problems.append(f"{rel}: differs from the skill's template; run install.py --update")
-        elif (os.stat(target).st_mode & 0o777) != mode:
-            problems.append(f"{rel}: mode is {oct(os.stat(target).st_mode & 0o777)}, expected {oct(mode)}")
+        elif executable(target) != exec_bit:
+            problems.append(f"{rel}: execute bit should be {'set' if exec_bit else 'clear'}")
     skill = os.path.join(repo, PROJECT_SKILL)
-    if not os.path.exists(skill):
+    if not os.path.isfile(skill):
         problems.append(f"{PROJECT_SKILL}: missing")
     else:
         text = read(skill)
         if "<!-- ADAPT" in text:
             problems.append(f"{PROJECT_SKILL}: still holds an ADAPT marker")
-        if re.search(r"\{\{[A-Z_]+\}\}", text):
+        if PLACEHOLDER.search(text):
             problems.append(f"{PROJECT_SKILL}: still holds a {{{{placeholder}}}}")
     link = os.path.join(repo, CLAUDE_LINK)
-    if not (os.path.islink(link) and os.path.realpath(link) == os.path.realpath(skill)):
-        problems.append(f"{CLAUDE_LINK}: not a link to {PROJECT_SKILL}")
+    if os.path.islink(os.path.dirname(link)):
+        problems.append(f"{os.path.dirname(CLAUDE_LINK)}: a symlink, not a folder")
+    elif not (os.path.islink(link) and os.readlink(link) == LINK_TARGET):
+        problems.append(f"{CLAUDE_LINK}: not the relative link {LINK_TARGET}")
     agents = os.path.join(repo, "AGENTS.md")
-    if not (os.path.exists(agents) and "scripts/memory.sh" in read(agents)):
-        problems.append("AGENTS.md: does not mention scripts/memory.sh")
+    if not (os.path.isfile(agents) and "scripts/memory.sh" in read(agents)):
+        problems.append("AGENTS.md: missing or does not mention scripts/memory.sh")
     return problems
 
 
@@ -203,7 +256,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     repo = os.path.abspath(args.repo)
-    if not os.path.isdir(os.path.join(repo, ".git")) and not os.path.isfile(os.path.join(repo, ".git")):
+    if not os.path.exists(os.path.join(repo, ".git")):
         print(f"install: {repo} is not the root of a git repository", file=sys.stderr)
         return 2
     tests_dir = args.tests_dir or ("tests" if os.path.isdir(os.path.join(repo, "tests")) else "scripts")
@@ -216,28 +269,26 @@ def main(argv=None):
             print("check: shared memory is installed, current and adapted")
         return 1 if problems else 0
 
-    plan = Plan(repo, args.dry_run)
-    clashes = install_tool_files(plan, tests_dir, args.update)
-    if clashes:
-        print("install: these files differ from the skill's version; rerun with --update to replace them:",
-              file=sys.stderr)
-        for rel in clashes:
-            print("  " + rel, file=sys.stderr)
-        return 1
-    error = install_project_skill(plan, args.decision_ref, args.decision_records)
-    if error:
-        print("install: " + error, file=sys.stderr)
-        return 2
-    install_claude_link(plan)
-    install_claude_hook(plan)
-    install_gemini_setting(plan)
-    install_gitignore(plan)
+    plan = Plan(repo)
+    try:
+        plan_tool_files(plan, tests_dir, args.update)
+        if not args.update:
+            plan_project_skill(plan, args.decision_ref, args.decision_records)
+            plan_claude_link(plan)
+            plan_claude_hook(plan)
+            plan_gemini_setting(plan)
+            plan_gitignore(plan)
+    except Refusal as refusal:
+        print(f"install: {refusal}", file=sys.stderr)
+        return refusal.code
 
     prefix = "would " if args.dry_run else ""
-    for action in plan.actions:
-        print(prefix + action)
-    if not plan.actions:
+    for line in plan.describe():
+        print(prefix + line)
+    if not plan.ops:
         print("install: nothing to change")
+    elif not args.dry_run:
+        plan.apply()
     return 0
 
 

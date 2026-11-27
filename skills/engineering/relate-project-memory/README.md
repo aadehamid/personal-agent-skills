@@ -10,7 +10,7 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 
 | Path | Read by | What it does |
 |---|---|---|
-| `SKILL.md` | agent | Steps to set up memory in a new project or update an existing one, and the hazards met on the first three projects. |
+| `SKILL.md` | agent | Steps to set up memory in a new project or update an existing one, and the hazards met on the first two projects. |
 | `scripts/install.py` | agent runs it | Installs, updates (`--update`) or checks (`--check`) the setup in a repository. It replaces the files the skill owns and never overwrites the project's own files. |
 | `scripts/test_install.py` | `scripts/check.sh` | Tests for the installer. The last test installs into a fresh repository and runs the installed memory tests there. |
 | `templates/memory.sh` | installed | The memory command: `remember`, `recall`, `about`, `history`, `slots`, `brief`, `check`, `init`, `path`. |

@@ -17,7 +17,7 @@ The project's rules win. Read its `AGENTS.md`, its decision records, its check s
 ## Set up a new project
 
 1. **Branch** from current `main`, as the project's rules say.
-2. **Write the checks first if the project asks for that.** Run the installer with `--dry-run` to see the files, then copy only `templates/test_memory.py` into the tests folder and run it, so the PR can show it failing before the code exists.
+2. **Write the checks first if the project asks for that.** Run the installer with `--dry-run` to see the files, then copy only `templates/test_memory.py` into the tests folder and run it, so the PR can show it failing before the code exists. The installer accepts that copy, because it matches the template.
 3. **Install:**
 
    ```bash
@@ -32,15 +32,21 @@ The project's rules win. Read its `AGENTS.md`, its decision records, its check s
 8. **Prove it.** Run, in order:
    - `python3 <this skill>/scripts/install.py <repo> --check` exits 0.
    - The project's check script passes.
-   - If Codex is installed, a save works inside its sandbox: `codex sandbox -P :workspace -c x=1 -C <repo> -- scripts/memory.sh remember <file>`.
-   - Save the project skill's example episode as the first memory.
+   - If Codex is installed, a save works inside its sandbox. Use a scratch store so the probe stays out of the real memory, then remove it:
+
+     ```bash
+     codex sandbox -P :workspace -c x=1 -C <repo> -- env PROJECT_MEMORY_DB=<repo>/.relate-memory.sandbox-probe scripts/memory.sh remember <file>
+     rm -rf <repo>/.relate-memory.sandbox-probe
+     ```
+
+   - Save a first memory that records the setup: a `handoff` episode with today's date and time, your agent's name and the branch, in the shape of the project skill's example. Write your own ids and text; the example's are placeholders.
 9. **Ship** through the project's PR process.
 
 Done when `install.py --check` exits 0, the project's checks pass, the first memory is saved, and the PR has merged.
 
 ## Update an existing project
 
-1. Branch, then run `install.py <repo> --update`. It replaces the tool-owned files and leaves the project's own files alone.
+1. Branch, then run `install.py <repo> --update`. It replaces the tool-owned files and never touches the project's own files. To add a project file that is missing, such as the Gemini setting, run a plain install afterwards; it adds only what is missing.
 2. Compare the project skill with `templates/project-memory-SKILL.md` and port what changed in the template: new rules, commands or limits. Keep the project's adapted sections.
 3. A setup from before this skill may use another environment variable for the store path, such as `PPC_MEMORY_DB`. The script now reads `PROJECT_MEMORY_DB`. Search the project for the old name and update every mention.
 4. Run `install.py <repo> --check`, then the project's checks, and ship through its PR process.
