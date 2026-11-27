@@ -33,8 +33,8 @@ cleanup() {
   [ -z "$build_dir" ] || rm -rf "$build_dir"
 }
 # Clean up on a normal exit and on the signals that usually stop a script.
-# A SIGKILL or a crash always skips the cleanup, and some signals not trapped
-# here can skip it too; init sweeps the builds those leave.
+# SIGKILL and a power loss skip the cleanup, and other ways a script ends may
+# skip it too. init removes a build left that way once it is an hour old.
 trap cleanup EXIT
 trap 'cleanup; trap - EXIT; exit 130' INT
 trap 'cleanup; trap - EXIT; exit 143' TERM
