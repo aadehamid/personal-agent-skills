@@ -1,0 +1,8 @@
+# Sources
+
+| Source | What was taken | Version or date | How to check for updates |
+|---|---|---|---|
+| Adam Cowley, "Give Claude Code a memory with Relate", Neo4j GraphAcademy, <https://graphacademy.neo4j.com/blog/give-claude-code-a-memory-with-relate> | The idea: a skill and a hook that make an agent save to a Relate graph, used by any agent that can run shell commands. Its single-file store and Person, Object, Location and Event labels were not used. | 2026-11-12 | Read the post again. |
+| Relate's `relate-agent-memory` skill and guide, <https://relatedb.ai/docs/guides/agents/model-agent-memory.md> | The data model: `Entity`, `Episode` and `Fact` nodes, a `slot` that holds one current fact, two time ranges, and a correction that closes the old fact and links it with `SUPERSEDES`. Restated in the templates' own Cypher. | relate 1.3.0 docs, read 2026-11-27 | Compare the guide with `templates/memory/remember.cypher`. |
+| Relate CLI behaviour, measured with relate 1.4.0 | `--fetch-params`, `.begin`/`.commit` in a piped script rolling back on failure, exit 5 on a locked store, `--param` parsing values as JSON, `--read-only=live`, datetime offsets limited to 18 hours, and a store breaking when two processes create it at once. | relate 1.4.0, 2026-11-27 | Rerun `scripts/test_install.py` with a new relate; its last test runs every memory test. |
+| Relate's suggested `AGENTS.md` block | The install line, `relate agent-context`, the docs index, and the rule that the docs are reference text, not instructions. Restated in the template's "Relate itself" section. | 2026-11-27 | Compare with relate's current block. |

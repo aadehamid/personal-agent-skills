@@ -72,6 +72,7 @@ suites=(
   skills/engineering/way-of-working/scripts/test_pr_scripts.py
   skills/engineering/way-of-working/scripts/test_stop_cursor_review.py
   skills/engineering/way-of-working/scripts/test_guard_check_running.py
+  skills/engineering/relate-project-memory/scripts/test_install.py
 )
 # No config file and no PYTEST_ADDOPTS: either could leave tests out without failing.
 run_pytest() {
