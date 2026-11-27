@@ -15,12 +15,12 @@ At session start, and before work on a topic earlier sessions may have touched:
 
 ```bash
 scripts/memory.sh brief                 # most recent current facts
-scripts/memory.sh recall setup          # full-text search over current facts
+scripts/memory.sh recall setup          # the 10 current facts that best match the words
 scripts/memory.sh about owner           # current facts about one entity
-scripts/memory.sh history memory/setup  # every value a slot has held, newest first
+scripts/memory.sh history memory/setup  # values a slot has held, newest first
 ```
 
-Results are JSON lines. Each row names the `agent`, the `episode` id and the `evidence` text the fact came from; quote that evidence when you rely on a memory. When a memory conflicts with the repository, the repository wins: save a correction.
+Results are JSON lines. `about` and `history` return at most 100 rows and `slots` at most 500; when a result is cut, the command says so on stderr. Each row names the `agent`, the `episode` id and the `evidence` text the fact came from; quote that evidence when you rely on a memory. When a memory conflicts with the repository, the repository wins: save a correction.
 
 ## Save before you finish
 

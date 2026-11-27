@@ -275,6 +275,29 @@ class WithRelate(Base):
             with self.subTest(bad):
                 self.assertEqual(self.run_memory("brief", bad).returncode, 2)
 
+    def test_capped_reads_say_when_they_cut_and_relate_adds_no_cap(self):
+        self.remember(episode("e1", "2026-11-27T10:00:00Z", "pi", [fact("f1", "Seed.")]))
+        self.cypher("MATCH (ep:Episode {id: 'e1'}) MATCH (e:Entity {key: 'pump-101'}) "
+                    "UNWIND range(1, 510) AS i "
+                    "CREATE (f:Fact:CurrentFact {id: 'bulk-' + toString(i), slot: 'bulk/s' + toString(i), "
+                    "text: 'Bulk ' + toString(i), recordedAt: datetime()})-[:FROM]->(ep), (f)-[:ABOUT]->(e)")
+        self.cypher("MATCH (ep:Episode {id: 'e1'}) UNWIND range(1, 104) AS i "
+                    "CREATE (:Fact {id: 'old-' + toString(i), slot: $slot, text: 'Old', closedAt: datetime(), "
+                    "recordedAt: datetime() - duration({days: i})})-[:FROM]->(ep)".replace("$slot", repr(SLOT)))
+        for args, cap in ((("history", SLOT), 100), (("about", "pump-101"), 100), (("slots",), 500)):
+            with self.subTest(args):
+                p = self.run_memory(*args)
+                self.assertEqual(p.returncode, 0, p.stderr)
+                rows = [line for line in p.stdout.splitlines() if line.startswith("{")]
+                self.assertEqual(len(rows), cap)
+                self.assertNotIn("rowCap", p.stdout)
+                self.assertIn(f"showing the first {cap} rows; more exist", p.stderr)
+        p = self.run_memory("brief", "300")
+        self.assertEqual(len([line for line in p.stdout.splitlines() if line.startswith("{")]), 300)
+        self.assertNotIn("rowCap", p.stdout)
+        p = self.run_memory("history", "unit/none")
+        self.assertEqual((p.stdout, "more exist" in p.stderr), ("", False))
+
     def test_string_parameters_stay_strings(self):
         self.remember(episode("e1", "2026-11-27T10:00:00Z", "cursor",
                               [{"id": "f1", "text": "Flag 42 is true.", "slot": "true/42", "about": ["true"]}],

@@ -6,10 +6,10 @@
 #
 # Usage:
 #   scripts/memory.sh remember FILE|-   write one episode (JSON) and its facts
-#   scripts/memory.sh recall WORDS...   full-text search over current facts
-#   scripts/memory.sh about KEY         current facts about one entity
-#   scripts/memory.sh history SLOT      every fact a slot has held, newest first
-#   scripts/memory.sh slots             slots that hold a current fact
+#   scripts/memory.sh recall WORDS...   the 10 current facts that best match the words
+#   scripts/memory.sh about KEY         current facts about one entity (first 100)
+#   scripts/memory.sh history SLOT      facts a slot has held, newest first (first 100)
+#   scripts/memory.sh slots             slots that hold a current fact (first 500)
 #   scripts/memory.sh brief [N]         the N most recent current facts (default 20)
 #   scripts/memory.sh check             fail unless every slot holds exactly one current fact
 #   scripts/memory.sh init              create the store and its schema
@@ -115,7 +115,24 @@ read_query() {
   if [ -n "$(dropbox_conflicts)" ]; then
     echo "memory: warning: Dropbox conflicted copies in the store; results may be stale. Run: scripts/memory.sh check" >&2
   fi
-  relate query --database "$db" --read-only --mode jsonl "$@"
+  # --max-rows 0: relate caps rows at 100 under an agent harness and adds a
+  # rowCap line; this script sets its own caps and says when it reaches one.
+  relate query --database "$db" --read-only --mode jsonl --max-rows 0 "$@"
+}
+
+# Run a read with a row cap. Fetch one row more than the cap, so a result that
+# was cut can say so instead of passing for the whole set.
+capped() {
+  local cap="$1" out count
+  shift
+  out="$(read_query --param "cap=$((cap + 1))" "$@")"
+  count="$(grep -c '^{' <<< "$out" || true)"
+  if [ "$count" -gt "$cap" ]; then
+    sed -n "1,${cap}p" <<< "$out"
+    echo "memory: showing the first $cap rows; more exist" >&2
+  elif [ -n "$out" ]; then
+    printf '%s\n' "$out"
+  fi
 }
 
 # The schema is idempotent, so every write runs it first. Its notes are noise
@@ -346,24 +363,24 @@ case "$cmd" in
     need_relate
     [ -n "${1:-}" ] || { echo "usage: scripts/memory.sh about KEY" >&2; exit 2; }
     key="$(json_string "$1")"
-    read_query --param "key=$key" \
+    capped 100 --param "key=$key" \
       'MATCH (e:Entity {key: $key})<-[:ABOUT]-(f:CurrentFact)-[:FROM]->(ep:Episode)
        RETURN f.slot AS slot, f.text AS memory, ep.agent AS agent, ep.id AS episode,
               toString(ep.at) AS learned, ep.text AS evidence
-       ORDER BY slot LIMIT 100' ;;
+       ORDER BY slot LIMIT $cap' ;;
   history)
     need_relate
     [ -n "${1:-}" ] || { echo "usage: scripts/memory.sh history SLOT" >&2; exit 2; }
     slot="$(json_string "$1")"
-    read_query --param "slot=$slot" \
+    capped 100 --param "slot=$slot" \
       'MATCH (f:Fact {slot: $slot})-[:FROM]->(ep:Episode)
        RETURN f.text AS memory, toString(f.validFrom) AS validFrom, toString(f.validTo) AS validTo,
               toString(f.recordedAt) AS recorded, toString(f.closedAt) AS closed,
               ep.agent AS agent, ep.id AS episode, ep.text AS evidence
-       ORDER BY f.recordedAt DESC LIMIT 100' ;;
+       ORDER BY f.recordedAt DESC LIMIT $cap' ;;
   slots)
     need_relate
-    read_query 'MATCH (f:CurrentFact) RETURN DISTINCT f.slot AS slot ORDER BY slot LIMIT 500' ;;
+    capped 500 'MATCH (f:CurrentFact) RETURN DISTINCT f.slot AS slot ORDER BY slot LIMIT $cap' ;;
   brief)
     need_relate
     n="${1-20}"
