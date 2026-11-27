@@ -10,7 +10,7 @@ The usual pattern: capture the source first as provisional annotations in a stag
 2. **Regenerate review packages after any rename, move or reclassification**, from the pinned baseline, and diff them field by field against the old package. *Why:* same failure as rule 1.
 3. **Carry an approval forward only for a row identical on every evidence field.** The one exception: a change that only adds a stable identifier or a citation, with source, verb, target and disposition unchanged. Record each use of the exception. *Why:* an approval covers the row the reviewer read, not its successor.
 4. **Labels propose candidates; they never prove identity.** *Why:* see `identity-taxonomy.md`, Step 2, rule 8.
-5. **Structural nearness is evidence only for a sequence between siblings** ("A precedes B"). Every other relation (enables, governed by, requires, assured by, depends on) also needs independent evidence: the target named in the source's definition or scope note, a strict two-way mention, or a recorded architecture decision. *Why:* an evidence pass that counts terminology notes as citations and any back-link as confirmation is wrong and confident.
+5. **Structural nearness is evidence only for a sequence between siblings** ("A precedes B"); in an industry reference it is not evidence even for that (`industry-reference.md`, rule 9). Every other relation (enables, governed by, requires, assured by, depends on) also needs independent evidence: the target named in the source's definition or scope note, a strict two-way mention, or a recorded architecture decision. *Why:* an evidence pass that counts terminology notes as citations and any back-link as confirmation is wrong and confident.
 6. **Sample automatic promotions, and stop at the first wrong one.** Sample `max(10, ceil(5%))` per domain with a fixed, recorded seed; a person reads each sampled row's definitions. A sample is pending until the owner reviews it. One wrong resolution stops the line and is never averaged away: fix the rule and re-run, never patch the row. *Why:* a wrong row means a wrong rule, which made other wrong rows.
 7. **Conserve every source predicate and every mention.** A conservation ledger (a table, one row per staging predicate, with its source count and where each triple went) accounts for each staging triple and mention: emitted, held, merged or redirected, and the arithmetic balances. *Why:* zero staging triples proves deletion, not migration.
 8. **Store one direction per fact; derive inverses.** *Why:* mirrored rows inflate the fact count and hide contradictions.
@@ -41,6 +41,18 @@ Review one verb per pass. *Why:* a reviewer holding one definition applies it co
 Two citation rules hold for every verb. **Boundary wording is never a route:** "excludes X", "owned by" and "may be handled by" say where a boundary lies, not that a relationship holds. **A row verdict is not an architecture decision:** only a recorded architecture decision counts as decision evidence.
 
 **The evidence gate (Step 4).** A script run against the evidence files pinned to the current commit (rule 1) passes only when every APPROVE and STAND row cites at least one evidence item that rule 5 accepts for its verb, every cited source row exists in the pinned source, and no row's only citation is boundary wording or a row verdict (the two citation rules above). It fails on any other row and names it. *Why:* a verdict records that a reviewer agreed; the gate shows that the evidence the verdict rests on exists at the pinned commit.
+
+## Reviewing relations mined from documents
+
+A relation mined from documents (by a script, a model or a person reading a manual) is a candidate, not yet a source row. Review each against these rules before it enters the source; the predicate review above then reads it like any other row. These rules decide what a candidate becomes. Once a verb is in the source, rule 11 holds: promotion never replaces it, and a hold is never a remap.
+
+- **An `enables` link that restates an output dependency** (A enables B only because B uses what A produces) is merged into that dependency. It gives no evidence of its own.
+- **An `enables` link that hides a sequence** (A must finish before B starts) becomes `precedes`, and then needs the evidence a `precedes` link between non-siblings needs: the sequence stated in the source or a strict two-way pair (the `precedes` definition below; in an industry reference, `industry-reference.md`, rule 9).
+- **A link from a child to one of its ancestors** duplicates the hierarchy and is rejected.
+- **An explicit reference in the text** (the source's definition or scope note names the target) outranks structural nearness. It is the evidence rule 5 accepts.
+- **Sitting under the same parent is structural nearness,** so it is never evidence on its own for any of these links, `precedes` included: a mined candidate never takes rule 5's exception for siblings.
+
+*Why:* a mined link usually restates what the hierarchy or the data flow already says, and counting it as a new fact inflates the relationship count with guesses.
 
 ## The release gate and the source-correction backlog
 
@@ -111,4 +123,4 @@ Write your own to your evidence. "Source" is the subject of the stored triple.
 - `constrainedBy`: the target binds the source; the source cannot exceed, ignore or waive it.
 - `governedBy`: the target holds policy, approval or enforcement authority over the source. Hierarchy position alone never qualifies.
 - `triggeredBy`: the target generates or detects the event or handoff that starts the source. "Feeds" and "precedes" are not triggers.
-- `precedes`: the source completes before the target begins, as the business states it. Siblings need no more; non-siblings need the sequence stated in the source or a strict two-way pair.
+- `precedes`: the source completes before the target begins, as the business states it. Siblings need no more; non-siblings need the sequence stated in the source or a strict two-way pair. In an industry reference, every `precedes` link, sibling or not, needs the evidence in `industry-reference.md`, rule 9.

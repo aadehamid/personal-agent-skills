@@ -4,6 +4,8 @@ Serves Step 5. Read it before you model roles, RACI assignments, party roles, re
 
 Roles are positions people hold, not people. The same person can be Accountable for one process and only Informed on another. RACI is design-time responsibility, not a record of who did the work.
 
+In an industry reference, the roles are generic and every typical assignment cites public evidence (`industry-reference.md`, rules 6 and 7); rule 8 still holds.
+
 ## Roles and the role register
 
 1. **Model each role as an `org:Role`** (W3C Organization Ontology, Recommendation 16 January 2014, https://www.w3.org/TR/vocab-org/), used by IRI and not imported. *Why:* consumers that read ORG need no mapping, and importing would bring structure no question needs (`external-ontologies.md`).
