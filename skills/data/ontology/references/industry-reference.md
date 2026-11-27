@@ -6,7 +6,7 @@ A single-organization ontology models one business from its own documents. An in
 
 ## The backbone
 
-1. **Build the backbone (the hierarchy of processes or concepts that Steps 2 and 3 rest on) from a published standard plus the public evidence of 3 or more independent organizations.** Three is the default; the requirements file may set a different number, with the owner's reason. A seed hierarchy, such as one organization's own release, is a starting point only, never the backbone. *Why:* a hierarchy copied from one organization encodes its structure as the industry's.
+1. **Build the backbone (the hierarchy of processes or concepts that Steps 2 and 3 rest on) from a published standard plus the public evidence of 3 or more independent organizations.** Three is the default; the requirements file may set a different number, with the owner's reason, and that number then applies wherever this file says 3 or more. A seed hierarchy, such as one organization's own release, is a starting point only, never the backbone. *Why:* a hierarchy copied from one organization encodes its structure as the industry's.
 2. **Have the owner sign off the top levels of the backbone, node by node** (for example the first three levels), and record one decision per node. Lower levels follow the evidence rules below without a decision each. *Why:* the top levels shape every later choice, and a decision per node lets a reviewer trace each one; signing every leaf costs more than it adds.
 
 ## Evidence order
@@ -35,7 +35,7 @@ A single-organization ontology models one business from its own documents. An in
 
 ## Order between steps
 
-9. **Keep a `precedes` link only where a published standard, a physical or logical necessity, or the public material of 3 or more independent organizations establishes the order.** Drop one organization's step orders; never keep them as examples. This replaces, in this mode, the sibling exception in `promotion.md`, rule 5. Taxonomy numbering implies no order. APQC says so of its own Process Classification Framework: "Although process elements are numbered ascendingly, it is important to understand this does not imply that process elements occur in a certain order" (APQC, *Understanding the PCF Elements*, https://www.apqc.org/sites/default/files/files/PCF%20Collateral/Understanding%20the%20PCF%20Elements%20%20-%20FINAL.pdf, read 2026-11-27). *Why:* the order of sibling steps in one organization's hierarchy is that organization's practice, not the industry's.
+9. **Keep a `precedes` link only where a published standard, a physical or logical necessity, or the public material of 3 or more independent organizations establishes the order.** Drop one organization's step orders; never keep them as examples. This replaces, in this mode, the sibling exception in `promotion.md`, rule 5. Taxonomy numbering implies no order. For example, APQC says so of its own Process Classification Framework: "Although process elements are numbered ascendingly, it is important to understand this does not imply that process elements occur in a certain order" (APQC, *Understanding the Elements of APQC's Process Classification Framework*, 2018, https://www.apqc.org/sites/default/files/files/PCF%20Collateral/Understanding%20the%20PCF%20Elements%20%20-%20FINAL.pdf, read 2026-11-27). *Why:* the order of sibling steps in one organization's hierarchy is that organization's practice, not the industry's.
 
 ## Completeness
 

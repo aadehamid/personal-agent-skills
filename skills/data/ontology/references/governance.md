@@ -23,13 +23,15 @@ Record rules (one record per decision; status Proposed, Decided or Superseded; q
 
 ## Delegation
 
-**Before the owner delegates, write a vision the delegated reviewers can judge changes against:** what the ontology accepts and what it resists, each mined from the evidence and the owner's decisions so far, with its non-goals, put to the owner and answered in the owner's words. Delegated reviewers cite it in each verdict. Any tool or a plain document will do. *Why:* a reviewer with no written policy judges each change by its own taste, so two reviewers give two answers and the owner cannot tell which one follows their intent.
-
 10. **Record a delegation as its own decision record, with the owner's words, its scope (which questions or steps), the evidence order each decision must rest on, and how each decision is recorded.** *Why:* the record is the owner's decision to delegate, so it is what makes each delegated decision count as Decided.
 11. **Mark every delegated decision "delegated under <record>", with its evidence, and keep it reversible:** the owner can reverse any one, and the reversal is recorded the same way. *Why:* the owner can then audit each decision and find what to undo.
 12. **Keep with the owner what rule 6 reserves, plus any change to the delegation itself and any question outside its named scope.** Ask to extend the scope; do not stretch it. *Why:* a delegation covers what its words cover, and extending it to later steps is a new question with its own answer.
 13. **Amend a delegation in the same record, as a dated amendment with the owner's words, and add a dated note to each sentence it replaces.** *Why:* a reader of an old sentence then finds what replaced it.
 14. **Attribute every open item to whoever its record names: the owner, a named process owner, the business, a later release, "no confirmer named", or "unresolved by decision".** Never list them all as the owner's. *Why:* a list headed "waits on the owner" that holds a process owner's confirmation asks the owner for something they cannot give, and hides whom to ask.
+
+### Vision before delegation
+
+Before the owner delegates, write a vision that delegated reviewers can judge changes against: what the ontology accepts and what it resists, each mined from the evidence and the owner's decisions so far, with its non-goals, put to the owner and answered in the owner's words. Delegated reviewers cite it in each verdict. Any tool or a plain document will do. *Why:* a reviewer with no written policy judges each change by its own taste, so two reviewers give two answers and the owner cannot tell which one follows their intent.
 
 ## Checks
 
@@ -74,5 +76,5 @@ The worked example in `templates/intake/` uses a result shaped like OntoGPT's (n
 
 ## Sources, claims and scope
 
-26. **Rank sources by the evidence order and give each cited source its tier** (`foundations.md`, policy 3). A delegated decision rests on that order, and uses an external search only to settle an ambiguity the evidence leaves open, citing what it finds. *Why:* a decision the owner did not make must still show which evidence won.
+26. **Rank sources by the evidence order and give each cited source its tier** (`foundations.md`, policy 3; for an industry reference, `industry-reference.md`, rule 3). A delegated decision rests on that order, and uses an external search only to settle an ambiguity the evidence leaves open, citing what it finds. *Why:* a decision the owner did not make must still show which evidence won.
 27. **State what each skill, tool or validator the build ships does not do, and name what does.** *Why:* an agent otherwise stretches a tool past its scope. Source: `neo4j-ontology-skill` 1.0.1 (`SOURCES.md`), which routes Cypher, loading and general modelling advice to named sibling skills.

@@ -60,4 +60,4 @@ Record the review in `templates/scope-review.md`. Take candidate areas from the 
 2. **Give every out-of-scope area a boundary note with a reason** ("handled entirely in the lending system; nothing depends on it") **and a revival trigger.** An in-scope area needs neither. *Why:* the trigger says when to look again, so nobody re-argues the call from scratch.
 3. **Cover enabling functions as well as the core work, where they have a hook.** *Why:* finance or IT processes often own the data products and roles the core work depends on.
 4. **Send newly relevant framework elements through this review before modelling them.** *Why:* a framework release is not a scope decision.
-5. **In an industry reference, keep a coverage table per area and mark an area complete only with the owner's approval** (`industry-reference.md`, rule 10).
+5. **In an industry reference, keep a coverage table per area and mark an area complete only with the owner's approval** (`industry-reference.md`, rule 10). *Why:* in a reference, the boundary of scope is the industry, so an area is complete only when the evidence says so, not when the seed release runs out.

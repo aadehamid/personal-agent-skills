@@ -44,13 +44,13 @@ Two citation rules hold for every verb. **Boundary wording is never a route:** "
 
 ## Reviewing relations mined from documents
 
-A relation mined from documents (by a script, a model or a person reading a manual) is a candidate. Review each against these rules before the predicate review above.
+A relation mined from documents (by a script, a model or a person reading a manual) is a candidate, not yet a source row. Review each against these rules before it enters the source; the predicate review above then reads it like any other row. These rules decide what a candidate becomes. Once a verb is in the source, rule 11 holds: promotion never replaces it, and a hold is never a remap.
 
 - **An `enables` link that restates an output dependency** (A enables B only because B uses what A produces) is merged into that dependency. It gives no evidence of its own.
 - **An `enables` link that hides a sequence** (A must finish before B starts) becomes `precedes`, and then needs the evidence `precedes` needs (rule 5; in an industry reference, `industry-reference.md`, rule 9).
 - **A link from a child to one of its ancestors** duplicates the hierarchy and is rejected.
 - **An explicit reference in the text** (the source's definition or scope note names the target) outranks structural nearness. It is the evidence rule 5 accepts.
-- **Sitting under the same parent is structural nearness,** so it is never evidence on its own for any of these links.
+- **Sitting under the same parent is structural nearness,** so it is never evidence on its own for any of these links, `precedes` included: a mined candidate never takes rule 5's exception for siblings.
 
 *Why:* a mined link usually restates what the hierarchy or the data flow already says, and counting it as a new fact inflates the relationship count with guesses.
 
@@ -123,4 +123,4 @@ Write your own to your evidence. "Source" is the subject of the stored triple.
 - `constrainedBy`: the target binds the source; the source cannot exceed, ignore or waive it.
 - `governedBy`: the target holds policy, approval or enforcement authority over the source. Hierarchy position alone never qualifies.
 - `triggeredBy`: the target generates or detects the event or handoff that starts the source. "Feeds" and "precedes" are not triggers.
-- `precedes`: the source completes before the target begins, as the business states it. Siblings need no more, except in an industry reference (`industry-reference.md`, rule 9); non-siblings need the sequence stated in the source or a strict two-way pair.
+- `precedes`: the source completes before the target begins, as the business states it. Siblings need no more; non-siblings need the sequence stated in the source or a strict two-way pair. In an industry reference, every `precedes` link, sibling or not, needs the evidence in `industry-reference.md`, rule 9.

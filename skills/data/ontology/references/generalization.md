@@ -16,7 +16,7 @@ The released ontology you start from is the **baseline**. Each rule below makes 
 5. **Exclude a term that only one organization uses, with its migration-map row; never carry it into the new ontology as deprecated.** *Why:* a deprecated term is still part of the published ontology, and it keeps one organization's practice in the shared one.
 6. **Record one decision per top-level node** of the new hierarchy, citing its evidence. *Why:* the top levels decide where every lower term goes.
 
-## Testing the migration
+## Testing the migration and finding subtrees
 
 7. **Make the identity migration test cover both ends of every relationship fact the new ontology keeps.** A fact that is not carried over gets a disposition in the migration map instead. *Why:* a test that checks only the concepts passes while a relationship still points at an old IRI.
-8. **Find a subtree by its parent links, never by a code prefix.** *Why:* once a node moves, its old code no longer matches its place, so a prefix search misses the moved node or catches one that left.
+8. **Let no script or test find a subtree by a code prefix; follow the parent links.** This holds for build, query and check scripts as well as tests. *Why:* once a node moves, its old code no longer matches its place, so a prefix search misses the moved node or catches one that left.
