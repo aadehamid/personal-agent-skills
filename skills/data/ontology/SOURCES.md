@@ -6,7 +6,7 @@ Last full review: 2026-10-22. Check the sources below every three months, and wh
 
 ## 1. The method as practised
 
-- **What it is:** the written method and decision records of a private build of a downstream refining enterprise's process ontology (2026). The build ran Steps 0 to 12 over several modules, released them as versioned packages, and projected them into Neo4j.
+- **What it is:** the written method and decision records of a private build of one enterprise's process ontology (2026). The build ran Steps 0 to 12 over several modules, released them as versioned packages, and projected them into Neo4j.
 - **Version used:** the method as it stood on 2026-10-22.
 - **What the skill took:** the step sequence and its gates; the ten policies; the source policies; the eleven promotion rules, the predicate review method and the source-correction backlog; the quality bar and the soundness checks; organizations, roles and RACI; plans and runs; integration of measures and other overlays; SHACL testing; versioning and release packages; the governance rules on decisions, delegation, checks and privacy.
 - **Scripts taken on 2026-10-24:** `check_shapes.py`, `check_code_lists.py`, `check_packages.py` and `run_regression.py` generalise that build's whole-graph gate, controlled-value test, release-package test and competency-question runner. They read their files, and the schemes to leave out, from the command line. On that build's released packages they gave the same results as its own tests that day, as recorded in the pull request that added them.

@@ -5,7 +5,7 @@
  ● Should note validator rejects #6 but user wants report #10, report leaf can put
    pre-existing. Prompt.
 
- ● Ran a command · $ SKILL_DIR=/Users/hamidadesokan/.agents/skills/ce-code-review;…
+ ● Ran a command · $ SKILL_DIR=/Users/your-username/.agents/skills/ce-code-review;…
    {"written": [{"phase": "end", "stage": "validate", "ts": "2026-10-25T05:54:54.0…
 
  ● Validation confirms four round-2 defects. It also confirms the concurrent-report
@@ -38,7 +38,7 @@
  │ > Read AGENTS.md and the repository's review standards file (for example       │
  │   REVIEW_STANDARDS.md) first, and apply them. Run the ce-code-review skill     │
  │   (instructions:                                                               │
- │   /Users/hamidadesokan/.agents/skills/ce-code-review/SKILL.md) on branch       │
+ │   /Users/your-username/.agents/skills/ce-code-review/SKILL.md) on branch       │
  │   way-of-working/rex-review-host, diff vs main. Verify: QUICK CHECK of one     │
  │   commit only: git show f14b2c9, which fixes your four round-2 P1s (#3         │
  │   trust bound to the dialog own path line; #4 a visible question beats the     │

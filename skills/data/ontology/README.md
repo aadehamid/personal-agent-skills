@@ -2,7 +2,7 @@
 
 An agent skill for building a business ontology in any domain, on the W3C stack (RDF, SKOS, OWL, SHACL, PROV-O, DCAT). The agent starts with an intake of what you bring, then works in thirteen gated steps, to a released, checked package and an optional Neo4j property-graph projection, which the `ontology-to-lpg` skill carries out. You, the ontology owner, make every decision; the agent brings the evidence, the options and a recommendation, and records your answers word for word.
 
-The method comes from a downstream refining enterprise's process ontology, built privately and rewritten here in neutral terms. The examples use a public library's lending and, in two places, Marathon Petroleum's public SEC filings.
+The method comes from one enterprise's process ontology, built privately and rewritten here in neutral terms so that it works for any industry. The examples use a public library's lending, and a few illustrate a point with a generic company or statistics office.
 
 This README is for people. Agents read `SKILL.md` and the files it points to.
 

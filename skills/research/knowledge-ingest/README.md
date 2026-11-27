@@ -53,9 +53,11 @@ steps depends on your username or on where your home folder is.
    ```
 
 3. Get the project repo, which holds the config, the schema validator, the sync
-   simulator, the runbook and the ledger. Dropbox syncs it to
-   `~/Dropbox/1_PROJECTS/knowledge-management`, or clone
-   `https://github.com/aadehamid/knowledge-management`.
+   simulator, the runbook and the ledger. This public repo does not give its local
+   path or remote. Use the entry for it in `AGENTS.local.md`, at the root of this repo,
+   if you have added one; git ignores that file, so a fresh clone does not have it.
+   Otherwise ask the owner for the path and remote. Below, `<project>` stands for that
+   path.
 4. Get the vaults. They are not in git. They live in `~/Documents/Knowledge Management`,
    which iCloud Drive syncs to any Mac signed into the same Apple ID with "Desktop &
    Documents" turned on. If you keep them somewhere else, add
@@ -65,7 +67,7 @@ steps depends on your username or on where your home folder is.
 
    ```bash
    mkdir -p ~/.config/kb
-   ln -sfn ~/Dropbox/1_PROJECTS/knowledge-management/knowledge-ingest.config.json ~/.config/kb/config.json
+   ln -sfn <project>/knowledge-ingest.config.json ~/.config/kb/config.json
    ```
 
 6. Install the Codex plugin in Claude Code (`/plugin`, then openai-codex) and log in.
@@ -78,7 +80,8 @@ steps depends on your username or on where your home folder is.
 
 The daily sync (git pull, then copy new sources into the vaults) runs from a launchd
 job on the original machine. It is optional. To run it on another Mac, copy
-`~/Library/LaunchAgents/com.hamid.knowledge-sync.plist` from the original machine, change
+the job's plist from `~/Library/LaunchAgents/` on the original machine (its name ends in
+`.knowledge-sync.plist`), change
 the script path in it to where `scripts/pull_and_sync.sh` lives on the new one, and
 load it with `launchctl load`.
 

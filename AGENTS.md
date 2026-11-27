@@ -23,14 +23,15 @@ do not depend on a temporary worktree. Leave unrelated files and worktrees alone
 
 ## Other Repos
 
-This is the Home Repo: run the agent from here and reach the repos below through
-these pointers. If a local path does not exist, clone it from its remote. Use a
-`git worktree` when several agents work the same repo at once.
+This is the Home Repo: run the agent from here and reach the other repos through
+the pointers in `AGENTS.local.md`, next to this file. That file is not committed
+(`.gitignore` lists it), so this file lists no other repo's local path or remote.
+Read `AGENTS.local.md` first when it exists. In a secondary `git worktree` it is not
+there, so read it from the main checkout. When neither has it, ask the owner for the
+repo you need. If a local path it gives does not exist, clone the repo from the remote
+it gives. Use a `git worktree` when several agents work the same repo at once. (Some
+skills' `SOURCES.md` files link other repos, as the source of a rule; those links are
+not pointers for reaching a repo.)
 
-- **downstream_oil_and_gas_ontology_release** (published release output of enterprise-performance-model, EPM 1.0 — read-only, regenerate from EPM): `~/Dropbox/1_PROJECTS/downstream_oil_and_gas_ontology_release`. Clone from `github.com/aadehamid/downstream_oil_and_gas_ontology_release` if missing.
-- **enterprise-performance-model** (Enterprise Performance Model — source of truth for the downstream release): `~/Dropbox/1_PROJECTS/enterprise-performance-model`. Clone from `github.com/aadehamid/enterprise-performance-model` if missing. Read its `AGENTS.md` first.
-- **industrial-context-engineering** (ISA-95 SCADA harmonization → UNS; renamed from `scada_harmonization`): `~/Dropbox/1_PROJECTS/industrial-context-engineering`. Clone from `github.com/aadehamid/industrial-context-engineering` if missing. Read its `AGENTS.md` first.
-- **enterprise-people-graph** (LIONG people graph): `~/Dropbox/1_PROJECTS/enterprise-people-graph`. Clone from `github.com/aadehamid/enterprise-people-graph` if missing. Read its `AGENTS.md` first.
-- **engineering-drawing-intelligence** (engineering drawing → graph; renamed from `Engineering_Drawing_to_Graph`): `~/Dropbox/1_PROJECTS/engineering-drawing-intelligence`. Clone from `github.com/aadehamid/engineering-drawing-intelligence` if missing. Read its `AGENTS.md` first.
-- **enterprise-context-engineering** (enterprise context engineering): `~/Dropbox/1_PROJECTS/enterprise-context-engineering`. Clone from `github.com/aadehamid/enterprise-context-engineering` if missing.
-- **pearland-petroleum-corporation** (Pearland Petroleum Corporation downstream enterprise simulation): `~/Dropbox/1_PROJECTS/pearland-petroleum-corporation`. Clone from `github.com/aadehamid/pearland-petroleum-corporation` if missing. Read its `AGENTS.md` first.
+Each entry in `AGENTS.local.md` gives the repo's name, what it is for, its local path,
+its remote, and whether to read its own `AGENTS.md` first.
