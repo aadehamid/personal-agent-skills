@@ -1,4 +1,4 @@
-<!-- Copy at Step 0. Rules: references/foundations.md, "Step 0", and references/external-ontologies.md. In the framework, boundary and survey tables, a row is done only when every cell holds a fact you read in the publisher's own copy; write "not checked" rather than a guess, and the gate stays open. The registry-search table records your own searches instead (its note says how). Delete every comment. -->
+<!-- Copy at Step 0. Rules: references/foundations.md, "Step 0", and references/external-ontologies.md. In the framework, boundary and survey tables, a row is done only when every cell holds a fact you read in the publisher's own copy, or, for a source you ignore, "not needed (ignored)" beside its treatment and reason (external-ontologies.md, rule 1); write "not checked" rather than a guess, and the gate stays open. The registry-search table records your own searches instead (its note says how). Delete every comment. -->
 
 # Step 0: reference framework and survey
 
