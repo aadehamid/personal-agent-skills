@@ -19,6 +19,8 @@ Roles are positions people hold, not people. The same person can be Accountable 
 8. **Infer nothing from the hierarchy.** A process with no RACI in the source gets no assignment, even when its parent or child has one. *Why:* "the parent's owner owns the child" is a guess the source never made.
 9. **Mint assignment IRIs from content** (process, level, role, and a hash of the source string), as `identity-taxonomy.md`, Step 2, rule 6 says.
 10. **Reconcile in a conservation table:** source entries plus the extra roles that compound strings add equal the assignments, in total and at every level. The build fails otherwise. *Why:* the same arithmetic as `promotion.md`, rule 7.
+In an industry reference, the roles are generic and every typical assignment cites public evidence (`industry-reference.md`, rules 6 and 7); rule 8 still holds.
+
 11. **Get a recorded scope before you test the gate.** "Every in-scope process has RACI" needs a decision on which processes are in scope. Processes outside it go on the source author's backlog, and a must-be-none query lists them; do not invent RACI for them. *Why:* without a recorded scope the gate is either untestable or met by invention.
 
 ## Party roles: dated nodes, never subclasses

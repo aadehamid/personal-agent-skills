@@ -2,7 +2,7 @@
 
 Serves Step 11, and Step 1 where the competency questions are written. Read it before you write a competency-question query, add a class or property, land a module, or cut a release.
 
-The competency questions are the exam the owner approved and locked at Step 1 (`foundations.md`). This step turns them into SPARQL and keeps running them.
+The competency questions are the exam the owner approved and locked at Step 1 (`foundations.md`). This step turns them into SPARQL and keeps running them. A build that generalizes an existing release also runs the migration tests in `generalization.md`, rules 7 and 8.
 
 ## Trace every element to a question
 

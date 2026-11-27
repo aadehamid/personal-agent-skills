@@ -45,6 +45,8 @@ Serves Step 7. Read it before you bring back a parked overlay (measures, data pr
 
 ## Systems and other code lists
 
+In an industry reference, a system is a generic capability, never one organization's system or a product (`industry-reference.md`, rule 8).
+
 23. **Build systems from the source's strings through a register**, as roles are built (`organization.md`, rules 2 to 5): merge on spelling only, split a string joined by "/" into its systems, create nothing for a string that names no system. Give each system a kind (application, office tool, working document); a system its owners have not yet described stays parked until they do (rule 3). *Why:* systems are shared by many processes, so they are things, not process attributes.
 24. **Link a code-list value to a process by key** (the value's `skos:notation`), checked by the build, and inherit nothing down the hierarchy. *Why:* the key is how the source names it; inheritance is a guess (`organization.md`, rule 8).
 

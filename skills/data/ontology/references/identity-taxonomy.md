@@ -4,7 +4,7 @@ Serves Steps 2 and 3. Read it before you mint any IRI, build or regenerate the c
 
 ## Step 2: identity
 
-Record every node in `templates/identity-table.md`.
+Record every node in `templates/identity-table.md`. When the build generalizes an existing release, the migration map, neutral IDs and migration tests follow `generalization.md`.
 
 1. **Slugs and IRIs are identity; labels are presentation.** Never use a label as a join, lookup, access-control or API key. *Why:* labels change and collide; identity must not.
 2. **Keep the source's local IDs as `skos:notation` and derive slugs from them. Where a node has no local ID, mint its slug once from the label at the time (lower case, words joined by hyphens), record the date in the identity table, and never change it when the label changes;** where renames are likely, mint an opaque slug (`c0042`) instead. Reference-framework IDs attach by `dcterms:references` and never replace local IDs. *Why:* the local ID is what the business already uses to find the thing, and a minted slug that followed its label would change identity on every rename ("Cool URIs don't change", Tim Berners-Lee, W3C, 1998, https://www.w3.org/Provider/Style/URI).

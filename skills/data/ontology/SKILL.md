@@ -14,7 +14,7 @@ Scope: from intake to a released, checked ontology; Step 12 hands its property-g
 
 1. Read the project's decision log, worklog, requirements file, competency questions and released packages, if they exist.
 2. Read the project's playbook (its own written method), if it has one. Its rules win where they conflict with this skill.
-3. For a new ontology, sort the inputs and fill `templates/requirements.yaml` before Step 0 (`references/governance.md`, rules 1 to 3). The hierarchy of the business's processes or concepts counts as representative data and is the backbone of Steps 2 and 3, so name it, or its absence, there.
+3. For a new ontology, sort the inputs and fill `templates/requirements.yaml` before Step 0 (`references/governance.md`, rules 1 to 3). The hierarchy of the business's processes or concepts counts as representative data and is the backbone of Steps 2 and 3, so name it, or its absence, there. For a reference that describes a whole industry rather than one organization, also read `references/industry-reference.md`; to build one from an organization's existing release, `references/generalization.md`.
 4. To add a module to an ontology that already has releases, read `references/new-module.md`; it narrows the steps below. For a logical data model exported from a modelling tool, also read `references/logical-model.md`.
 5. Name the current step and its open gate before you do any work.
 
@@ -54,7 +54,7 @@ Keep the order, except Step 8, which runs right after Step 0; Step 1 may also st
 Each rule lives in the reference named; read it there.
 
 - **Define, don't record:** `references/foundations.md`, policy 2.
-- **Cite every fact in the evidence order:** `references/foundations.md`, policy 3.
+- **Cite every fact in the evidence order:** `references/foundations.md`, policy 3 (for an industry reference, `references/industry-reference.md`, rule 3).
 - **One kind per term:** `references/domain-model.md`, rule 1.
 - **Map, don't import:** `references/external-ontologies.md`.
 - **Qualified relations:** `references/foundations.md`, conceptual modelling, rule 8.
