@@ -1,4 +1,4 @@
-<!-- Copy at Step 0. Rules: references/foundations.md, "Step 0", and references/external-ontologies.md. In the framework, boundary and survey tables, a row is done only when every cell holds a fact you read in the publisher's own copy; write "not checked" rather than a guess, and the gate stays open. The registry-search table records your own searches instead (its note says how). Delete every comment. -->
+<!-- Copy at Step 0. Rules: references/foundations.md, "Step 0", and references/external-ontologies.md. In the framework, boundary and survey tables, a row is done only when every cell holds a fact you read in the publisher's own copy, or, for a source you ignore, "not needed (ignored)" beside its treatment and reason (external-ontologies.md, rule 1); write "not checked" rather than a guess, and the gate stays open. The registry-search table records your own searches instead (its note says how). Delete every comment. -->
 
 # Step 0: reference framework and survey
 
@@ -28,7 +28,7 @@ Checked <YYYY-MM-DD>.
 
 ## Registry searches
 
-<!-- One row per registry in references/external-ontologies.md, "The registries to search", and one per further search you ran. These cells record what you did, not a publisher's fact: the date, the exact query terms, and the hits by name as the registry listed them. "no hits" is a complete answer for a search that found nothing; never leave the row out. A search you could not run is "not run (offline)", or "not run" with another reason, dated the day you recorded it, with the terms you would use; Step 0 then stays open and Step 1 may start (external-ontologies.md, "Offline"). -->
+<!-- One row per core registry in references/external-ontologies.md, "The registries to search", one per further registry there that fits the domain, and one per further search you ran. Note anything about the run itself, such as where it ran or a changed endpoint, beside the registry's name. These cells record what you did, not a publisher's fact: the date, the exact query terms, and the hits by name as the registry listed them. "no hits" is a complete answer for a search that found nothing; never leave the row out. A search you could not run is "not run (offline)", or "not run" with another reason, dated the day you recorded it, with the terms you would use; Step 0 then stays open and Step 1 may start (external-ontologies.md, "Offline"). -->
 
 | Registry | Date | Query terms | Hits (names), or "no hits" |
 |---|---|---|---|
