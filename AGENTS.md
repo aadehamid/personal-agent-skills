@@ -25,11 +25,13 @@ do not depend on a temporary worktree. Leave unrelated files and worktrees alone
 
 This is the Home Repo: run the agent from here and reach the other repos through
 the pointers in `AGENTS.local.md`, next to this file. That file is not committed
-(`.gitignore` lists it), so the public repo lists no other repo's local path or remote.
-Read it first when it exists. In a secondary `git worktree` it is not there, so read it
-from the main checkout. When neither has it, ask the owner for the repo you need.
-If a local path it gives does not exist, clone the repo from the remote it gives. Use
-a `git worktree` when several agents work the same repo at once.
+(`.gitignore` lists it), so this file lists no other repo's local path or remote.
+Read `AGENTS.local.md` first when it exists. In a secondary `git worktree` it is not
+there, so read it from the main checkout. When neither has it, ask the owner for the
+repo you need. If a local path it gives does not exist, clone the repo from the remote
+it gives. Use a `git worktree` when several agents work the same repo at once. (Some
+skills' `SOURCES.md` files link other repos, as the source of a rule; those links are
+not pointers for reaching a repo.)
 
 Each entry in `AGENTS.local.md` gives the repo's name, what it is for, its local path,
 its remote, and whether to read its own `AGENTS.md` first.
