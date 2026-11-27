@@ -10,6 +10,8 @@
 #   scripts/memory.sh about KEY         current facts about one entity (first 100)
 #   scripts/memory.sh history SLOT      facts a slot has held, newest first (first 100)
 #   scripts/memory.sh slots             slots that hold a current fact (first 500)
+#   scripts/memory.sh asof WHEN         what agents believed at WHEN (first 100); WHEN is a
+#                                       date (its end) or a datetime with a zone
 #   scripts/memory.sh brief [N]         the N most recent current facts (default 20)
 #   scripts/memory.sh check             fail unless every slot holds exactly one current fact
 #   scripts/memory.sh init              create the store and its schema
@@ -386,6 +388,34 @@ case "$cmd" in
               toString(f.recordedAt) AS recorded, toString(f.closedAt) AS closed,
               ep.agent AS agent, ep.id AS episode, ep.text AS evidence
        ORDER BY f.recordedAt DESC LIMIT $cap' ;;
+  asof)
+    need_relate
+    when="${1:-}"
+    # A date means the end of that day; a datetime means that moment. Both
+    # become an exclusive bound, so "believed at" is recorded before it and
+    # not yet closed by it.
+    bound="$(python3 - "$when" <<'PY2'
+import re, sys
+from datetime import datetime, timedelta
+w = sys.argv[1]
+try:
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", w, re.ASCII):
+        t = datetime.fromisoformat(w + "T00:00:00+00:00") + timedelta(days=1)
+    elif re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})", w, re.ASCII):
+        t = datetime.fromisoformat(w) + timedelta(microseconds=1)
+    else:
+        raise ValueError
+except ValueError:
+    sys.exit(1)
+print(t.isoformat(timespec="microseconds"))
+PY2
+)" || { echo "usage: scripts/memory.sh asof WHEN, a date such as 2026-11-27 or a datetime such as 2026-11-27T10:00:00Z" >&2; exit 2; }
+    capped 100 --param "bound=$(json_string "$bound")" \
+      'MATCH (f:Fact)-[:FROM]->(ep:Episode)
+       WHERE f.recordedAt < datetime($bound) AND (f.closedAt IS NULL OR f.closedAt >= datetime($bound))
+       RETURN f.slot AS slot, f.text AS memory, ep.agent AS agent, ep.id AS episode,
+              toString(f.recordedAt) AS recorded, ep.text AS evidence
+       ORDER BY slot LIMIT $cap' ;;
   slots)
     need_relate
     capped 500 'MATCH (f:CurrentFact) RETURN DISTINCT f.slot AS slot ORDER BY slot LIMIT $cap' ;;

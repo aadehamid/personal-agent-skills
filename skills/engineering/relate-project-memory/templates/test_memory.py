@@ -298,6 +298,22 @@ class WithRelate(Base):
         p = self.run_memory("history", "unit/none")
         self.assertEqual((p.stdout, "more exist" in p.stderr), ("", False))
 
+    def test_asof_answers_what_agents_believed_then(self):
+        self.remember(episode("e1", "2026-11-27T10:00:00Z", "pi", [fact("f1", "First belief.")]))
+        time.sleep(0.05)
+        self.remember(episode("e2", "2026-11-28T10:00:00Z", "pi", [fact("f2", "Corrected belief.")]))
+        recorded = {h["episode"]: h["recorded"] for h in self.rows("history", SLOT)}
+        self.assertEqual([r["memory"] for r in self.rows("asof", recorded["e1"])], ["First belief."])
+        self.assertEqual([r["memory"] for r in self.rows("asof", recorded["e2"])], ["Corrected belief."])
+        today = recorded["e2"][:10]
+        self.assertEqual([r["memory"] for r in self.rows("asof", today)], ["Corrected belief."])
+        self.assertEqual(self.rows("asof", "2000-01-01"), [])
+        for bad in ("", "yesterday", "2026-13-01", "2026-11-27T10:00:00", "2026-11-27 10:00Z"):
+            with self.subTest(bad):
+                p = self.run_memory("asof", bad)
+                self.assertEqual(p.returncode, 2, p.stderr)
+                self.assertIn("usage:", p.stderr)
+
     def test_string_parameters_stay_strings(self):
         self.remember(episode("e1", "2026-11-27T10:00:00Z", "cursor",
                               [{"id": "f1", "text": "Flag 42 is true.", "slot": "true/42", "about": ["true"]}],
