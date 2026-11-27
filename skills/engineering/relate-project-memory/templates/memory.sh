@@ -28,9 +28,17 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cypher_dir="$here/memory"
 tmp=""
 build_dir=""
-# Bash runs this EXIT trap on a normal exit and when SIGINT or SIGTERM ends
-# the script. Only SIGKILL skips it; create_store sweeps what that leaves.
-trap '[ -z "$tmp" ] || rm -f "$tmp"; [ -z "$build_dir" ] || rm -rf "$build_dir"' EXIT
+cleanup() {
+  [ -z "$tmp" ] || rm -f "$tmp"
+  [ -z "$build_dir" ] || rm -rf "$build_dir"
+}
+# Clean up on a normal exit and on the signals that usually stop a script.
+# SIGKILL and a power loss skip the cleanup, and other ways a script ends may
+# skip it too. init removes a build left that way once it is an hour old.
+trap cleanup EXIT
+trap 'cleanup; trap - EXIT; exit 130' INT
+trap 'cleanup; trap - EXIT; exit 143' TERM
+trap 'cleanup; trap - EXIT; exit 129' HUP
 
 store() {
   if [ -n "${PROJECT_MEMORY_DB:-}" ]; then
@@ -141,8 +149,8 @@ capped() {
 # first writer builds a private store and renames it into place. A rename onto
 # a folder that already holds a store fails atomically, and the loser drops
 # its copy and uses the winner's. No lock is held, so none can go stale.
-# A SIGKILL skips the EXIT trap and leaves a private build beside the store.
-# It is never used. Remove builds older than an hour on every init.
+# A SIGKILL, an untrapped signal or a crash can leave a private build beside
+# the store. It is never used. Remove builds older than an hour on every init.
 sweep_builds() {
   local db="$1" parent pattern
   parent="$(dirname "$db")"

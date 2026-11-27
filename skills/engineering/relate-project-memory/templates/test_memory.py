@@ -347,19 +347,23 @@ class WithRelate(Base):
         os.chmod(os.path.join(slow, "relate"), 0o755)
         env = dict(self.env, PATH=slow + os.pathsep + self.env["PATH"])
         builds = lambda: [f for f in os.listdir(self.tmp.name) if f.startswith("memory.init.")]
-        for sig in (signal.SIGTERM, signal.SIGKILL):
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGKILL):
             with self.subTest(sig.name):
                 shutil.rmtree(self.db, ignore_errors=True)
                 proc = subprocess.Popen(["bash", MEMORY, "init"], env=env, start_new_session=True,
                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 time.sleep(1.5)
                 self.assertEqual(len(builds()), 1, "the build folder should exist mid-build")
-                os.kill(proc.pid, sig)
+                os.killpg(proc.pid, sig)  # the whole group, as Ctrl-C or a closed terminal would
                 proc.wait(timeout=30)
+                # The kill must land before the rename: no store, and a failed exit.
+                expected = {signal.SIGINT: 130, signal.SIGTERM: 143, signal.SIGHUP: 129}.get(sig, -sig)
+                self.assertEqual(proc.returncode, expected, sig.name)
+                self.assertFalse(os.path.exists(self.db), "the killed creator must not finish the store")
                 if self._group_alive(proc.pid):
                     os.killpg(proc.pid, signal.SIGKILL)
-                if sig is signal.SIGTERM:
-                    self.assertEqual(builds(), [], "the EXIT trap removes the build on SIGTERM")
+                if sig is not signal.SIGKILL:
+                    self.assertEqual(builds(), [], f"the trap removes the build on {sig.name}")
                 start = time.monotonic()
                 p = self.run_memory("init")
                 self.assertEqual(p.returncode, 0, p.stderr)
