@@ -1,5 +1,6 @@
 """The guide (references/playbook.md) stays neutral: it names no build, company, repository path or
-industry of the project that proved the method. Moved here from that project's own check when the
+industry of the project that proved the method. Every file of the data skills also stays free of one
+industry's terms and one company's names, so the skills work for an ontology in any industry. Moved here from that project's own check when the
 guide moved into this skill (2026-10-25). The method's evidence lives in each project's worklog.
 
 Run: python3 -m unittest test_playbook_guide
@@ -68,3 +69,39 @@ class Guide(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# The data skills: the ontology skill and the skills that project or draw its output.
+DATA_SKILLS = os.path.normpath(os.path.join(HERE, "..", ".."))
+INDUSTRY_KINDS = ("a company or its filer names", "a refining or oil and gas term")
+
+
+def industry_problems(text):
+    """(line, kind, matched text) for each company name or oil and gas term in text."""
+    return [p for p in problems(text) if p[1] in INDUSTRY_KINDS]
+
+
+class DataSkillsAreIndustryNeutral(unittest.TestCase):
+    def test_no_data_skill_file_names_one_industry_or_company(self):
+        this_file = os.path.abspath(__file__)
+        found = []
+        for root, dirs, files in os.walk(DATA_SKILLS):
+            dirs[:] = [d for d in dirs if d not in ("__pycache__", "upstream", ".git")]
+            for name in files:
+                path = os.path.join(root, name)
+                if os.path.abspath(path) == this_file:
+                    continue
+                try:
+                    with open(path, encoding="utf-8") as f:
+                        text = f.read()
+                except (UnicodeDecodeError, OSError):
+                    continue
+                for line, kind, match in industry_problems(text):
+                    found.append((os.path.relpath(path, DATA_SKILLS), line, kind, match))
+        self.assertEqual(found, [])
+
+    def test_the_check_catches_an_industry_term_and_a_company(self):
+        self.assertEqual([p[1] for p in industry_problems("a crude unit\nas Valero files")],
+                         ["a refining or oil and gas term", "a company or its filer names"])
+        self.assertEqual(industry_problems("a public library lends a book"), [])
+

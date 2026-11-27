@@ -53,9 +53,8 @@ steps depends on your username or on where your home folder is.
    ```
 
 3. Get the project repo, which holds the config, the schema validator, the sync
-   simulator, the runbook and the ledger. Dropbox syncs it to
-   `~/Dropbox/1_PROJECTS/knowledge-management`, or clone
-   `https://github.com/aadehamid/knowledge-management`.
+   simulator, the runbook and the ledger. Its local path and remote are in
+   `AGENTS.local.md` at the root of this repo; below, `<project>` stands for that path.
 4. Get the vaults. They are not in git. They live in `~/Documents/Knowledge Management`,
    which iCloud Drive syncs to any Mac signed into the same Apple ID with "Desktop &
    Documents" turned on. If you keep them somewhere else, add
@@ -65,7 +64,7 @@ steps depends on your username or on where your home folder is.
 
    ```bash
    mkdir -p ~/.config/kb
-   ln -sfn ~/Dropbox/1_PROJECTS/knowledge-management/knowledge-ingest.config.json ~/.config/kb/config.json
+   ln -sfn <project>/knowledge-ingest.config.json ~/.config/kb/config.json
    ```
 
 6. Install the Codex plugin in Claude Code (`/plugin`, then openai-codex) and log in.

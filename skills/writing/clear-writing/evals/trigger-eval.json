@@ -1,6 +1,6 @@
 [
   {
-    "query": "the README in ~/Dropbox/1_PROJECTS/scada-harmonization reads like chatgpt wrote it. lots of 'seamless' and 'robust' and bold headers everywhere. can you make it plainer without losing any of the setup steps",
+    "query": "the README in ~/projects/sensor-pipeline reads like chatgpt wrote it. lots of 'seamless' and 'robust' and bold headers everywhere. can you make it plainer without losing any of the setup steps",
     "should_trigger": true
   },
   {
