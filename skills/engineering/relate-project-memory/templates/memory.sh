@@ -29,7 +29,8 @@ cypher_dir="$here/memory"
 tmp=""
 build_dir=""
 # Bash runs this EXIT trap on a normal exit and when SIGINT or SIGTERM ends
-# the script. Only SIGKILL skips it; create_store sweeps what that leaves.
+# the script (measured on bash 3.2 and 5.3). Only SIGKILL skips it; init
+# sweeps the builds that leaves.
 trap '[ -z "$tmp" ] || rm -f "$tmp"; [ -z "$build_dir" ] || rm -rf "$build_dir"' EXIT
 
 store() {

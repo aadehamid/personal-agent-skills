@@ -356,6 +356,9 @@ class WithRelate(Base):
                 self.assertEqual(len(builds()), 1, "the build folder should exist mid-build")
                 os.kill(proc.pid, sig)
                 proc.wait(timeout=30)
+                # The kill must land before the rename: no store, and a failed exit.
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertFalse(os.path.exists(self.db), "the killed creator must not finish the store")
                 if self._group_alive(proc.pid):
                     os.killpg(proc.pid, signal.SIGKILL)
                 if sig is signal.SIGTERM:
