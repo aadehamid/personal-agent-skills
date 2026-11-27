@@ -17,6 +17,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 INSTALL = os.path.join(HERE, "install.py")
 TEMPLATES = os.path.join(os.path.dirname(HERE), "templates")
+LINK = "../../../.agents/skills/project-memory/SKILL.md"
 TOOL_FILES = ("scripts/memory.sh", "scripts/memory/schema.cypher", "scripts/memory/remember.cypher",
               "tests/test_memory.py")
 
@@ -134,6 +135,26 @@ class Installer(unittest.TestCase):
             "missing decision arguments": (lambda: None, [], 2),
             "unreadable Claude settings": (
                 lambda: self.write(".claude/settings.json", "{not json"), ["--decision-ref", "D1", "--decision-records", "x"], 2),
+            "Claude hooks of the wrong shape": (
+                lambda: self.write(".claude/settings.json", '{"hooks": {"SessionStart": [{"hooks": [{"command": null}]}]}}'),
+                ["--decision-ref", "D1", "--decision-records", "x"], 2),
+            "Claude hooks that are not an object": (
+                lambda: self.write(".claude/settings.json", '{"hooks": null}'), ["--decision-ref", "D1", "--decision-records", "x"], 2),
+            "Gemini context of the wrong shape": (
+                lambda: self.write(".gemini/settings.json", '{"context": {"fileName": [1]}}'),
+                ["--decision-ref", "D1", "--decision-records", "x"], 2),
+            "a symlinked .claude/skills folder": (
+                lambda: (os.makedirs(self.path(".agents/skills")), os.makedirs(self.path(".claude")),
+                         os.symlink("../.agents/skills", self.path(".claude/skills"))),
+                ["--decision-ref", "D1", "--decision-records", "x"], 2),
+            "a symlinked scripts folder": (
+                lambda: (os.makedirs(os.path.join(self.tmp.name, "elsewhere"), exist_ok=True),
+                         os.symlink(os.path.join(self.tmp.name, "elsewhere"), self.path("scripts"))),
+                ["--decision-ref", "D1", "--decision-records", "x"], 2),
+            "a symlinked .gitignore": (
+                lambda: (open(os.path.join(self.tmp.name, "ignore"), "w").close(),
+                         os.symlink(os.path.join(self.tmp.name, "ignore"), self.path(".gitignore"))),
+                ["--decision-ref", "D1", "--decision-records", "x"], 2),
             "unreadable Gemini settings": (
                 lambda: self.write(".gemini/settings.json", "[1, 2]"), ["--decision-ref", "D1", "--decision-records", "x"], 2),
         }
@@ -182,6 +203,16 @@ class Installer(unittest.TestCase):
         self.write(".gitignore", ".relate-memory*\n")
         self.install()
         self.assertEqual(self.read(".gitignore"), ".relate-memory*\n")
+
+    def test_empty_gemini_file_name_becomes_agents_md(self):
+        self.write(".gemini/settings.json", '{"context": {"fileName": ""}}')
+        self.install()
+        self.assertEqual(json.loads(self.read(".gemini/settings.json"))["context"]["fileName"], ["AGENTS.md"])
+
+    def test_a_cp_copy_of_the_test_template_is_accepted(self):
+        shutil.copy(os.path.join(TEMPLATES, "test_memory.py"), self.path("tests/test_memory.py"))
+        p = self.install()
+        self.assertNotIn("tests/test_memory.py", p.stdout)
 
     def test_gemini_keeps_an_existing_gemini_md(self):
         self.write("GEMINI.md", "# Gemini\n")
@@ -247,6 +278,10 @@ class Installer(unittest.TestCase):
             "still holds an ADAPT marker": lambda: open(self.path(skill), "a").write("<!-- ADAPT: x -->\n"),
             "still holds a {{placeholder}}": lambda: open(self.path(skill), "a").write("See {{lower_case1}}.\n"),
             "not the relative link": lambda: (os.remove(self.path(link)), os.symlink(self.path(skill), self.path(link))),
+            "a symlink, not a folder ": lambda: (shutil.rmtree(self.path(".claude/skills")),
+                                                 os.makedirs(self.path("other/project-memory")),
+                                                 os.symlink(LINK, self.path("other/project-memory/SKILL.md")),
+                                                 os.symlink("../other", self.path(".claude/skills"))),
             "a symlink, not a folder": lambda: (shutil.rmtree(self.path(".claude/skills/project-memory")),
                                                 os.symlink(self.path(".agents/skills/project-memory"),
                                                            self.path(".claude/skills/project-memory"))),
@@ -262,7 +297,7 @@ class Installer(unittest.TestCase):
                 damage()
                 p = self.run_install("--check")
                 self.assertEqual(p.returncode, 1, message)
-                self.assertIn(message, p.stderr)
+                self.assertIn(message.strip(), p.stderr)
 
     def test_refuses_a_folder_that_is_not_a_repo_root(self):
         p = subprocess.run([sys.executable, INSTALL, os.path.join(self.repo, "tests")],

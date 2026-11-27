@@ -69,6 +69,18 @@ def read(path):
         return fh.read()
 
 
+def symlink_in(repo, rel, include_leaf=True):
+    """Return the first part of rel, from the repo down, that is a symlink."""
+    parts = rel.split(os.sep)
+    if not include_leaf:
+        parts = parts[:-1]
+    for i in range(1, len(parts) + 1):
+        part = os.path.join(*parts[:i])
+        if os.path.islink(os.path.join(repo, part)):
+            return part
+    return None
+
+
 def executable(path):
     # Git records only the execute bit, and checkouts follow the local umask,
     # so the owner's execute bit is the only mode worth comparing.
@@ -118,8 +130,9 @@ def plan_tool_files(plan, tests_dir, update):
     for template, rel, exec_bit in tool_files(tests_dir):
         text = read(os.path.join(TEMPLATES, template))
         target = plan.path(rel)
-        if os.path.islink(target):
-            raise Refusal(f"{rel} is a symlink; remove it and run the installer again")
+        found = symlink_in(plan.repo, rel)
+        if found:
+            raise Refusal(f"{found} is a symlink; the installer writes only into real folders and files")
         if os.path.exists(target):
             if read(target) == text and executable(target) == exec_bit:
                 continue
@@ -135,6 +148,9 @@ def plan_tool_files(plan, tests_dir, update):
 
 
 def plan_project_skill(plan, decision_ref, decision_records):
+    found = symlink_in(plan.repo, PROJECT_SKILL)
+    if found:
+        raise Refusal(f"{found} is a symlink; the installer writes only into real folders and files")
     if os.path.lexists(plan.path(PROJECT_SKILL)):
         return
     if not (decision_ref and decision_records):
@@ -149,14 +165,17 @@ def plan_project_skill(plan, decision_ref, decision_records):
 
 
 def plan_claude_link(plan):
-    folder = os.path.dirname(plan.path(CLAUDE_LINK))
-    if os.path.islink(folder):
-        raise Refusal(f"{os.path.dirname(CLAUDE_LINK)} is a symlink; replace it with a folder")
+    found = symlink_in(plan.repo, CLAUDE_LINK, include_leaf=False)
+    if found:
+        raise Refusal(f"{found} is a symlink; replace it with a folder")
     if not os.path.lexists(plan.path(CLAUDE_LINK)):
         plan.link(CLAUDE_LINK, LINK_TARGET)
 
 
 def load_json(plan, rel):
+    found = symlink_in(plan.repo, rel)
+    if found:
+        raise Refusal(f"{found} is a symlink; the installer edits only real files")
     if not os.path.exists(plan.path(rel)):
         return {}
     try:
@@ -172,7 +191,13 @@ def load_json(plan, rel):
 def plan_claude_hook(plan):
     rel = ".claude/settings.json"
     settings = load_json(plan, rel)
-    groups = settings.setdefault("hooks", {}).setdefault("SessionStart", [])
+    hooks = settings.setdefault("hooks", {})
+    groups = hooks.setdefault("SessionStart", []) if isinstance(hooks, dict) else None
+    if not isinstance(groups, list) or not all(
+            isinstance(g, dict) and isinstance(g.get("hooks", []), list)
+            and all(isinstance(h, dict) and isinstance(h.get("command", ""), str) for h in g.get("hooks", []))
+            for g in groups):
+        raise Refusal(f"{rel}: hooks.SessionStart is not the list of hook groups Claude Code expects")
     commands = [h.get("command", "") for g in groups for h in g.get("hooks", [])]
     if any(HOOK_MARK in c for c in commands):
         return
@@ -184,8 +209,11 @@ def plan_gemini_setting(plan):
     rel = ".gemini/settings.json"
     settings = load_json(plan, rel)
     context = settings.setdefault("context", {})
-    names = context.get("fileName", [])
-    names = [names] if isinstance(names, str) else list(names)
+    names = context.get("fileName", []) if isinstance(context, dict) else None
+    if isinstance(names, str):
+        names = [names] if names else []
+    if not (isinstance(names, list) and all(isinstance(n, str) and n for n in names)):
+        raise Refusal(f"{rel}: context.fileName is not a file name or a list of them")
     if "AGENTS.md" in names:
         return
     if not names and os.path.exists(plan.path("GEMINI.md")):
@@ -201,6 +229,9 @@ def ignores(lines, entry):
 
 def plan_gitignore(plan):
     rel = ".gitignore"
+    found = symlink_in(plan.repo, rel)
+    if found:
+        raise Refusal(f"{found} is a symlink; the installer edits only real files")
     text = read(plan.path(rel)) if os.path.exists(plan.path(rel)) else ""
     lines = text.splitlines()
     missing = [entry for entry in GITIGNORE_LINES if not ignores(lines, entry)]
@@ -217,14 +248,14 @@ def check(repo, tests_dir):
     problems = []
     for template, rel, exec_bit in tool_files(tests_dir):
         target = os.path.join(repo, rel)
-        if os.path.islink(target) or not os.path.isfile(target):
+        if symlink_in(repo, rel) or not os.path.isfile(target):
             problems.append(f"{rel}: missing or not a plain file; run install.py")
         elif read(target) != read(os.path.join(TEMPLATES, template)):
             problems.append(f"{rel}: differs from the skill's template; run install.py --update")
         elif executable(target) != exec_bit:
             problems.append(f"{rel}: execute bit should be {'set' if exec_bit else 'clear'}")
     skill = os.path.join(repo, PROJECT_SKILL)
-    if not os.path.isfile(skill):
+    if symlink_in(repo, PROJECT_SKILL) or not os.path.isfile(skill):
         problems.append(f"{PROJECT_SKILL}: missing")
     else:
         text = read(skill)
@@ -233,8 +264,9 @@ def check(repo, tests_dir):
         if PLACEHOLDER.search(text):
             problems.append(f"{PROJECT_SKILL}: still holds a {{{{placeholder}}}}")
     link = os.path.join(repo, CLAUDE_LINK)
-    if os.path.islink(os.path.dirname(link)):
-        problems.append(f"{os.path.dirname(CLAUDE_LINK)}: a symlink, not a folder")
+    found = symlink_in(repo, CLAUDE_LINK, include_leaf=False)
+    if found:
+        problems.append(f"{found}: a symlink, not a folder")
     elif not (os.path.islink(link) and os.readlink(link) == LINK_TARGET):
         problems.append(f"{CLAUDE_LINK}: not the relative link {LINK_TARGET}")
     agents = os.path.join(repo, "AGENTS.md")
@@ -281,6 +313,15 @@ def main(argv=None):
     except Refusal as refusal:
         print(f"install: {refusal}", file=sys.stderr)
         return refusal.code
+
+    # Nothing may be written through a symlink: not the file, not a folder above it.
+    # A new link may only be made in real folders.
+    for kind, _, rel, _, _ in plan.ops:
+        found = symlink_in(repo, rel, include_leaf=(kind == "write"))
+        if found:
+            print(f"install: {found} is a symlink; the installer writes only into real folders and files",
+                  file=sys.stderr)
+            return 2
 
     prefix = "would " if args.dry_run else ""
     for line in plan.describe():

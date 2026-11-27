@@ -17,7 +17,7 @@ The project's rules win. Read its `AGENTS.md`, its decision records, its check s
 ## Set up a new project
 
 1. **Branch** from current `main`, as the project's rules say.
-2. **Write the checks first if the project asks for that.** Run the installer with `--dry-run` to see the files, then copy only `templates/test_memory.py` into the tests folder and run it, so the PR can show it failing before the code exists. The installer accepts that copy, because it matches the template.
+2. **Write the checks first if the project asks for that.** Run step 3's command with `--dry-run` added to see the files, then copy only `templates/test_memory.py` into the tests folder with `cp` and run it, so the PR can show it failing before the code exists. The installer accepts that copy in step 3, because it matches the template.
 3. **Install:**
 
    ```bash
@@ -32,14 +32,12 @@ The project's rules win. Read its `AGENTS.md`, its decision records, its check s
 8. **Prove it.** Run, in order:
    - `python3 <this skill>/scripts/install.py <repo> --check` exits 0.
    - The project's check script passes.
-   - If Codex is installed, a save works inside its sandbox. Use a scratch store so the probe stays out of the real memory, then remove it:
+   - Save a first memory that records the setup: a `handoff` episode with today's date and time, your agent's name and the branch, in the shape of the project skill's example. Write your own ids and text; the example's are placeholders. If Codex is installed, save it from inside Codex's sandbox, which proves a sandboxed agent can write the real store:
 
      ```bash
-     codex sandbox -P :workspace -c x=1 -C <repo> -- env PROJECT_MEMORY_DB=<repo>/.relate-memory.sandbox-probe scripts/memory.sh remember <file>
-     rm -rf <repo>/.relate-memory.sandbox-probe
+     cd <repo> && codex sandbox -P :workspace -c x=1 -C . -- scripts/memory.sh remember <episode.json>
      ```
 
-   - Save a first memory that records the setup: a `handoff` episode with today's date and time, your agent's name and the branch, in the shape of the project skill's example. Write your own ids and text; the example's are placeholders.
 9. **Ship** through the project's PR process.
 
 Done when `install.py --check` exits 0, the project's checks pass, the first memory is saved, and the PR has merged.
