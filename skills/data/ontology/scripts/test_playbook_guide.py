@@ -105,12 +105,15 @@ def data_skill_files():
     this_file = os.path.abspath(__file__)
     for root, dirs, files in os.walk(DATA_SKILLS):
         # Vendored copies sit at skills/<area>/<skill>/upstream/, as .gitignore says.
-        at_skill_root = os.path.dirname(os.path.abspath(root)) == os.path.abspath(DATA_SKILLS)
+        if DATA_SKILLS == SKILL_ROOT:
+            at_skill_root = os.path.abspath(root) == os.path.abspath(SKILL_ROOT)
+        else:
+            at_skill_root = os.path.dirname(os.path.abspath(root)) == os.path.abspath(DATA_SKILLS)
         dirs[:] = [d for d in dirs if d not in ("__pycache__", ".git")
                    and not (d == "upstream" and at_skill_root)]
         for name in files:
             path = os.path.join(root, name)
-            if os.path.abspath(path) != this_file and not name.endswith(".pyc"):
+            if os.path.abspath(path) != this_file and not name.endswith(".pyc") and name != ".DS_Store":
                 yield path
 
 
@@ -134,6 +137,12 @@ class DataSkillsAreIndustryNeutral(unittest.TestCase):
         self.assertEqual(kinds, {"a refining or oil and gas term", "a company or its filer names",
                                  "a project decision record", "a project's repository or namespace"})
         self.assertEqual(industry_problems("a public library lends a book; APQC is a crosswalk"), [])
+
+    def test_each_added_pattern_catches_its_term(self):
+        for text in ("a crack-spread series", "oil & gas", "oil-and-gas", "a midstream unit", "renewable diesel",
+                     "the Renewable Fuel Standard", "RINs", "Pearland", "CIK 0001510295", "CM 1.1.4",
+                     "w3id.org/lsc", "enterprise-performance-model"):
+            self.assertNotEqual(industry_problems(text), [], text)
 
 
 if __name__ == "__main__":
