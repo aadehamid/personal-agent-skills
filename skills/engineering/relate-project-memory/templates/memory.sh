@@ -33,10 +33,12 @@ cleanup() {
   [ -z "$build_dir" ] || rm -rf "$build_dir"
 }
 # Clean up on a normal exit and on the signals that usually stop a script.
-# SIGKILL, SIGQUIT and a crash skip every trap; init sweeps the builds they leave.
+# A SIGKILL, a signal not trapped here, or a crash skips the cleanup; init
+# sweeps the builds those leave.
 trap cleanup EXIT
 trap 'cleanup; trap - EXIT; exit 130' INT
-trap 'cleanup; trap - EXIT; exit 143' TERM HUP
+trap 'cleanup; trap - EXIT; exit 143' TERM
+trap 'cleanup; trap - EXIT; exit 129' HUP
 
 store() {
   if [ -n "${PROJECT_MEMORY_DB:-}" ]; then
@@ -147,8 +149,8 @@ capped() {
 # first writer builds a private store and renames it into place. A rename onto
 # a folder that already holds a store fails atomically, and the loser drops
 # its copy and uses the winner's. No lock is held, so none can go stale.
-# A SIGKILL skips the EXIT trap and leaves a private build beside the store.
-# It is never used. Remove builds older than an hour on every init.
+# A SIGKILL, an untrapped signal or a crash can leave a private build beside
+# the store. It is never used. Remove builds older than an hour on every init.
 sweep_builds() {
   local db="$1" parent pattern
   parent="$(dirname "$db")"

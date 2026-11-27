@@ -357,7 +357,8 @@ class WithRelate(Base):
                 os.killpg(proc.pid, sig)  # the whole group, as Ctrl-C or a closed terminal would
                 proc.wait(timeout=30)
                 # The kill must land before the rename: no store, and a failed exit.
-                self.assertNotEqual(proc.returncode, 0)
+                expected = {signal.SIGINT: 130, signal.SIGTERM: 143, signal.SIGHUP: 129}.get(sig, -sig)
+                self.assertEqual(proc.returncode, expected, sig.name)
                 self.assertFalse(os.path.exists(self.db), "the killed creator must not finish the store")
                 if self._group_alive(proc.pid):
                     os.killpg(proc.pid, signal.SIGKILL)
