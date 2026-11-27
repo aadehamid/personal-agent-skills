@@ -25,8 +25,9 @@ do not depend on a temporary worktree. Leave unrelated files and worktrees alone
 
 This is the Home Repo: run the agent from here and reach the other repos through
 the pointers in `AGENTS.local.md`, next to this file. That file is not committed
-(`.gitignore` lists it), so the public repo names no other repo and no local folder.
-Read it first when it exists; when it does not, ask the owner for the repo you need.
+(`.gitignore` lists it), so the public repo lists no other repo's local path or remote.
+Read it first when it exists. In a secondary `git worktree` it is not there, so read it
+from the main checkout. When neither has it, ask the owner for the repo you need.
 If a local path it gives does not exist, clone the repo from the remote it gives. Use
 a `git worktree` when several agents work the same repo at once.
 

@@ -67,41 +67,74 @@ class Guide(unittest.TestCase):
         self.assertEqual(problems("one\ntwo crack\nspread three"), [(2, "a refining or oil and gas term", "crack\nspread")])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
-# The data skills: the ontology skill and the skills that project or draw its output.
-DATA_SKILLS = os.path.normpath(os.path.join(HERE, "..", ".."))
-INDUSTRY_KINDS = ("a company or its filer names", "a refining or oil and gas term")
+# The data skills: the ontology skill and the skills beside it that project or draw its output. In this
+# repository they sit together under skills/data. Where the ontology skill is shipped on its own (copied
+# into an ontology release, or installed under another folder), only its own folder is scanned.
+SKILL_ROOT = os.path.normpath(os.path.join(HERE, ".."))
+_PARENT = os.path.dirname(SKILL_ROOT)
+DATA_SKILLS = (_PARENT if os.path.basename(_PARENT) == "data"
+               and os.path.basename(os.path.dirname(_PARENT)) == "skills" else SKILL_ROOT)
+# The kinds that name one company, industry or project. The framework kind is left out, since a neutral
+# skill may still cite a cross-industry framework such as APQC's; so is "this repository", which in a
+# skill means the skills repository, and the generic file names its templates share with projects.
+SCANNED_KINDS = ("a company or its filer names", "a refining or oil and gas term", "a project decision record",
+                 "a row, process or proposal ID of a project")
+INDUSTRY_TERMS = [
+    ("a company or its filer names", r"\bPearland\b|\b0001510295\b"),
+    ("a refining or oil and gas term", r"crack[\s-]+spread|oil[\s-]*(?:and|&)[\s-]*gas|\bmidstream\b"
+                                       r"|renewable\s+diesel|renewable\s+fuel\s+standard|\bRINs\b"),
+    ("a project's repository or namespace", r"w3id\.org/lsc|business_architecture|downstream_process_map"
+                                            r"|enterprise-performance-model|downstream_oil_and_gas"),
+]
+BINARY_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf", ".zip"}
 
 
 def industry_problems(text):
-    """(line, kind, matched text) for each company name or oil and gas term in text."""
-    return [p for p in problems(text) if p[1] in INDUSTRY_KINDS]
+    """(line, kind, matched text) for each industry, company or project term in text."""
+    starts = [0] + [m.end() for m in re.finditer("\n", text)]
+    found = [p for p in problems(text) if p[1] in SCANNED_KINDS]
+    for kind, pattern in INDUSTRY_TERMS:
+        for m in re.finditer(pattern, text, re.I):
+            line = max(i for i, s in enumerate(starts) if s <= m.start()) + 1
+            found.append((line, kind, m.group(0)))
+    return sorted(set(found))
+
+
+def data_skill_files():
+    """Every file of the data skills, except this test, caches and the vendored upstream copies."""
+    this_file = os.path.abspath(__file__)
+    for root, dirs, files in os.walk(DATA_SKILLS):
+        # Vendored copies sit at skills/<area>/<skill>/upstream/, as .gitignore says.
+        at_skill_root = os.path.dirname(os.path.abspath(root)) == os.path.abspath(DATA_SKILLS)
+        dirs[:] = [d for d in dirs if d not in ("__pycache__", ".git")
+                   and not (d == "upstream" and at_skill_root)]
+        for name in files:
+            path = os.path.join(root, name)
+            if os.path.abspath(path) != this_file and not name.endswith(".pyc"):
+                yield path
 
 
 class DataSkillsAreIndustryNeutral(unittest.TestCase):
-    def test_no_data_skill_file_names_one_industry_or_company(self):
-        this_file = os.path.abspath(__file__)
+    def test_no_data_skill_file_names_one_industry_company_or_project(self):
         found = []
-        for root, dirs, files in os.walk(DATA_SKILLS):
-            dirs[:] = [d for d in dirs if d not in ("__pycache__", "upstream", ".git")]
-            for name in files:
-                path = os.path.join(root, name)
-                if os.path.abspath(path) == this_file:
-                    continue
-                try:
-                    with open(path, encoding="utf-8") as f:
-                        text = f.read()
-                except (UnicodeDecodeError, OSError):
-                    continue
-                for line, kind, match in industry_problems(text):
-                    found.append((os.path.relpath(path, DATA_SKILLS), line, kind, match))
+        for path in data_skill_files():
+            if os.path.splitext(path)[1].lower() in BINARY_EXTENSIONS:
+                continue
+            # A file that cannot be read as UTF-8 fails the test rather than being skipped.
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+            for line, kind, match in industry_problems(text):
+                found.append((os.path.relpath(path, DATA_SKILLS), line, kind, match))
         self.assertEqual(found, [])
 
-    def test_the_check_catches_an_industry_term_and_a_company(self):
-        self.assertEqual([p[1] for p in industry_problems("a crude unit\nas Valero files")],
-                         ["a refining or oil and gas term", "a company or its filer names"])
-        self.assertEqual(industry_problems("a public library lends a book"), [])
+    def test_the_check_catches_industry_terms_companies_and_project_ids(self):
+        kinds = {p[1] for p in industry_problems(
+            "a crude unit\nas Valero files\na crack-spread series\noil & gas\nEPM-DEC-001-0001"
+            "\nin enterprise-performance-model")}
+        self.assertEqual(kinds, {"a refining or oil and gas term", "a company or its filer names",
+                                 "a project decision record", "a project's repository or namespace"})
+        self.assertEqual(industry_problems("a public library lends a book; APQC is a crosswalk"), [])
 
+
+if __name__ == "__main__":
+    unittest.main()

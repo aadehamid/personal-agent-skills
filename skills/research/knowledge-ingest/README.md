@@ -54,7 +54,9 @@ steps depends on your username or on where your home folder is.
 
 3. Get the project repo, which holds the config, the schema validator, the sync
    simulator, the runbook and the ledger. Its local path and remote are in
-   `AGENTS.local.md` at the root of this repo; below, `<project>` stands for that path.
+   `AGENTS.local.md` at the root of this repo. A fresh clone does not have that file,
+   since git ignores it: copy it from the original machine, or ask the owner for the
+   path and remote. Below, `<project>` stands for that path.
 4. Get the vaults. They are not in git. They live in `~/Documents/Knowledge Management`,
    which iCloud Drive syncs to any Mac signed into the same Apple ID with "Desktop &
    Documents" turned on. If you keep them somewhere else, add
@@ -77,7 +79,8 @@ steps depends on your username or on where your home folder is.
 
 The daily sync (git pull, then copy new sources into the vaults) runs from a launchd
 job on the original machine. It is optional. To run it on another Mac, copy
-`~/Library/LaunchAgents/com.hamid.knowledge-sync.plist` from the original machine, change
+the job's plist from `~/Library/LaunchAgents/` on the original machine (its name ends in
+`.knowledge-sync.plist`), change
 the script path in it to where `scripts/pull_and_sync.sh` lives on the new one, and
 load it with `launchctl load`.
 
