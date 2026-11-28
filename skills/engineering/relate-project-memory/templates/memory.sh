@@ -224,7 +224,9 @@ try:
 except (OSError, ValueError) as exc:
     sys.exit(f"memory: {path} is not readable JSON: {exc}")
 KINDS = {"decision", "preference", "correction", "finding", "handoff", "tool_call"}
-TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})", re.ASCII)
+# Episodes keep at most microseconds: Python's datetime holds no more, so a
+# finer fraction could slip a validFrom past the check against at.
+TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})", re.ASCII)
 errors = []
 SLOT = re.compile(r"[a-z0-9][a-z0-9._:-]*(/[a-z0-9][a-z0-9._:-]*)+", re.ASCII)
 KEY = re.compile(r"[a-z0-9][a-z0-9._:/-]*", re.ASCII)
