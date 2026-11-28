@@ -396,9 +396,9 @@ class WithRelate(Base):
         cases = {
             "validFrom equal to at": (episode("e1", "2026-11-20T10:00:00Z", "pi",
                                               [fact("f1", "Same.", validFrom="2026-11-20T10:00:00Z")]), True),
-            "at one minute ahead": (episode("e2", iso(now + timedelta(minutes=1)), "pi",
-                                            [fact("f2", "Clock skew.", slot="skew/ok")]), True),
-            "at ten minutes ahead": (episode("e3", iso(now + timedelta(minutes=10)), "pi",
+            "at four and a half minutes ahead": (episode("e2", iso(now + timedelta(minutes=4, seconds=30)), "pi",
+                                                         [fact("f2", "Clock skew.", slot="skew/ok")]), True),
+            "at five and a half minutes ahead": (episode("e3", iso(now + timedelta(minutes=5, seconds=30)), "pi",
                                              [fact("f3", "Too far.", slot="skew/no")]), "episode.at: in the future"),
             "validFrom one second after at": (episode("e4", "2026-11-20T10:00:00Z", "pi",
                                                       [fact("f4", "Later.", slot="later/no", validFrom="2026-11-20T10:00:01Z")]),
