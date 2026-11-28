@@ -341,6 +341,18 @@ class WithRelate(Base):
             with self.subTest(when):
                 self.assertEqual([r["memory"] for r in self.rows("asof", when)], believed)
 
+    def test_asof_gives_one_belief_per_slot_on_older_stores(self):
+        # Stores written before future-dated facts were refused can hold a plan
+        # replaced by an earlier change; asof must still give one belief per slot.
+        self.assertEqual(self.run_memory("init").returncode, 0)
+        self.cypher("CREATE (ep:Episode {id: 'e1', agent: 'pi', text: 'x', at: datetime('2024-01-01T09:00:00Z')}) "
+                    "CREATE (:Fact {id: 'f1', slot: 'region/now', text: 'eu-west-1', "
+                    "validFrom: datetime('2024-01-01T00:00:00Z'), validTo: datetime('2024-03-01T00:00:00Z'), "
+                    "recordedAt: datetime('2024-01-01T09:00:00Z'), closedAt: datetime('2024-02-20T09:00:00Z')})-[:FROM]->(ep) "
+                    "CREATE (:Fact:CurrentFact {id: 'f3', slot: 'region/now', text: 'us-west-2', "
+                    "validFrom: datetime('2024-02-22T00:00:00Z'), recordedAt: datetime('2024-02-22T09:00:00Z')})-[:FROM]->(ep)")
+        self.assertEqual([r["memory"] for r in self.rows("asof", "2024-02-25")], ["us-west-2"])
+
     def test_asof_by_date_respects_zone_offsets(self):
         self.assertEqual(self.run_memory("init").returncode, 0)
         # B starts at 20:00 Chicago time on the 27th, which is 02:00 UTC on the 28th.

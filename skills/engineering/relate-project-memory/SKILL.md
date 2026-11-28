@@ -28,7 +28,7 @@ The project's rules win. Read its `AGENTS.md`, its decision records, its check s
 4. **Adapt the project skill** at `.agents/skills/project-memory/SKILL.md`. Replace its `<!-- ADAPT ... -->` comment with the project's own boundaries from its `AGENTS.md`: restricted data, names that stay out, synthetic-data rules, date conventions. Keep the rest.
 5. **Record the decision** the way the project records decisions, quoting the owner's request word for word. State the choices: one script for every save, the git-ignored `.relate-memory/` store at the main checkout's root, full-text recall, and Dropbox use from one machine at a time when the repo lives in Dropbox.
 6. **Point `AGENTS.md` at it.** Add one line or session-start step: read memory with `scripts/memory.sh brief` at session start, save decisions, corrections and findings before finishing, and read `.agents/skills/project-memory/SKILL.md` before the first save.
-7. **Wire the tests into the check script** if it does not already find `test_memory.py`. They run with `unittest` or `pytest`. Most CI runners have no `relate`, so 35 of the 43 tests skip there. The eight validation, path and help tests still run.
+7. **Wire the tests into the check script** if it does not already find `test_memory.py`. They run with `unittest` or `pytest`. Most CI runners have no `relate`, so 36 of the 44 tests skip there. The eight validation, path and help tests still run.
 8. **Prove it.** Run, in order:
    - `python3 <this skill>/scripts/install.py <repo> --check` exits 0.
    - The project's check script passes.

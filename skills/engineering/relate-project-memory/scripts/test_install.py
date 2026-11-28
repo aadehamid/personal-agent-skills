@@ -314,12 +314,12 @@ class Installer(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stdout[-2000:] + p.stderr[-4000:])
         ran = re.search(r"^Ran (\d+) tests?", p.stderr, re.MULTILINE)
         self.assertIsNotNone(ran, p.stderr[-500:])
-        self.assertEqual(int(ran.group(1)), 43)
+        self.assertEqual(int(ran.group(1)), 44)
         skipped = re.search(r"skipped=(\d+)", p.stderr)
         if shutil.which("relate"):
             self.assertIsNone(skipped, "relate is installed, so no memory test may skip")
         else:
-            self.assertEqual(int(skipped.group(1)), 35)
+            self.assertEqual(int(skipped.group(1)), 36)
 
 
 if __name__ == "__main__":
