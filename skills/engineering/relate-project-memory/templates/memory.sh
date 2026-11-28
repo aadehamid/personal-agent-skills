@@ -10,6 +10,8 @@
 #   scripts/memory.sh about KEY         current facts about one entity (first 100)
 #   scripts/memory.sh history SLOT      facts a slot has held, newest first (first 100)
 #   scripts/memory.sh slots             slots that hold a current fact (first 500)
+#   scripts/memory.sh asof WHEN         what agents believed at WHEN (first 100); WHEN is a
+#                                       date (the end of that UTC day) or a datetime with a zone
 #   scripts/memory.sh brief [N]         the N most recent current facts (default 20)
 #   scripts/memory.sh check             fail unless every slot holds exactly one current fact
 #   scripts/memory.sh init              create the store and its schema
@@ -222,7 +224,7 @@ try:
 except (OSError, ValueError) as exc:
     sys.exit(f"memory: {path} is not readable JSON: {exc}")
 KINDS = {"decision", "preference", "correction", "finding", "handoff", "tool_call"}
-TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})", re.ASCII)
+TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})", re.ASCII)
 errors = []
 SLOT = re.compile(r"[a-z0-9][a-z0-9._:-]*(/[a-z0-9][a-z0-9._:-]*)+", re.ASCII)
 KEY = re.compile(r"[a-z0-9][a-z0-9._:/-]*", re.ASCII)
@@ -351,12 +353,18 @@ remember() {
   python3 -c 'import json, sys; m = json.load(open(sys.argv[1])); print("memory: saved episode %s with %d fact(s)" % (m["episode"]["id"], len(m["facts"])))' "$tmp"
 }
 
+no_args() {
+  [ "$#" -eq 0 ] || { echo "usage: scripts/memory.sh $cmd takes no arguments" >&2; exit 2; }
+}
+
 cmd="${1:-}"
 [ $# -gt 0 ] && shift
 case "$cmd" in
-  init) init ;;
-  path) store ;;
-  remember) remember "$@" ;;
+  init) no_args "$@"; init ;;
+  path) no_args "$@"; store ;;
+  remember)
+    [ "$#" -le 1 ] || { echo "usage: scripts/memory.sh remember FILE|-" >&2; exit 2; }
+    remember "$@" ;;
   recall)
     need_relate
     [[ "${*:-}" =~ [^[:space:]] ]] || { echo "usage: scripts/memory.sh recall WORDS..." >&2; exit 2; }
@@ -369,7 +377,7 @@ case "$cmd" in
        ORDER BY score DESC' ;;
   about)
     need_relate
-    [ -n "${1:-}" ] || { echo "usage: scripts/memory.sh about KEY" >&2; exit 2; }
+    [ "$#" -eq 1 ] && [ -n "$1" ] || { echo "usage: scripts/memory.sh about KEY" >&2; exit 2; }
     key="$(json_string "$1")"
     capped 100 --param "key=$key" \
       'MATCH (e:Entity {key: $key})<-[:ABOUT]-(f:CurrentFact)-[:FROM]->(ep:Episode)
@@ -378,7 +386,7 @@ case "$cmd" in
        ORDER BY slot LIMIT $cap' ;;
   history)
     need_relate
-    [ -n "${1:-}" ] || { echo "usage: scripts/memory.sh history SLOT" >&2; exit 2; }
+    [ "$#" -eq 1 ] && [ -n "$1" ] || { echo "usage: scripts/memory.sh history SLOT" >&2; exit 2; }
     slot="$(json_string "$1")"
     capped 100 --param "slot=$slot" \
       'MATCH (f:Fact {slot: $slot})-[:FROM]->(ep:Episode)
@@ -386,11 +394,50 @@ case "$cmd" in
               toString(f.recordedAt) AS recorded, toString(f.closedAt) AS closed,
               ep.agent AS agent, ep.id AS episode, ep.text AS evidence
        ORDER BY f.recordedAt DESC LIMIT $cap' ;;
+  asof)
+    need_relate
+    usage="usage: scripts/memory.sh asof WHEN, a date such as 2026-11-27 (the end of that UTC day) or a datetime such as 2026-11-27T10:00:00Z"
+    [ "$#" -eq 1 ] || { echo "$usage" >&2; exit 2; }
+    when="$1"
+    if [[ "$when" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+      kind=date
+    elif [[ "$when" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]{1,9})?)?(Z|[+-][0-9]{2}:[0-9]{2})$ ]]; then
+      kind=datetime
+    else
+      echo "$usage" >&2; exit 2
+    fi
+    # The shape check above allows only digits, T, Z, +, -, colons and a dot,
+    # so plain quotes make a valid JSON string without the Python helper.
+    w="\"$when\""
+    # Relate parses it, so its own rules decide: real calendar dates, offsets
+    # within 18 hours.
+    relate query --database :memory: --mode jsonl --param "w=$w" "RETURN $kind(\$w) AS w" > /dev/null 2>&1 \
+      || { echo "$usage" >&2; exit 2; }
+    # "Believed on t", as the relate cookbook's bitemporal-decisions recipe
+    # defines it: recorded by t, valid on t, and an end of validity counts
+    # only once it was known (closedAt), so a fact closed after t still looked
+    # open on t, and a change recorded ahead of its validFrom is not yet in
+    # force. A date compares whole UTC days; a datetime compares the moment.
+    if [ "$kind" = date ]; then
+      believed='date(f.recordedAt) <= date($w) AND date(f.validFrom) <= date($w)
+                AND (f.validTo IS NULL OR date(f.validTo) > date($w) OR date(f.closedAt) > date($w))'
+    else
+      believed='f.recordedAt <= datetime($w) AND f.validFrom <= datetime($w)
+                AND (f.validTo IS NULL OR f.validTo > datetime($w) OR f.closedAt > datetime($w))'
+    fi
+    capped 100 --param "w=$w" \
+      "MATCH (f:Fact)-[:FROM]->(ep:Episode)
+       WHERE $believed
+       RETURN f.slot AS slot, f.text AS memory, ep.agent AS agent, ep.id AS episode,
+              toString(f.recordedAt) AS recorded, ep.text AS evidence
+       ORDER BY slot LIMIT \$cap" ;;
   slots)
+    no_args "$@"
     need_relate
     capped 500 'MATCH (f:CurrentFact) RETURN DISTINCT f.slot AS slot ORDER BY slot LIMIT $cap' ;;
   brief)
     need_relate
+    [ "$#" -le 1 ] || { echo "usage: scripts/memory.sh brief [N], N from 1 to 9999" >&2; exit 2; }
     n="${1-20}"
     [[ "$n" =~ ^[1-9][0-9]{0,3}$ ]] || { echo "usage: scripts/memory.sh brief [N], N from 1 to 9999" >&2; exit 2; }
     read_query --param "n=$n" \
@@ -399,6 +446,7 @@ case "$cmd" in
               toString(ep.at) AS learned, ep.text AS evidence
        ORDER BY f.recordedAt DESC LIMIT $n' ;;
   check)
+    no_args "$@"
     need_relate
     refuse_on_conflicts
     db="$(store)"

@@ -151,6 +151,7 @@ class WithoutRelate(Base):
             "episode.at: not a UTC": episode("e1", "yesterday", "pi", [good]),
             "facts[0].validFrom: not a UTC": episode("e1", at, "pi", [fact("f1", "A fact.", validFrom="2026-11-27")]),
             "facts[0].validFrom: not a UTC ": episode("e1", at, "pi", [fact("f1", "A fact.", validFrom="2026-13-45T10:00:00Z")]),
+            "facts[0].validFrom: not a UTC  ": episode("e1", at, "pi", [fact("f1", "A fact.", validFrom="2026-11-27T10:00:00.1234567890Z")]),
             "episode.at: not a UTC ": episode("e1", "2026-11-27T10:00:00+99:99", "pi", [good]),
             "episode.at: not a UTC  ": episode("e1", "2026-11-27T10:00:00+18:30", "pi", [good]),
             "episode.at: not a UTC   ": episode("e1", "٢٠٢٦-11-27T10:00:00Z", "pi", [good]),
@@ -297,6 +298,68 @@ class WithRelate(Base):
         self.assertNotIn("rowCap", p.stdout)
         p = self.run_memory("history", "unit/none")
         self.assertEqual((p.stdout, "more exist" in p.stderr), ("", False))
+
+    def test_asof_answers_what_agents_believed_then(self):
+        self.remember(episode("e1", "2026-01-01T00:00:00Z", "pi", [fact("f1", "First belief.")]))
+        time.sleep(0.05)
+        self.remember(episode("e2", "2026-02-01T00:00:00Z", "pi", [fact("f2", "Corrected belief.")]))
+        recorded = {h["episode"]: h["recorded"] for h in self.rows("history", SLOT)}
+        self.assertEqual([r["memory"] for r in self.rows("asof", recorded["e1"])], ["First belief."])
+        self.assertEqual([r["memory"] for r in self.rows("asof", recorded["e2"])], ["Corrected belief."])
+        today = recorded["e2"][:10]
+        self.assertEqual([r["memory"] for r in self.rows("asof", today)], ["Corrected belief."])
+        self.assertEqual(self.rows("asof", "2000-01-01"), [])
+        self.assertEqual(self.run_memory("asof", "2026-11-27T10:00:00.123456789Z").returncode, 0)
+        self.assertTrue(recorded["e2"].endswith("Z"), recorded["e2"])
+        self.assertEqual([r["memory"] for r in self.rows("asof", "9999-12-31")], ["Corrected belief."])
+        self.assertEqual([r["memory"] for r in self.rows("asof", "9999-12-31T23:59:59.999999Z")], ["Corrected belief."])
+        for bad in ("", "yesterday", "2026-13-01", "2026-02-30", "2026-11-27T10:00:00", "2026-11-27 10:00Z",
+                    "2026-11-27T10:00:00+18:30", ("2026-11-27", "10:00Z")):
+            with self.subTest(bad):
+                p = self.run_memory("asof", *(bad if isinstance(bad, tuple) else (bad,)))
+                self.assertEqual(p.returncode, 2, p.stderr)
+                self.assertIn("usage:", p.stderr)
+
+    def test_asof_follows_the_recipe_for_a_change_planned_ahead(self):
+        # The cookbook's payments case: the move to us-east-1 is recorded on
+        # 20 February and valid from 1 March, so on 25 February the log still
+        # believed eu-west-1, even though its record was already closed.
+        self.assertEqual(self.run_memory("init").returncode, 0)
+        self.cypher("CREATE (ep:Episode {id: 'e1', agent: 'pi', text: 'x', at: datetime('2024-01-01T09:00:00Z')}) "
+                    "CREATE (:Fact {id: 'd3', slot: 'payments/region', text: 'payments runs in eu-west-1', "
+                    "validFrom: datetime('2024-01-01T00:00:00Z'), validTo: datetime('2024-03-01T00:00:00Z'), "
+                    "recordedAt: datetime('2024-01-01T09:00:00Z'), closedAt: datetime('2024-02-20T09:00:00Z')})-[:FROM]->(ep) "
+                    "CREATE (:Fact:CurrentFact {id: 'd8', slot: 'payments/region', text: 'payments runs in us-east-1', "
+                    "validFrom: datetime('2024-03-01T00:00:00Z'), recordedAt: datetime('2024-02-20T09:00:00Z')})-[:FROM]->(ep)")
+        for when, believed in (("2024-02-10", ["payments runs in eu-west-1"]),
+                               ("2024-02-25", ["payments runs in eu-west-1"]),
+                               ("2024-02-25T00:00:00Z", ["payments runs in eu-west-1"]),
+                               ("2024-03-05", ["payments runs in us-east-1"]),
+                               ("2023-12-31", [])):
+            with self.subTest(when):
+                self.assertEqual([r["memory"] for r in self.rows("asof", when)], believed)
+
+    def test_asof_by_day_keeps_a_fact_closed_on_a_later_day(self):
+        self.assertEqual(self.run_memory("init").returncode, 0)
+        self.cypher("CREATE (ep:Episode {id: 'e1', agent: 'pi', text: 'x', at: datetime('2026-11-20T00:00:00Z')}) "
+                    "CREATE (:Fact {id: 'old', slot: 'day/test', text: 'Closed next day.', "
+                    "validFrom: datetime('2026-11-20T00:00:00Z'), validTo: datetime('2026-11-26T00:00:00Z'), "
+                    "recordedAt: datetime('2026-11-25T08:00:00Z'), closedAt: datetime('2026-11-26T00:00:00Z')})-[:FROM]->(ep) "
+                    "CREATE (:Fact {id: 'same', slot: 'day/same', text: 'Closed same day.', "
+                    "validFrom: datetime('2026-11-20T00:00:00Z'), validTo: datetime('2026-11-25T23:59:59.999999999Z'), "
+                    "recordedAt: datetime('2026-11-25T08:00:00Z'), closedAt: datetime('2026-11-25T23:59:59.999999999Z')})-[:FROM]->(ep)")
+        self.assertEqual([r["memory"] for r in self.rows("asof", "2026-11-25")], ["Closed next day."])
+        self.assertEqual(self.rows("asof", "2026-11-26"), [])
+        self.assertEqual([r["memory"] for r in self.rows("asof", "2026-11-25T12:00:00Z")], ["Closed same day.", "Closed next day."])
+
+    def test_extra_arguments_are_usage_errors(self):
+        self.remember(episode("e1", "2026-11-27T10:00:00Z", "pi", [fact("f1", "A fact.")]))
+        for args in (("about", "pump-101", "x"), ("history", SLOT, "x"), ("brief", "5", "x"),
+                     ("slots", "x"), ("check", "x"), ("path", "x"), ("init", "x"), ("remember", "-", "x")):
+            with self.subTest(args):
+                p = self.run_memory(*args)
+                self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+                self.assertIn("usage:", p.stderr)
 
     def test_string_parameters_stay_strings(self):
         self.remember(episode("e1", "2026-11-27T10:00:00Z", "cursor",
