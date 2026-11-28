@@ -104,7 +104,7 @@ write() {
   db="$(store)"
   while :; do
     set +e
-    relate query --database "$db" --mode jsonl "$@" < "$script"
+    relate query --database "$db" --mode jsonl --max-rows 0 "$@" < "$script"
     status=$?
     set -e
     if [ "$status" -ne 5 ] || [ "$attempt" -ge 20 ]; then
@@ -413,24 +413,25 @@ case "$cmd" in
     # within 18 hours.
     relate query --database :memory: --mode jsonl --param "w=$w" "RETURN $kind(\$w) AS w" > /dev/null 2>&1 \
       || { echo "$usage" >&2; exit 2; }
+    # A date means the last moment of that UTC day, compared as a moment, so a
+    # fact stamped in another zone falls on the right side of midnight.
+    [ "$kind" = date ] && w="\"${when}T23:59:59.999999999Z\""
     # "Believed on t", as the relate cookbook's bitemporal-decisions recipe
     # defines it: recorded by t, valid on t, and an end of validity counts
     # only once it was known (closedAt), so a fact closed after t still looked
     # open on t, and a change recorded ahead of its validFrom is not yet in
-    # force. A date compares whole UTC days; a datetime compares the moment.
-    if [ "$kind" = date ]; then
-      believed='date(f.recordedAt) <= date($w) AND date(f.validFrom) <= date($w)
-                AND (f.validTo IS NULL OR date(f.validTo) > date($w) OR date(f.closedAt) > date($w))'
-    else
-      believed='f.recordedAt <= datetime($w) AND f.validFrom <= datetime($w)
-                AND (f.validTo IS NULL OR f.validTo > datetime($w) OR f.closedAt > datetime($w))'
-    fi
+    # force. A slot holds one value at a time, so when the rule leaves two
+    # candidates, the one recorded later is what agents believed.
     capped 100 --param "w=$w" \
-      "MATCH (f:Fact)-[:FROM]->(ep:Episode)
-       WHERE $believed
+      'MATCH (f:Fact)-[:FROM]->(ep:Episode)
+       WHERE f.recordedAt <= datetime($w) AND f.validFrom <= datetime($w)
+         AND (f.validTo IS NULL OR f.validTo > datetime($w) OR f.closedAt > datetime($w))
+       WITH f, ep ORDER BY f.recordedAt DESC
+       WITH f.slot AS slot, collect({f: f, ep: ep})[0] AS top
+       WITH top.f AS f, top.ep AS ep
        RETURN f.slot AS slot, f.text AS memory, ep.agent AS agent, ep.id AS episode,
               toString(f.recordedAt) AS recorded, ep.text AS evidence
-       ORDER BY slot LIMIT \$cap" ;;
+       ORDER BY slot LIMIT $cap' ;;
   slots)
     no_args "$@"
     need_relate

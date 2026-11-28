@@ -339,6 +339,47 @@ class WithRelate(Base):
             with self.subTest(when):
                 self.assertEqual([r["memory"] for r in self.rows("asof", when)], believed)
 
+    def test_asof_after_a_plan_is_replaced_before_it_takes_effect(self):
+        # Recorded now; the plans lie in 2099, so each is replaced before it starts.
+        self.remember(episode("e1", "2026-11-27T10:00:00Z", "pi",
+                              [fact("f1", "Runs in eu-west-1.", validFrom="2026-01-01T00:00:00Z")]))
+        self.remember(episode("e2", "2026-11-27T10:00:00Z", "pi",
+                              [fact("f2", "Moves to us-east-1.", validFrom="2099-03-01T00:00:00Z")]))
+        self.remember(episode("e3", "2026-11-27T10:00:00Z", "pi",
+                              [fact("f3", "Moves to us-west-2 instead.", validFrom="2099-02-22T00:00:00Z")]))
+        history = {h["memory"]: h for h in self.rows("history", SLOT)}
+        replaced = history["Moves to us-east-1."]
+        self.assertEqual(replaced["validTo"], replaced["validFrom"], "a plan replaced before it starts never held")
+        for when, believed in (("2099-02-10", ["Runs in eu-west-1."]),
+                               ("2099-02-25", ["Moves to us-west-2 instead."]),
+                               ("2099-03-05", ["Moves to us-west-2 instead."])):
+            with self.subTest(when):
+                self.assertEqual([r["memory"] for r in self.rows("asof", when)], believed)
+
+    def test_asof_after_a_plan_is_postponed_shows_the_documented_gap(self):
+        # The limit the skill documents: a postponed plan leaves no belief in the
+        # gap until the old value is saved again.
+        self.remember(episode("e1", "2026-11-27T10:00:00Z", "pi",
+                              [fact("f1", "Runs in eu-west-1.", validFrom="2026-01-01T00:00:00Z")]))
+        self.remember(episode("e2", "2026-11-27T10:00:00Z", "pi",
+                              [fact("f2", "Moves to us-east-1.", validFrom="2099-03-01T00:00:00Z")]))
+        self.remember(episode("e3", "2026-11-27T10:00:00Z", "pi",
+                              [fact("f3", "Moves to us-east-1 later.", validFrom="2099-04-01T00:00:00Z")]))
+        self.assertEqual(self.rows("asof", "2099-03-05"), [])
+        self.assertEqual([r["memory"] for r in self.rows("asof", "2099-04-05")], ["Moves to us-east-1 later."])
+
+    def test_asof_by_date_respects_zone_offsets(self):
+        self.assertEqual(self.run_memory("init").returncode, 0)
+        # B starts at 20:00 Chicago time on the 27th, which is 02:00 UTC on the 28th.
+        self.cypher("CREATE (ep:Episode {id: 'e1', agent: 'pi', text: 'x', at: datetime('2026-11-01T00:00:00Z')}) "
+                    "CREATE (:Fact {id: 'a', slot: 'zone/test', text: 'Before.', "
+                    "validFrom: datetime('2026-11-01T00:00:00Z'), validTo: datetime('2026-11-27T20:00:00-06:00'), "
+                    "recordedAt: datetime('2026-11-01T00:00:00Z'), closedAt: datetime('2026-11-27T18:00:00Z')})-[:FROM]->(ep) "
+                    "CREATE (:Fact:CurrentFact {id: 'b', slot: 'zone/test', text: 'After.', "
+                    "validFrom: datetime('2026-11-27T20:00:00-06:00'), recordedAt: datetime('2026-11-27T18:00:00Z')})-[:FROM]->(ep)")
+        self.assertEqual([r["memory"] for r in self.rows("asof", "2026-11-27")], ["Before."])
+        self.assertEqual([r["memory"] for r in self.rows("asof", "2026-11-28")], ["After."])
+
     def test_asof_by_day_keeps_a_fact_closed_on_a_later_day(self):
         self.assertEqual(self.run_memory("init").returncode, 0)
         self.cypher("CREATE (ep:Episode {id: 'e1', agent: 'pi', text: 'x', at: datetime('2026-11-20T00:00:00Z')}) "

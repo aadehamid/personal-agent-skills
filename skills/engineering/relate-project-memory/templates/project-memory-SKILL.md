@@ -23,6 +23,8 @@ scripts/memory.sh asof 2026-11-27       # what agents believed at the end of tha
 
 Results are JSON lines. `about`, `history` and `asof` return at most 100 rows and `slots` at most 500; when a result is cut, the command says so on stderr. Each row names the `agent`, the `episode` id and the `evidence` text the fact came from; quote that evidence when you rely on a memory. When a memory conflicts with the repository, the repository wins: save a correction.
 
+`asof` returns one belief per slot. A fact saved with a future `validFrom` is a plan, and a plan replaced before it starts never held. To postpone a plan, save the current value again with the old start date as well as the new plan; otherwise `asof` shows nothing for that slot between the old and new start dates.
+
 ## Save before you finish
 
 Save when the session produced something a later session needs and cannot find by reading the repo: an owner preference or ruling, a correction to an earlier memory, a gotcha that cost time, where some work stopped. Code structure, git history and anything already in a document stay out; the repo already holds them.
