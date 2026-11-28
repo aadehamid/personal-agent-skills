@@ -224,7 +224,7 @@ try:
 except (OSError, ValueError) as exc:
     sys.exit(f"memory: {path} is not readable JSON: {exc}")
 KINDS = {"decision", "preference", "correction", "finding", "handoff", "tool_call"}
-TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})", re.ASCII)
+TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})", re.ASCII)
 errors = []
 SLOT = re.compile(r"[a-z0-9][a-z0-9._:-]*(/[a-z0-9][a-z0-9._:-]*)+", re.ASCII)
 KEY = re.compile(r"[a-z0-9][a-z0-9._:/-]*", re.ASCII)
@@ -406,7 +406,9 @@ case "$cmd" in
     else
       echo "$usage" >&2; exit 2
     fi
-    w="$(json_string "$when")"
+    # The shape check above allows only digits, T, Z, +, - and colons, so plain
+    # quotes make a valid JSON string without the Python helper.
+    w="\"$when\""
     # Relate parses it, so its own rules decide: real calendar dates, offsets
     # within 18 hours.
     relate query --database :memory: --mode jsonl --param "w=$w" "RETURN $kind(\$w) AS w" > /dev/null 2>&1 \
