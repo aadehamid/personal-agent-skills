@@ -10,7 +10,7 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 START = os.path.join(HERE, "start.py")
-EXPECTED_TESTS = 15  # tests in templates/test_graph_tool.py
+EXPECTED_TESTS = 17  # tests in templates/test_graph_tool.py
 
 
 def git_env():

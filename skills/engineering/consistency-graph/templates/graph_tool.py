@@ -92,10 +92,6 @@ class Graph:
     def node(self, label, ident, source, **props):
         n = self.nodes.setdefault(ident, {"label": label, "props": {}, "sources": {}, "labels": {}})
         n["labels"].setdefault(label, set()).add(source)
-        if n["label"] != label:
-            others = sorted(s for lab, srcs in n["labels"].items() if lab != label for s in srcs)
-            self.problems.append(f"{ident}: {source} calls it a {label}; {', '.join(others)} "
-                                 f"{'calls' if len(others) == 1 else 'call'} it a {n['label']}")
         stated = n["sources"].setdefault(source, {})
         for key, value in props.items():
             if key in RESERVED:
@@ -117,9 +113,13 @@ class Graph:
         self.problems.append(message)
 
     def clashes(self):
-        """A property two sources state differently is a clash: report both, choose neither."""
+        """A property or label two sources state differently is a clash: report both, choose neither."""
         found = []
         for ident, n in sorted(self.nodes.items()):
+            if len(n["labels"]) > 1:
+                said = "; ".join(f"{', '.join(sorted(srcs))} {'calls' if len(srcs) == 1 else 'call'} it a {lab}"
+                                 for lab, srcs in sorted(n["labels"].items()))
+                found.append(f"{ident}: sources disagree on its label: {said}")
             values = {}
             for source, props in n["sources"].items():
                 for key, value in props.items():

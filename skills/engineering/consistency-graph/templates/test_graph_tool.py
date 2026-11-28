@@ -67,13 +67,19 @@ class Generic(Fixture):
         self.assertEqual([h for h, _ in tables], [["Decision", "Title"], ["A", "B"]])
         self.assertEqual(tables[1][1][0]["B"], "2")
 
-    def test_markdown_edge_cells_fences_and_separators(self):
-        text = ("| A | B | C |\n|---|---|---|\n| 1 |  | |\n\n```\n| X | Y |\n|---|---|\n| in | code |\n```\n"
-                "| P | Q |\n| not | a separator |\n| r | s |\n")
-        tables = graph_tool.markdown_tables(text)
-        self.assertEqual(len(tables), 1, tables)
+    def test_an_empty_last_cell_with_no_space_is_kept(self):
+        # "| 1 ||" ends with two pipes: removing every outer pipe would lose the empty cell.
+        tables = graph_tool.markdown_tables("| A | B | C |\n|---|---|---|\n| 1 | 2 ||\n")
         row = tables[0][1][0]
-        self.assertEqual((row["_cells"], row["A"], row["B"], row["C"]), (3, "1", "", ""))
+        self.assertEqual((row["_cells"], row["C"]), (3, ""))
+
+    def test_a_separator_needs_dashes(self):
+        # "| : | : |" holds only colons; it is a row, not the line under a header.
+        self.assertEqual(graph_tool.markdown_tables("| P | Q |\n| : | : |\n| r | s |\n"), [])
+
+    def test_tables_in_fenced_code_are_skipped(self):
+        text = "```\n| X | Y |\n|---|---|\n| in | code |\n```\n| A |\n|---|\n| 1 |\n"
+        self.assertEqual([h for h, _ in graph_tool.markdown_tables(text)], [["A"]])
 
     def test_clashes_compare_type_as_well_as_value(self):
         g = graph_tool.Graph(self.root)
@@ -120,14 +126,14 @@ class Generic(Fixture):
         self.assertIn("sheet.py says 'FEED PUMP A'", clashes[0])
         self.assertIn("spec.md says 'Feed pump'", clashes[0])
 
-    def test_one_id_with_two_labels_is_a_problem(self):
+    def test_one_id_with_two_labels_names_every_source_on_each_side(self):
         g = graph_tool.Graph(self.root)
         g.node("Pump", "X-1", "a.md")
         g.node("Valve", "X-1", "b.md")
-        g.node("Valve", "X-2", "a.md")
-        g.node("Pump", "X-2", "a.md")
-        self.assertIn("X-1: b.md calls it a Valve; a.md calls it a Pump", g.problems)
-        self.assertIn("X-2: a.md calls it a Pump; a.md calls it a Valve", g.problems)
+        g.node("Pump", "X-1", "c.md")
+        g.node("Tank", "X-1", "d.md")
+        self.assertEqual(g.clashes(), ["X-1: sources disagree on its label: a.md, c.md call it a Pump; "
+                                       "d.md calls it a Tank; b.md calls it a Valve"])
 
     def test_cli_arguments(self):
         self.assertEqual(self.cli("summary").returncode, 0)
@@ -189,7 +195,9 @@ class Queries(Fixture):
         self.assertNotEqual(self.cli("query", "MATCH (c:Component) DETACH DELETE c").returncode, 0)
         p = self.cli("query", "--version")
         self.assertNotEqual(p.returncode, 0)
-        self.assertNotIn("Relate v", p.stdout, "a statement that looks like a flag is passed as a statement")
+        # relate read it as a statement and rejected its syntax; read as a flag it would print its version.
+        self.assertIn("syntax error", p.stderr)
+        self.assertNotIn("Relate v", p.stderr + p.stdout)
 
     def test_export_loads_and_keeps_sources(self):
         rows = graph_tool.run_relate(graph_tool.build(self.root),
