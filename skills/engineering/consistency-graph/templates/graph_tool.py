@@ -34,6 +34,8 @@ def repo_root(start):
 
 ROOT = os.environ.get("GRAPH_ROOT") or repo_root(os.path.dirname(os.path.abspath(__file__)))
 RESERVED = {"id", "sources"}
+NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")  # a label or link type Cypher takes without quotes
+SCALAR = (str, int, float, bool)
 
 
 # ----------------------------------------------------------------------------
@@ -43,6 +45,23 @@ RESERVED = {"id", "sources"}
 def read(root, rel):
     with open(os.path.join(root, rel), encoding="utf-8") as fh:
         return fh.read().replace("\r\n", "\n")
+
+
+def outside_fences(text):
+    """The text with every line inside fenced code blanked, so line numbers stay true."""
+    out, fenced = [], False
+    for line in text.split("\n"):
+        if line.lstrip().startswith(("```", "~~~")):
+            fenced = not fenced
+            out.append("")
+        else:
+            out.append("" if fenced else line)
+    return "\n".join(out)
+
+
+def same(a, b):
+    """Equal in type and value, so True and 1, or 1 and 1.0, differ."""
+    return type(a) is type(b) and a == b
 
 
 def cells(line):
@@ -58,14 +77,10 @@ SEPARATOR = re.compile(r"\|(\s*:?-+:?\s*\|)+")
 
 def markdown_tables(text):
     """Every pipe table in a markdown text, outside fenced code, as (header, rows) with rows by header cell."""
-    tables, lines, fenced = [], text.splitlines(), False
+    tables, lines = [], outside_fences(text).split("\n")
     i = 0
     while i < len(lines):
-        if lines[i].lstrip().startswith(("```", "~~~")):
-            fenced = not fenced
-            i += 1
-            continue
-        if not fenced and i + 1 < len(lines) and lines[i].strip().startswith("|") \
+        if i + 1 < len(lines) and lines[i].strip().startswith("|") \
                 and SEPARATOR.fullmatch(lines[i + 1].strip()):
             header = cells(lines[i])
             rows, j = [], i + 2
@@ -89,7 +104,20 @@ class Graph:
         self.edges = {}       # (source_id, type, target_id) -> set of sources that state it
         self.problems = []
 
+    def read(self, rel):
+        """A source's text, outside fenced code; a missing source is a problem and reads as None."""
+        try:
+            return outside_fences(read(self.root, rel))
+        except FileNotFoundError:
+            message = f"{rel}: source is missing"
+            if message not in self.problems:
+                self.problems.append(message)
+            return None
+
     def node(self, label, ident, source, **props):
+        if not NAME.fullmatch(label):
+            self.problems.append(f"{ident}: {source} gives the label {label!r}; use letters, digits and _")
+            return ident
         n = self.nodes.setdefault(ident, {"label": label, "props": {}, "sources": {}, "labels": {}})
         n["labels"].setdefault(label, set()).add(source)
         stated = n["sources"].setdefault(source, {})
@@ -99,7 +127,11 @@ class Graph:
                 continue
             if value is None or value == "":
                 continue
-            if key in stated and stated[key] != value:
+            if not (isinstance(value, SCALAR) or (isinstance(value, list) and all(isinstance(v, SCALAR) for v in value))):
+                self.problems.append(f"{ident}: {source} gives {key} a {type(value).__name__}; "
+                                     "use text, a number, true/false or a list of those")
+                continue
+            if key in stated and not same(stated[key], value):
                 self.problems.append(f"{ident}: {source} states {key} twice: {stated[key]!r} and {value!r}")
                 continue
             stated[key] = value
@@ -107,6 +139,9 @@ class Graph:
         return ident
 
     def link(self, source_id, kind, target_id, source):
+        if not NAME.fullmatch(kind):
+            self.problems.append(f"{source_id}: {source} gives the link type {kind!r}; use letters, digits and _")
+            return
         self.edges.setdefault((source_id, kind, target_id), set()).add(source)
 
     def problem(self, message):
@@ -166,8 +201,7 @@ def cypher_seed(graph):
     for label in sorted({n["label"] for n in graph.nodes.values()}):
         out.append(f"CREATE CONSTRAINT {label.lower()}_id IF NOT EXISTS FOR (n:{label}) REQUIRE n.id IS UNIQUE;")
     for ident, n in sorted(graph.nodes.items()):
-        props = {"id": ident, **{k: v for k, v in n["props"].items() if isinstance(v, (str, int, float, bool))},
-                 "sources": sorted(n["sources"])}
+        props = {"id": ident, **n["props"], "sources": sorted(n["sources"])}
         body = ", ".join(f"`{k}`: {lit(v)}" for k, v in props.items())
         out.append(f"CREATE (:{n['label']} {{{body}}});")
     for (src, kind, dst), sources in sorted(graph.edges.items()):
@@ -267,7 +301,10 @@ REQUIRED_LINKS = [
 
 def EXPECTED_COUNTS(graph):
     """(label, count, where the count is promised). Read the promise from a source, never type it here."""
-    m = re.search(r"\*\*(\d+) components\*\*", read(graph.root, COMPONENTS))
+    text = graph.read(COMPONENTS)
+    if text is None:
+        return []
+    m = re.search(r"\*\*(\d+) components\*\*", text)
     if not m:
         graph.problem(f"{COMPONENTS}: promises no component count (expected **N components**)")
         return []
@@ -276,13 +313,15 @@ def EXPECTED_COUNTS(graph):
 
 def build(root):
     graph = Graph(root)
-    for _, rows in markdown_tables(read(root, DECISIONS)):
+    for header, rows in markdown_tables(graph.read(DECISIONS) or ""):
         for row in rows:
-            if row.get("Decision"):
+            if row["_cells"] != len(header):
+                graph.problem(f"{DECISIONS}:{row['_line']}: row has {row['_cells']} cells, the header {len(header)}")
+            elif row.get("Decision"):
                 graph.node("Decision", row["Decision"], DECISIONS, title=row.get("Title"))
             else:
                 graph.problem(f"{DECISIONS}:{row['_line']}: row has no decision id")
-    for header, rows in markdown_tables(read(root, COMPONENTS)):
+    for header, rows in markdown_tables(graph.read(COMPONENTS) or ""):
         if header[:3] != ["Component", "Depends on", "Decision"]:
             graph.problem(f"{COMPONENTS}: a table with columns {header} is not the component table")
             continue

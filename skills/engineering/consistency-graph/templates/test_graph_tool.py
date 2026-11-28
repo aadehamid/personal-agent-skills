@@ -89,6 +89,40 @@ class Generic(Fixture):
         self.assertEqual(len(clashes), 2, clashes)
         self.assertTrue(any("size" in c and "'3'" in c and "says 3" in c for c in clashes), clashes)
 
+    def test_one_source_stating_a_value_twice_compares_type(self):
+        g = graph_tool.Graph(self.root)
+        g.node("Valve", "V-1", "a.json", open=True, n=1)
+        g.node("Valve", "V-1", "a.json", open=1, n=1.0)
+        self.assertEqual(len([p for p in g.problems if "states" in p and "twice" in p]), 2, g.problems)
+
+    def test_list_properties_reach_the_cypher_and_other_shapes_are_refused(self):
+        g = graph_tool.Graph(self.root)
+        g.node("Pump", "P-1", "a.md", tags=["a", "b"], size=3, spec={"x": 1})
+        self.assertIn('`tags`: ["a", "b"]', graph_tool.cypher_seed(g))
+        self.assertEqual([p for p in g.problems if "gives spec a dict" in p], [
+            "P-1: a.md gives spec a dict; use text, a number, true/false or a list of those"])
+
+    def test_labels_and_link_types_must_be_plain_names(self):
+        g = graph_tool.Graph(self.root)
+        g.node("Work Request", "WR-1", "a.md")
+        g.node("Pump", "P-1", "a.md")
+        g.node("Pump", "P-2", "a.md")
+        g.link("P-1", "clarified by", "P-2", "a.md")
+        self.assertIn("WR-1: a.md gives the label 'Work Request'; use letters, digits and _", g.problems)
+        self.assertIn("P-1: a.md gives the link type 'clarified by'; use letters, digits and _", g.problems)
+        seed = graph_tool.cypher_seed(g)
+        self.assertNotIn("Work Request", seed)
+        self.assertNotIn("clarified by", seed)
+
+    def test_missing_sources_are_reported_once_each(self):
+        empty = tempfile.TemporaryDirectory()
+        try:
+            findings = graph_tool.check(graph_tool.build(empty.name))
+        finally:
+            empty.cleanup()
+        self.assertEqual(sorted(f for f in findings if "missing" in f),
+                         ["docs/components.md: source is missing", "docs/decisions.md: source is missing"])
+
     def test_reserved_property_names_are_refused(self):
         g = graph_tool.Graph(self.root)
         g.node("Pump", "P-1", "a.md", id="other", sources="x")
@@ -177,6 +211,17 @@ class Example(Fixture):
                 p = self.cli("check")
                 self.assertEqual(p.returncode, 1)
                 self.assertIn("finding(s)", p.stderr)
+
+    def test_a_count_inside_fenced_code_is_not_the_promise(self):
+        write(self.root, graph_tool.COMPONENTS,
+              "```\n**9 components**\n```\n" + COMPONENTS)
+        self.assertEqual([f for f in self.findings() if "the sources define" in f], [])
+
+    def test_a_decision_row_with_an_extra_cell_is_reported(self):
+        write(self.root, graph_tool.DECISIONS, DECISIONS + "| D9 | Nine | extra |\n")
+        findings = self.findings()
+        self.assertTrue(any("docs/decisions.md:" in f and "row has 3 cells, the header 2" in f for f in findings), findings)
+        self.assertNotIn("D9", graph_tool.build(self.root).nodes)
 
 
 @unittest.skipUnless(shutil.which("relate"), "relate is not installed")
