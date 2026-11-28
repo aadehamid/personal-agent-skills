@@ -387,6 +387,38 @@ class WithRelate(Base):
                 self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
                 self.assertIn("usage:", p.stderr)
 
+    def test_time_rule_boundaries(self):
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+        iso = lambda t: t.strftime("%Y-%m-%dT%H:%M:%SZ")
+        cases = {
+            "validFrom equal to at": (episode("e1", "2026-11-20T10:00:00Z", "pi",
+                                              [fact("f1", "Same.", validFrom="2026-11-20T10:00:00Z")]), True),
+            "at one minute ahead": (episode("e2", iso(now + timedelta(minutes=1)), "pi",
+                                            [fact("f2", "Clock skew.", slot="skew/ok")]), True),
+            "at ten minutes ahead": (episode("e3", iso(now + timedelta(minutes=10)), "pi",
+                                             [fact("f3", "Too far.", slot="skew/no")]), False),
+            "validFrom one second after at": (episode("e4", "2026-11-20T10:00:00Z", "pi",
+                                                      [fact("f4", "Later.", slot="later/no", validFrom="2026-11-20T10:00:01Z")]), False),
+        }
+        for name, (payload, ok) in cases.items():
+            with self.subTest(name):
+                p = self.run_memory("remember", "-", stdin=json.dumps(payload))
+                self.assertEqual(p.returncode == 0, ok, p.stderr)
+
+    def test_a_save_that_supersedes_many_slots_prints_every_row(self):
+        # remember prints one row per replaced slot; relate's agent-mode cap of
+        # 100 rows must not cut that output.
+        n = 120
+        first = episode("e1", "2026-11-20T10:00:00Z", "pi",
+                        [fact(f"a{i}", f"Old {i}.", slot=f"bulk/s{i}") for i in range(n)])
+        second = episode("e2", "2026-11-21T10:00:00Z", "pi",
+                         [fact(f"b{i}", f"New {i}.", slot=f"bulk/s{i}") for i in range(n)])
+        self.remember(first)
+        p = self.remember(second)
+        self.assertEqual(sum(1 for line in p.stdout.splitlines() if '"replaced"' in line), n)
+        self.assertNotIn("rowCap", p.stdout)
+
     def test_string_parameters_stay_strings(self):
         self.remember(episode("e1", "2026-11-27T10:00:00Z", "cursor",
                               [{"id": "f1", "text": "Flag 42 is true.", "slot": "true/42", "about": ["true"]}],
