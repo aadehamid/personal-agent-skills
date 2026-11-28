@@ -104,7 +104,7 @@ write() {
   db="$(store)"
   while :; do
     set +e
-    relate query --database "$db" --mode jsonl "$@" < "$script"
+    relate query --database "$db" --mode jsonl --max-rows 0 "$@" < "$script"
     status=$?
     set -e
     if [ "$status" -ne 5 ] || [ "$attempt" -ge 20 ]; then
@@ -206,7 +206,7 @@ init() {
 validate() {
   python3 - "$1" <<'PY'
 import hashlib, json, re, sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 if sys.version_info < (3, 11):
     sys.exit("memory: needs python3 3.11 or later; this one is " + sys.version.split()[0])
 path = sys.argv[1]
@@ -255,16 +255,24 @@ def time(obj, key, where, required=True):
         valid = False
     if not valid:
         errors.append(f"{where}.{key}: not a UTC or offset datetime such as 2026-11-27T10:00:00Z")
+        return None
+    return parsed
 
 if not isinstance(m, dict):
     sys.exit("memory: invalid episode:\n  top level: not an object")
 ep = m.get("episode")
+learned = None
 if not isinstance(ep, dict):
     errors.append("episode: missing object")
 else:
     for key in ("id", "session", "agent", "text"):
         text(ep, key, "episode")
-    time(ep, "at", "episode")
+    learned = time(ep, "at", "episode")
+    # Memory records what agents have learned, so nothing is learned in the
+    # future and nothing becomes true after it was learned. Save a plan as a
+    # current fact ("The move is planned for 1 March").
+    if learned and learned > datetime.now(timezone.utc) + timedelta(minutes=5):
+        errors.append("episode.at: in the future; use the time you learned it")
     if not (isinstance(ep.get("kind"), str) and ep["kind"] in KINDS):
         errors.append(f"episode.kind: one of {', '.join(sorted(KINDS))}")
 mentions = m.setdefault("mentions", [])
@@ -292,7 +300,9 @@ for i, f in enumerate(facts):
     slot = text(f, "slot", where)
     if slot is not None and not SLOT.fullmatch(slot):
         errors.append(f"{where}.slot: lowercase <entity>/<aspect>, such as memory/setup")
-    time(f, "validFrom", where, required=False)
+    starts = time(f, "validFrom", where, required=False)
+    if starts and learned and starts > learned:
+        errors.append(f"{where}.validFrom: after episode.at; save a plan as a current fact instead")
     about = f.get("about")
     if not (isinstance(about, list) and about):
         errors.append(f"{where}.about: needs a non-empty list of entity keys")
@@ -413,24 +423,25 @@ case "$cmd" in
     # within 18 hours.
     relate query --database :memory: --mode jsonl --param "w=$w" "RETURN $kind(\$w) AS w" > /dev/null 2>&1 \
       || { echo "$usage" >&2; exit 2; }
+    # A date means the last moment of that UTC day, compared as a moment, so a
+    # fact stamped in another zone falls on the right side of midnight.
+    [ "$kind" = date ] && w="\"${when}T23:59:59.999999999Z\""
     # "Believed on t", as the relate cookbook's bitemporal-decisions recipe
     # defines it: recorded by t, valid on t, and an end of validity counts
     # only once it was known (closedAt), so a fact closed after t still looked
     # open on t, and a change recorded ahead of its validFrom is not yet in
-    # force. A date compares whole UTC days; a datetime compares the moment.
-    if [ "$kind" = date ]; then
-      believed='date(f.recordedAt) <= date($w) AND date(f.validFrom) <= date($w)
-                AND (f.validTo IS NULL OR date(f.validTo) > date($w) OR date(f.closedAt) > date($w))'
-    else
-      believed='f.recordedAt <= datetime($w) AND f.validFrom <= datetime($w)
-                AND (f.validTo IS NULL OR f.validTo > datetime($w) OR f.closedAt > datetime($w))'
-    fi
+    # force. A slot holds one value at a time, so when the rule leaves two
+    # candidates, the one recorded later is what agents believed.
     capped 100 --param "w=$w" \
-      "MATCH (f:Fact)-[:FROM]->(ep:Episode)
-       WHERE $believed
+      'MATCH (f:Fact)-[:FROM]->(ep:Episode)
+       WHERE f.recordedAt <= datetime($w) AND f.validFrom <= datetime($w)
+         AND (f.validTo IS NULL OR f.validTo > datetime($w) OR f.closedAt > datetime($w))
+       WITH f, ep ORDER BY f.recordedAt DESC
+       WITH f.slot AS slot, collect({f: f, ep: ep})[0] AS top
+       WITH top.f AS f, top.ep AS ep
        RETURN f.slot AS slot, f.text AS memory, ep.agent AS agent, ep.id AS episode,
               toString(f.recordedAt) AS recorded, ep.text AS evidence
-       ORDER BY slot LIMIT \$cap" ;;
+       ORDER BY slot LIMIT $cap' ;;
   slots)
     no_args "$@"
     need_relate

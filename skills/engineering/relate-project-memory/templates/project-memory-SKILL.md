@@ -23,6 +23,8 @@ scripts/memory.sh asof 2026-11-27       # what agents believed at the end of tha
 
 Results are JSON lines. `about`, `history` and `asof` return at most 100 rows and `slots` at most 500; when a result is cut, the command says so on stderr. Each row names the `agent`, the `episode` id and the `evidence` text the fact came from; quote that evidence when you rely on a memory. When a memory conflicts with the repository, the repository wins: save a correction.
 
+`asof` returns one belief per slot.
+
 ## Save before you finish
 
 Save when the session produced something a later session needs and cannot find by reading the repo: an owner preference or ruling, a correction to an earlier memory, a gotcha that cost time, where some work stopped. Code structure, git history and anything already in a document stay out; the repo already holds them.
@@ -48,7 +50,7 @@ JSON
 
 - `agent` names the tool that wrote it (`claude-code`, `codex`, `cursor`, `gemini`, `kimi`, `pi`).
 - `kind` is `decision`, `preference`, `correction`, `finding`, `handoff` or `tool_call`.
-- `at` is the time you learned it and `validFrom` (optional, defaults to `at`) is when it became true. Both are datetimes with a zone, such as `2026-11-27T10:00:00Z`.
+- `at` is the time you learned it and `validFrom` (optional, defaults to `at`) is when it became true. Both are datetimes with a zone, such as `2026-11-27T10:00:00Z`. Neither may be later than now: memory holds what agents learned, so save a plan as a current fact, such as "The move to us-east-1 is planned for 1 March."
 - Ids are stable and unique: date, agent and a short slug. Re-running the same episode changes nothing.
 - Entity keys are lowercase and stable, such as `owner`, `release-1` or `file:scripts/check.sh`.
 - Each fact is one self-contained sentence that names its source document when one exists.
