@@ -16,7 +16,7 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 | `templates/memory.sh` | installed | The memory command: `remember`, `recall`, `about`, `history`, `asof`, `slots`, `brief`, `check`, `init`, `path`. |
 | `templates/memory/schema.cypher` | installed | Constraints and indexes for `Entity`, `Episode` and `Fact`. |
 | `templates/memory/remember.cypher` | installed | Writes one episode in a transaction, with the id guards and supersession. |
-| `templates/test_memory.py` | installed | 39 tests of `memory.sh`. Eight of them run without Relate, so CI runs them too. |
+| `templates/test_memory.py` | installed | 40 tests of `memory.sh`. Eight of them run without Relate, so CI runs them too. |
 | `templates/project-memory-SKILL.md` | installed once | The project's own `project-memory` skill, with an `ADAPT` marker for the project's boundaries. |
 | `SOURCES.md` | you | Where the design came from. |
 | `README.md` | you | This file. |

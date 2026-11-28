@@ -308,10 +308,22 @@ class WithRelate(Base):
         today = recorded["e2"][:10]
         self.assertEqual([r["memory"] for r in self.rows("asof", today)], ["Corrected belief."])
         self.assertEqual(self.rows("asof", "2000-01-01"), [])
-        for bad in ("", "yesterday", "2026-13-01", "2026-11-27T10:00:00", "2026-11-27 10:00Z"):
+        self.assertEqual([r["memory"] for r in self.rows("asof", "9999-12-31")], ["Corrected belief."])
+        self.assertEqual([r["memory"] for r in self.rows("asof", "9999-12-31T23:59:59.999999Z")], ["Corrected belief."])
+        for bad in ("", "yesterday", "2026-13-01", "2026-02-30", "2026-11-27T10:00:00", "2026-11-27 10:00Z",
+                    "2026-11-27T10:00:00+18:30", ("2026-11-27", "10:00Z")):
             with self.subTest(bad):
-                p = self.run_memory("asof", bad)
+                p = self.run_memory("asof", *(bad if isinstance(bad, tuple) else (bad,)))
                 self.assertEqual(p.returncode, 2, p.stderr)
+                self.assertIn("usage:", p.stderr)
+
+    def test_extra_arguments_are_usage_errors(self):
+        self.remember(episode("e1", "2026-11-27T10:00:00Z", "pi", [fact("f1", "A fact.")]))
+        for args in (("about", "pump-101", "x"), ("history", SLOT, "x"), ("brief", "5", "x"),
+                     ("slots", "x"), ("check", "x"), ("path", "x"), ("init", "x"), ("remember", "-", "x")):
+            with self.subTest(args):
+                p = self.run_memory(*args)
+                self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
                 self.assertIn("usage:", p.stderr)
 
     def test_string_parameters_stay_strings(self):
