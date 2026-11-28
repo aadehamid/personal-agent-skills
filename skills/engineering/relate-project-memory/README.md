@@ -16,14 +16,14 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 | `templates/memory.sh` | installed | The memory command: `remember`, `recall`, `about`, `history`, `asof`, `slots`, `brief`, `check`, `init`, `path`. |
 | `templates/memory/schema.cypher` | installed | Constraints and indexes for `Entity`, `Episode` and `Fact`. |
 | `templates/memory/remember.cypher` | installed | Writes one episode in a transaction, with the id guards and supersession. |
-| `templates/test_memory.py` | installed | 46 tests of `memory.sh`. Eight of them run without Relate, so CI runs them too. |
+| `templates/test_memory.py` | installed | 49 tests of `memory.sh`. Eleven of them run without Relate, so CI runs them too. |
 | `templates/project-memory-SKILL.md` | installed once | The project's own `project-memory` skill, with an `ADAPT` marker for the project's boundaries. |
 | `SOURCES.md` | you | Where the design came from. |
 | `README.md` | you | This file. |
 
 ## Set up on a machine
 
-Each machine needs `relate` (`curl -sSfL https://relatedb.ai/install.sh | bash`) and `python3` 3.11 or later. The store lives in each project's git-ignored `.relate-memory/` folder. Dropbox syncs it between machines, so agents should save from one machine at a time; the script stops if Dropbox leaves conflicted copies.
+Each machine needs `relate` (`curl -sSfL https://relatedb.ai/install.sh | bash`) and Python 3.11 or later (`memory.sh` tries `$MEMORY_PYTHON`, then `python3`, `python` and `py -3`). The store lives in each project's git-ignored `.relate-memory/` folder. Dropbox syncs it between machines, so agents should save from one machine at a time; the script stops if Dropbox leaves conflicted copies.
 
 ## Status
 

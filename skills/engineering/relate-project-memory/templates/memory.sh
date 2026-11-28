@@ -89,10 +89,34 @@ need_relate() {
   exit 3
 }
 
+# The first Python 3.11 or later among $MEMORY_PYTHON, python3, python and
+# py -3 (the Windows launcher). A candidate that is missing, too old or a stub
+# that only opens an app store is skipped. Found once per process and reused.
+python_cmd=()
+find_python() {
+  [ "${#python_cmd[@]}" -eq 0 ] || return 0
+  local probe='import sys; sys.exit(sys.version_info < (3, 11))' c
+  if [ -n "${MEMORY_PYTHON:-}" ] && "$MEMORY_PYTHON" -c "$probe" >/dev/null 2>&1; then
+    python_cmd=("$MEMORY_PYTHON"); return 0
+  fi
+  for c in python3 python "py -3"; do
+    read -r -a python_cmd <<< "$c"
+    command -v "${python_cmd[0]}" >/dev/null 2>&1 \
+      && "${python_cmd[@]}" -c "$probe" >/dev/null 2>&1 && return 0
+  done
+  python_cmd=()
+  echo "memory: needs Python 3.11 or later; none of ${MEMORY_PYTHON:+$MEMORY_PYTHON, }python3, python or py -3 is one. Set MEMORY_PYTHON to its path." >&2
+  exit 3
+}
+run_python() {
+  find_python
+  "${python_cmd[@]}" "$@"
+}
+
 # --param parses its value as JSON, so a bare `true` or `42` would bind as a
 # boolean or a number. Encode every string parameter as a JSON string.
 json_string() {
-  python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$1"
+  run_python -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$1"
 }
 
 # Writes take the store's writer lock. Another agent may hold it for a moment,
@@ -176,7 +200,7 @@ create_store() {
     echo "memory: could not create the store at $db" >&2
     return 1
   fi
-  python3 -c 'import os, sys
+  run_python -c 'import os, sys
 try:
     os.rename(sys.argv[1], sys.argv[2])
 except OSError:
@@ -204,11 +228,11 @@ init() {
 }
 
 validate() {
-  python3 - "$1" <<'PY'
+  run_python - "$1" <<'PY'
 import hashlib, json, re, sys
 from datetime import datetime, timedelta, timezone
 if sys.version_info < (3, 11):
-    sys.exit("memory: needs python3 3.11 or later; this one is " + sys.version.split()[0])
+    sys.exit("memory: needs Python 3.11 or later; this one is " + sys.version.split()[0])
 path = sys.argv[1]
 def reject_constant(c):
     raise ValueError(f"{c} is not valid JSON")
@@ -363,7 +387,7 @@ remember() {
   init > /dev/null
   check_ids "$tmp"
   write "$cypher_dir/remember.cypher" --fetch-params "m=$tmp"
-  python3 -c 'import json, sys; m = json.load(open(sys.argv[1])); print("memory: saved episode %s with %d fact(s)" % (m["episode"]["id"], len(m["facts"])))' "$tmp"
+  run_python -c 'import json, sys; m = json.load(open(sys.argv[1])); print("memory: saved episode %s with %d fact(s)" % (m["episode"]["id"], len(m["facts"])))' "$tmp"
 }
 
 no_args() {
