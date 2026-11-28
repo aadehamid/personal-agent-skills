@@ -17,6 +17,7 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 | `templates/graph_tool.py` | copied into projects | The generic core (sources, clashes, checks, relate queries, command line) and an example PROJECT section to replace. |
 | `templates/test_graph_tool.py` | copied into projects | Tests for the core and the example, with a fixture to replace. |
 | `SOURCES.md` | you | Where the design came from. |
+| `README.md` | you | This file. |
 
 ## Set up on a machine
 
@@ -24,5 +25,5 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 
 ## Status
 
-- Drawn from two uses on 2026-11-27: PPC's `scripts/adr_graph.py` (PR #18), which found 18 disagreements in its decision records, and tar-twin's `twin_graph.py` design pass, which found five gaps before any code.
+- Drawn from two uses: PPC's `scripts/adr_graph.py` (PR #18, merged 2026-11-27), which found 18 disagreements in its decision records, and tar-twin's `twin_graph.py` design pass (2026-11-28, tool not yet built), which found five gaps before any code.
 - Open: the template reads markdown tables; a project with other source forms writes its own parsers in the PROJECT section.

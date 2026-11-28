@@ -21,7 +21,19 @@ import subprocess
 import sys
 import tempfile
 
-ROOT = os.environ.get("GRAPH_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+def repo_root(start):
+    """The nearest folder above start that holds .git, wherever the tool sits in the repository."""
+    path = start
+    while not os.path.exists(os.path.join(path, ".git")):
+        parent = os.path.dirname(path)
+        if parent == path:
+            return os.path.dirname(start)
+        path = parent
+    return path
+
+
+ROOT = os.environ.get("GRAPH_ROOT") or repo_root(os.path.dirname(os.path.abspath(__file__)))
+RESERVED = {"id", "sources"}
 
 
 # ----------------------------------------------------------------------------
@@ -33,18 +45,33 @@ def read(root, rel):
         return fh.read().replace("\r\n", "\n")
 
 
+def cells(line):
+    """The cells of one table row: one outer pipe is removed from each end, never more."""
+    line = line.strip()
+    line = line[1:] if line.startswith("|") else line
+    line = line[:-1] if line.endswith("|") else line
+    return [c.strip() for c in line.split("|")]
+
+
+SEPARATOR = re.compile(r"\|(\s*:?-+:?\s*\|)+")
+
+
 def markdown_tables(text):
-    """Every pipe table in a markdown text, as (header, rows), each row a dict by header cell."""
-    tables, lines = [], text.splitlines()
+    """Every pipe table in a markdown text, outside fenced code, as (header, rows) with rows by header cell."""
+    tables, lines, fenced = [], text.splitlines(), False
     i = 0
-    while i + 1 < len(lines):
-        head, rule = lines[i].strip(), lines[i + 1].strip()
-        if head.startswith("|") and re.fullmatch(r"\|[\s:|-]+\|", rule):
-            header = [c.strip() for c in head.strip("|").split("|")]
+    while i < len(lines):
+        if lines[i].lstrip().startswith(("```", "~~~")):
+            fenced = not fenced
+            i += 1
+            continue
+        if not fenced and i + 1 < len(lines) and lines[i].strip().startswith("|") \
+                and SEPARATOR.fullmatch(lines[i + 1].strip()):
+            header = cells(lines[i])
             rows, j = [], i + 2
             while j < len(lines) and lines[j].strip().startswith("|"):
-                cells = [c.strip() for c in lines[j].strip().strip("|").split("|")]
-                rows.append({"_line": j + 1, "_cells": len(cells), **dict(zip(header, cells))})
+                row = cells(lines[j])
+                rows.append({"_line": j + 1, "_cells": len(row), **dict(zip(header, row))})
                 j += 1
             tables.append((header, rows))
             i = j
@@ -63,12 +90,18 @@ class Graph:
         self.problems = []
 
     def node(self, label, ident, source, **props):
-        n = self.nodes.setdefault(ident, {"label": label, "props": {}, "sources": {}})
+        n = self.nodes.setdefault(ident, {"label": label, "props": {}, "sources": {}, "labels": {}})
+        n["labels"].setdefault(label, set()).add(source)
         if n["label"] != label:
-            self.problems.append(f"{ident}: {source} calls it a {label}, another source a {n['label']}")
+            others = sorted(s for lab, srcs in n["labels"].items() if lab != label for s in srcs)
+            self.problems.append(f"{ident}: {source} calls it a {label}; {', '.join(others)} "
+                                 f"{'calls' if len(others) == 1 else 'call'} it a {n['label']}")
         stated = n["sources"].setdefault(source, {})
         for key, value in props.items():
-            if value in (None, ""):
+            if key in RESERVED:
+                self.problems.append(f"{ident}: {source} sets the reserved property {key!r}; rename it")
+                continue
+            if value is None or value == "":
                 continue
             if key in stated and stated[key] != value:
                 self.problems.append(f"{ident}: {source} states {key} twice: {stated[key]!r} and {value!r}")
@@ -90,16 +123,18 @@ class Graph:
             values = {}
             for source, props in n["sources"].items():
                 for key, value in props.items():
-                    values.setdefault(key, {}).setdefault(value, []).append(source)
+                    # Keyed by type as well, so True and 1, or "3" and 3, count as different.
+                    values.setdefault(key, {}).setdefault((type(value).__name__, repr(value)), []).append(source)
             for key, seen in sorted(values.items()):
                 if len(seen) > 1:
-                    said = "; ".join(f"{', '.join(sorted(s))} says {v!r}" for v, s in sorted(seen.items()))
+                    said = "; ".join(f"{', '.join(sorted(s))} says {v}" for (_, v), s in sorted(seen.items()))
                     found.append(f"{ident}: sources disagree on {key}: {said}")
         return found
 
 
 def check(graph):
     """Every finding: unreadable sources, clashes, broken or missing links, wrong counts."""
+    counts = EXPECTED_COUNTS(graph)  # first, so a missing promise it reports is not lost
     findings = list(graph.problems) + graph.clashes()
     for (src, kind, dst), sources in sorted(graph.edges.items()):
         for end in (src, dst):
@@ -107,13 +142,16 @@ def check(graph):
                 findings.append(f"{src} -{kind}-> {dst}: {end} is not defined by any source "
                                 f"(stated in {', '.join(sorted(sources))})")
     for label, kind, direction, why in REQUIRED_LINKS:
+        if direction not in ("out", "in"):
+            findings.append(f"REQUIRED_LINKS: {label} {kind} has direction {direction!r}; use 'out' or 'in'")
+            continue
         for ident, n in sorted(graph.nodes.items()):
             if n["label"] != label:
                 continue
             ends = [e for e in graph.edges if e[1] == kind and (e[0] if direction == "out" else e[2]) == ident]
             if not ends:
                 findings.append(f"{ident}: a {label} with no {kind} link ({why})")
-    for label, expected, where in EXPECTED_COUNTS(graph):
+    for label, expected, where in counts:
         actual = sum(1 for n in graph.nodes.values() if n["label"] == label)
         if actual != expected:
             findings.append(f"{label}: the sources define {actual}, but {where} says {expected}")
@@ -174,10 +212,13 @@ def main(argv=None):
             return usage("help takes no arguments")
         print(__doc__.split("\n\nInstalled")[0].strip())
         return 0
+    wanted = {"impact": 1, "query": 1, "summary": 0, "check": 0, "export": 0}
+    if cmd not in wanted:
+        return usage("summary|check|impact|query|export, or help")
+    if len(args) != wanted[cmd]:
+        return usage({"impact": "impact ID", "query": "query 'CYPHER'"}.get(cmd, f"{cmd} takes no arguments"))
     graph = build(ROOT)
     if cmd == "impact":
-        if len(args) != 1:
-            return usage("impact ID")
         if args[0] not in graph.nodes:
             print(f"graph_tool: no node {args[0]}", file=sys.stderr)
             return 2
@@ -187,15 +228,9 @@ def main(argv=None):
             print(row)
         return 0
     if cmd == "query":
-        if len(args) != 1:
-            return usage("query 'CYPHER'")
         for row in run_relate(graph, args[0], {}):
             print(row)
         return 0
-    if cmd not in ("summary", "check", "export"):
-        return usage("summary|check|impact|query|export, or help")
-    if args:
-        return usage(f"{cmd} takes no arguments")
     if cmd == "summary":
         labels, kinds = {}, {}
         for n in graph.nodes.values():
@@ -233,7 +268,10 @@ REQUIRED_LINKS = [
 def EXPECTED_COUNTS(graph):
     """(label, count, where the count is promised). Read the promise from a source, never type it here."""
     m = re.search(r"\*\*(\d+) components\*\*", read(graph.root, COMPONENTS))
-    return [("Component", int(m.group(1)), COMPONENTS)] if m else []
+    if not m:
+        graph.problem(f"{COMPONENTS}: promises no component count (expected **N components**)")
+        return []
+    return [("Component", int(m.group(1)), COMPONENTS)]
 
 
 def build(root):
@@ -242,6 +280,8 @@ def build(root):
         for row in rows:
             if row.get("Decision"):
                 graph.node("Decision", row["Decision"], DECISIONS, title=row.get("Title"))
+            else:
+                graph.problem(f"{DECISIONS}:{row['_line']}: row has no decision id")
     for header, rows in markdown_tables(read(root, COMPONENTS)):
         if header[:3] != ["Component", "Depends on", "Decision"]:
             graph.problem(f"{COMPONENTS}: a table with columns {header} is not the component table")
@@ -249,6 +289,9 @@ def build(root):
         for row in rows:
             if row["_cells"] != len(header):
                 graph.problem(f"{COMPONENTS}:{row['_line']}: row has {row['_cells']} cells, the header {len(header)}")
+                continue
+            if not row["Component"]:
+                graph.problem(f"{COMPONENTS}:{row['_line']}: row has no component name")
                 continue
             name = graph.node("Component", row["Component"], COMPONENTS, owner=row.get("Owner"))
             for dep in [d.strip() for d in row["Depends on"].split(",") if d.strip() and d.strip() != "-"]:

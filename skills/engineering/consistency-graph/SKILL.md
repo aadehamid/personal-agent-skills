@@ -10,7 +10,7 @@ A project's sources often describe the same things from different sides: an ADR 
 
 The tool is a Python script in the project that rebuilds the graph from the sources every run, so it never drifts from them. Start it from this skill's tested template with `scripts/start.py`, then replace its example parsers with the project's.
 
-Two projects use it so far: PPC's `scripts/adr_graph.py` found 18 places where its decision records disagree, and tar-twin's design pass found five gaps between its scenario spec, drawings and verification rules before any code. `references/check-catalog.md` lists the kinds of finding with those examples; read it before you choose your checks.
+Two projects shaped it. PPC's `scripts/adr_graph.py`, merged, found 18 places where its decision records disagree. tar-twin's design pass for a `twin_graph.py`, not yet built, found five gaps between its scenario spec, drawings and verification rules before any code. `references/check-catalog.md` lists the kinds of finding with those examples; read it before you choose your checks.
 
 ## Steps
 

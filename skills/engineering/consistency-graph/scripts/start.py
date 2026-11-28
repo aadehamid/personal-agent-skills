@@ -10,6 +10,7 @@ the GRAPH_ROOT variable to NAME's. It refuses to overwrite a file, so it only
 ever starts a tool; from then on the project owns the copy.
 """
 import argparse
+import keyword
 import os
 import re
 import sys
@@ -30,14 +31,23 @@ def main(argv=None):
     parser.add_argument("name", help="a Python module name, such as twin_graph or plant_graph")
     parser.add_argument("--dir", default="scripts", help="folder for the tool and its tests (default: scripts)")
     args = parser.parse_args(argv)
-    if not re.fullmatch(r"[a-z][a-z0-9_]*", args.name) or args.name == "graph_tool":
-        print("start: NAME must be a lower-case Python module name other than graph_tool", file=sys.stderr)
+    if not re.fullmatch(r"[a-z][a-z0-9_]*", args.name) or args.name == "graph_tool" or keyword.iskeyword(args.name):
+        print("start: NAME must be a lower-case Python module name, not a keyword or graph_tool", file=sys.stderr)
+        return 2
+    if os.path.isabs(args.dir) or ".." in args.dir.replace("\\", "/").split("/"):
+        print("start: --dir must be a folder inside the repository, given relative to it", file=sys.stderr)
         return 2
     repo = os.path.abspath(args.repo)
     if not os.path.exists(os.path.join(repo, ".git")):
         print(f"start: {repo} is not the root of a git repository", file=sys.stderr)
         return 2
     folder = os.path.join(repo, args.dir)
+    part = repo
+    for piece in args.dir.replace("\\", "/").split("/"):
+        part = os.path.join(part, piece)
+        if os.path.islink(part):
+            print(f"start: {os.path.relpath(part, repo)} is a symlink; use a real folder", file=sys.stderr)
+            return 2
     targets = {"graph_tool.py": f"{args.name}.py", "test_graph_tool.py": f"test_{args.name}.py"}
     existing = [t for t in targets.values() if os.path.lexists(os.path.join(folder, t))]
     if existing:

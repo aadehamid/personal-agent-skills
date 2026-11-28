@@ -67,6 +67,49 @@ class Generic(Fixture):
         self.assertEqual([h for h, _ in tables], [["Decision", "Title"], ["A", "B"]])
         self.assertEqual(tables[1][1][0]["B"], "2")
 
+    def test_markdown_edge_cells_fences_and_separators(self):
+        text = ("| A | B | C |\n|---|---|---|\n| 1 |  | |\n\n```\n| X | Y |\n|---|---|\n| in | code |\n```\n"
+                "| P | Q |\n| not | a separator |\n| r | s |\n")
+        tables = graph_tool.markdown_tables(text)
+        self.assertEqual(len(tables), 1, tables)
+        row = tables[0][1][0]
+        self.assertEqual((row["_cells"], row["A"], row["B"], row["C"]), (3, "1", "", ""))
+
+    def test_clashes_compare_type_as_well_as_value(self):
+        g = graph_tool.Graph(self.root)
+        g.node("Valve", "V-1", "a.md", size="3", open=True)
+        g.node("Valve", "V-1", "b.json", size=3, open=1)
+        clashes = g.clashes()
+        self.assertEqual(len(clashes), 2, clashes)
+        self.assertTrue(any("size" in c and "'3'" in c and "says 3" in c for c in clashes), clashes)
+
+    def test_reserved_property_names_are_refused(self):
+        g = graph_tool.Graph(self.root)
+        g.node("Pump", "P-1", "a.md", id="other", sources="x")
+        self.assertEqual(len([p for p in g.problems if "reserved property" in p]), 2, g.problems)
+        self.assertNotIn('"other"', graph_tool.cypher_seed(g))
+
+    def test_a_bad_required_link_direction_is_reported(self):
+        saved = graph_tool.REQUIRED_LINKS
+        graph_tool.REQUIRED_LINKS = [("Component", "DEFINED_BY", "outbound", "x")]
+        try:
+            self.assertIn("REQUIRED_LINKS: Component DEFINED_BY has direction 'outbound'; use 'out' or 'in'",
+                          self.findings())
+        finally:
+            graph_tool.REQUIRED_LINKS = saved
+
+    def test_argument_errors_come_before_reading_sources(self):
+        empty = tempfile.TemporaryDirectory()
+        try:
+            env = dict(os.environ, GRAPH_ROOT=empty.name)
+            for args in (("nonsense",), ("summary", "x"), ("impact",)):
+                with self.subTest(args):
+                    p = subprocess.run([sys.executable, SCRIPT, *args], env=env, capture_output=True, text=True, timeout=60)
+                    self.assertEqual(p.returncode, 2, p.stderr)
+                    self.assertNotIn("Traceback", p.stderr)
+        finally:
+            empty.cleanup()
+
     def test_two_sources_that_disagree_make_a_clash_not_a_choice(self):
         g = graph_tool.Graph(self.root)
         g.node("Pump", "P-1", "spec.md", name="Feed pump")
@@ -81,7 +124,10 @@ class Generic(Fixture):
         g = graph_tool.Graph(self.root)
         g.node("Pump", "X-1", "a.md")
         g.node("Valve", "X-1", "b.md")
-        self.assertTrue(any("b.md calls it a Valve" in p for p in g.problems), g.problems)
+        g.node("Valve", "X-2", "a.md")
+        g.node("Pump", "X-2", "a.md")
+        self.assertIn("X-1: b.md calls it a Valve; a.md calls it a Pump", g.problems)
+        self.assertIn("X-2: a.md calls it a Pump; a.md calls it a Valve", g.problems)
 
     def test_cli_arguments(self):
         self.assertEqual(self.cli("summary").returncode, 0)
@@ -110,6 +156,8 @@ class Example(Fixture):
                 COMPONENTS.replace("**3 components**", "**4 components**"),
             "row has 3 cells, the header 4": COMPONENTS.replace("| cache | - | D2 | platform |", "| cache | - | D2 |"),
             "is not the component table": COMPONENTS + "\n| Name | Uses |\n|---|---|\n| x | y |\n",
+            "docs/components.md: promises no component count": COMPONENTS.replace("Built from **3 components**.", ""),
+            "row has no component name": COMPONENTS.replace("| cache | - | D2 | platform |", "|  | - | D2 | platform |"),
             "cache: docs/components.md states owner twice: 'platform' and 'data'": COMPONENTS + "\n| Component | Depends on | Decision | Owner |\n"
                                                              "|---|---|---|---|\n| cache | - | D2 | data |\n",
         }
@@ -139,7 +187,9 @@ class Queries(Fixture):
         p = self.cli("query", "MATCH (c:Component) RETURN count(c) AS n")
         self.assertEqual(json.loads(p.stdout.splitlines()[0]), {"n": 3})
         self.assertNotEqual(self.cli("query", "MATCH (c:Component) DETACH DELETE c").returncode, 0)
-        self.assertNotEqual(self.cli("query", "--version").returncode, 0)
+        p = self.cli("query", "--version")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertNotIn("Relate v", p.stdout, "a statement that looks like a flag is passed as a statement")
 
     def test_export_loads_and_keeps_sources(self):
         rows = graph_tool.run_relate(graph_tool.build(self.root),
