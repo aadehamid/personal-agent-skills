@@ -406,19 +406,24 @@ case "$cmd" in
     else
       echo "$usage" >&2; exit 2
     fi
-    # The shape check above allows only digits, T, Z, +, - and colons, so plain
-    # quotes make a valid JSON string without the Python helper.
+    # The shape check above allows only digits, T, Z, +, -, colons and a dot,
+    # so plain quotes make a valid JSON string without the Python helper.
     w="\"$when\""
     # Relate parses it, so its own rules decide: real calendar dates, offsets
     # within 18 hours.
     relate query --database :memory: --mode jsonl --param "w=$w" "RETURN $kind(\$w) AS w" > /dev/null 2>&1 \
       || { echo "$usage" >&2; exit 2; }
-    # A fact counts as believed then if it was recorded by then and not yet
-    # closed. A date compares on whole UTC days; a datetime on the moment.
+    # "Believed on t", as the relate cookbook's bitemporal-decisions recipe
+    # defines it: recorded by t, valid on t, and an end of validity counts
+    # only once it was known (closedAt), so a fact closed after t still looked
+    # open on t, and a change recorded ahead of its validFrom is not yet in
+    # force. A date compares whole UTC days; a datetime compares the moment.
     if [ "$kind" = date ]; then
-      believed='date(f.recordedAt) <= date($w) AND (f.closedAt IS NULL OR date(f.closedAt) > date($w))'
+      believed='date(f.recordedAt) <= date($w) AND date(f.validFrom) <= date($w)
+                AND (f.validTo IS NULL OR date(f.validTo) > date($w) OR date(f.closedAt) > date($w))'
     else
-      believed='f.recordedAt <= datetime($w) AND (f.closedAt IS NULL OR f.closedAt > datetime($w))'
+      believed='f.recordedAt <= datetime($w) AND f.validFrom <= datetime($w)
+                AND (f.validTo IS NULL OR f.validTo > datetime($w) OR f.closedAt > datetime($w))'
     fi
     capped 100 --param "w=$w" \
       "MATCH (f:Fact)-[:FROM]->(ep:Episode)

@@ -300,9 +300,9 @@ class WithRelate(Base):
         self.assertEqual((p.stdout, "more exist" in p.stderr), ("", False))
 
     def test_asof_answers_what_agents_believed_then(self):
-        self.remember(episode("e1", "2026-11-27T10:00:00Z", "pi", [fact("f1", "First belief.")]))
+        self.remember(episode("e1", "2026-01-01T00:00:00Z", "pi", [fact("f1", "First belief.")]))
         time.sleep(0.05)
-        self.remember(episode("e2", "2026-11-28T10:00:00Z", "pi", [fact("f2", "Corrected belief.")]))
+        self.remember(episode("e2", "2026-02-01T00:00:00Z", "pi", [fact("f2", "Corrected belief.")]))
         recorded = {h["episode"]: h["recorded"] for h in self.rows("history", SLOT)}
         self.assertEqual([r["memory"] for r in self.rows("asof", recorded["e1"])], ["First belief."])
         self.assertEqual([r["memory"] for r in self.rows("asof", recorded["e2"])], ["Corrected belief."])
@@ -320,12 +320,33 @@ class WithRelate(Base):
                 self.assertEqual(p.returncode, 2, p.stderr)
                 self.assertIn("usage:", p.stderr)
 
+    def test_asof_follows_the_recipe_for_a_change_planned_ahead(self):
+        # The cookbook's payments case: the move to us-east-1 is recorded on
+        # 20 February and valid from 1 March, so on 25 February the log still
+        # believed eu-west-1, even though its record was already closed.
+        self.assertEqual(self.run_memory("init").returncode, 0)
+        self.cypher("CREATE (ep:Episode {id: 'e1', agent: 'pi', text: 'x', at: datetime('2024-01-01T09:00:00Z')}) "
+                    "CREATE (:Fact {id: 'd3', slot: 'payments/region', text: 'payments runs in eu-west-1', "
+                    "validFrom: datetime('2024-01-01T00:00:00Z'), validTo: datetime('2024-03-01T00:00:00Z'), "
+                    "recordedAt: datetime('2024-01-01T09:00:00Z'), closedAt: datetime('2024-02-20T09:00:00Z')})-[:FROM]->(ep) "
+                    "CREATE (:Fact:CurrentFact {id: 'd8', slot: 'payments/region', text: 'payments runs in us-east-1', "
+                    "validFrom: datetime('2024-03-01T00:00:00Z'), recordedAt: datetime('2024-02-20T09:00:00Z')})-[:FROM]->(ep)")
+        for when, believed in (("2024-02-10", ["payments runs in eu-west-1"]),
+                               ("2024-02-25", ["payments runs in eu-west-1"]),
+                               ("2024-02-25T00:00:00Z", ["payments runs in eu-west-1"]),
+                               ("2024-03-05", ["payments runs in us-east-1"]),
+                               ("2023-12-31", [])):
+            with self.subTest(when):
+                self.assertEqual([r["memory"] for r in self.rows("asof", when)], believed)
+
     def test_asof_by_day_keeps_a_fact_closed_on_a_later_day(self):
         self.assertEqual(self.run_memory("init").returncode, 0)
         self.cypher("CREATE (ep:Episode {id: 'e1', agent: 'pi', text: 'x', at: datetime('2026-11-20T00:00:00Z')}) "
                     "CREATE (:Fact {id: 'old', slot: 'day/test', text: 'Closed next day.', "
+                    "validFrom: datetime('2026-11-20T00:00:00Z'), validTo: datetime('2026-11-26T00:00:00Z'), "
                     "recordedAt: datetime('2026-11-25T08:00:00Z'), closedAt: datetime('2026-11-26T00:00:00Z')})-[:FROM]->(ep) "
                     "CREATE (:Fact {id: 'same', slot: 'day/same', text: 'Closed same day.', "
+                    "validFrom: datetime('2026-11-20T00:00:00Z'), validTo: datetime('2026-11-25T23:59:59.999999999Z'), "
                     "recordedAt: datetime('2026-11-25T08:00:00Z'), closedAt: datetime('2026-11-25T23:59:59.999999999Z')})-[:FROM]->(ep)")
         self.assertEqual([r["memory"] for r in self.rows("asof", "2026-11-25")], ["Closed next day."])
         self.assertEqual(self.rows("asof", "2026-11-26"), [])
