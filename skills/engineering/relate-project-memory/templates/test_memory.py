@@ -504,11 +504,17 @@ class WithRelate(Base):
 
     @staticmethod
     def _group_alive(pgid):
-        try:
-            os.killpg(pgid, 0)
-            return True
-        except ProcessLookupError:
-            return False
+        deadline = time.monotonic() + 1.0
+        while True:
+            try:
+                os.killpg(pgid, 0)
+                return True
+            except ProcessLookupError:
+                return False
+            except PermissionError:
+                if time.monotonic() >= deadline:
+                    return False
+                time.sleep(0.05)
 
     def make_build(self, path, hours_old):
         os.makedirs(path)
