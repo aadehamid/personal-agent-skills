@@ -79,7 +79,9 @@ class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.db = os.path.join(self.tmp.name, "memory")
-        self.env = dict(git_env(), PROJECT_MEMORY_DB=self.db, TMPDIR=self.tmp.name)
+        # RELATE_AGENT_MODE=1 turns on relate's agent-mode row cap wherever the
+        # tests run, so the tests that guard against it bite in CI too.
+        self.env = dict(git_env(), PROJECT_MEMORY_DB=self.db, TMPDIR=self.tmp.name, RELATE_AGENT_MODE="1")
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -397,14 +399,20 @@ class WithRelate(Base):
             "at one minute ahead": (episode("e2", iso(now + timedelta(minutes=1)), "pi",
                                             [fact("f2", "Clock skew.", slot="skew/ok")]), True),
             "at ten minutes ahead": (episode("e3", iso(now + timedelta(minutes=10)), "pi",
-                                             [fact("f3", "Too far.", slot="skew/no")]), False),
+                                             [fact("f3", "Too far.", slot="skew/no")]), "episode.at: in the future"),
             "validFrom one second after at": (episode("e4", "2026-11-20T10:00:00Z", "pi",
-                                                      [fact("f4", "Later.", slot="later/no", validFrom="2026-11-20T10:00:01Z")]), False),
+                                                      [fact("f4", "Later.", slot="later/no", validFrom="2026-11-20T10:00:01Z")]),
+                                              "facts[0].validFrom: after episode.at"),
         }
-        for name, (payload, ok) in cases.items():
+        for name, (payload, expected) in cases.items():
             with self.subTest(name):
                 p = self.run_memory("remember", "-", stdin=json.dumps(payload))
-                self.assertEqual(p.returncode == 0, ok, p.stderr)
+                self.assertNotIn("Traceback", p.stderr)
+                if expected is True:
+                    self.assertEqual(p.returncode, 0, p.stderr)
+                else:
+                    self.assertEqual(p.returncode, 1, p.stderr)
+                    self.assertIn(expected, p.stderr)
 
     def test_a_save_that_supersedes_many_slots_prints_every_row(self):
         # remember prints one row per replaced slot; relate's agent-mode cap of
