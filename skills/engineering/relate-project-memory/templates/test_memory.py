@@ -215,10 +215,17 @@ class WithoutRelate(Base):
         self.assertNotIn("Python was not found", p.stderr)
 
     def test_memory_python_is_tried_first(self):
-        env = dict(self.env, PATH=self.bin_dir(), MEMORY_PYTHON=sys.executable)
+        # This python3 passes the version probe but fails anything else, so
+        # the test fails if the script picks it over $MEMORY_PYTHON.
+        path = self.bin_dir(python3_stub=False)
+        with open(os.path.join(path, "python3"), "w") as fh:
+            fh.write("#!/bin/sh\ncase \"$2\" in *version_info*) exit 0 ;; esac\necho used-python3 >&2\nexit 9\n")
+        os.chmod(os.path.join(path, "python3"), 0o755)
+        env = dict(self.env, PATH=path, MEMORY_PYTHON=sys.executable)
         p = self.run_memory("remember", "-", stdin=json.dumps(episode("e1", "2026-11-27T10:00:00Z", "pi", [])), env=env)
         self.assertEqual(p.returncode, 1, p.stderr)
         self.assertIn("facts: needs at least one fact", p.stderr)
+        self.assertNotIn("used-python3", p.stderr)
 
     def test_no_usable_python_exits_3(self):
         env = dict(self.env, PATH=self.bin_dir())

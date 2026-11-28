@@ -5,7 +5,7 @@ description: This repository's shared memory, a Relate graph every agent reads a
 
 # Project memory
 
-Every agent on this repository (Claude Code, Codex, Cursor, Gemini, Kimi, Pi and the rest) shares one memory: a Relate graph that `scripts/memory.sh` reads and writes. Run `scripts/memory.sh` with no arguments for its commands. It needs `relate` and `python3` 3.11 or later. The store is the git-ignored `.relate-memory/` folder at the root of the main checkout, so every worktree sees the same memory and Git never tracks it.
+Every agent on this repository (Claude Code, Codex, Cursor, Gemini, Kimi, Pi and the rest) shares one memory: a Relate graph that `scripts/memory.sh` reads and writes. Run `scripts/memory.sh` with no arguments for its commands. It needs `relate` and Python 3.11 or later, which it looks for as `$MEMORY_PYTHON`, then `python3`, `python` and `py -3`. The store is the git-ignored `.relate-memory/` folder at the root of the main checkout, so every worktree sees the same memory and Git never tracks it.
 
 Memory supplements the record. Decisions are on the record only in {{DECISION_RECORDS}}; a memory points at that record and never replaces it.
 
