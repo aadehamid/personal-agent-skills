@@ -95,6 +95,12 @@ class Generic(Fixture):
         g.node("Valve", "V-1", "a.json", open=1, n=1.0)
         self.assertEqual(len([p for p in g.problems if "states" in p and "twice" in p]), 2, g.problems)
 
+    def test_one_source_stating_a_list_twice_compares_element_types(self):
+        g = graph_tool.Graph(self.root)
+        g.node("Valve", "V-1", "a.json", nums=[1], flags=[True], same=[1, "a"])
+        g.node("Valve", "V-1", "a.json", nums=[1.0], flags=[1], same=[1, "a"])
+        self.assertEqual(sorted(p.split(" states ")[1].split(" ")[0] for p in g.problems), ["flags", "nums"])
+
     def test_list_properties_reach_the_cypher_and_other_shapes_are_refused(self):
         g = graph_tool.Graph(self.root)
         g.node("Pump", "P-1", "a.md", tags=["a", "b"], size=3, spec={"x": 1})
@@ -226,6 +232,15 @@ class Example(Fixture):
 
 @unittest.skipUnless(shutil.which("relate"), "relate is not installed")
 class Queries(Fixture):
+    def test_reserved_words_as_labels_and_link_types_load(self):
+        g = graph_tool.Graph(self.root)
+        for label, ident in (("Order", "O-1"), ("Match", "M-1"), ("NULL", "N-1"), ("WHERE", "W-1")):
+            g.node(label, ident, "a.md", tags=["x"])
+        g.link("O-1", "IN", "M-1", "a.md")
+        g.link("N-1", "true", "W-1", "a.md")
+        rows = graph_tool.run_relate(g, "MATCH (a)-[r]->(b) RETURN a.id AS a, type(r) AS t ORDER BY a", {})
+        self.assertEqual([json.loads(r) for r in rows], [{"a": "N-1", "t": "true"}, {"a": "O-1", "t": "IN"}])
+
     def test_impact_reaches_linked_nodes(self):
         p = self.cli("impact", "cache")
         self.assertEqual(p.returncode, 0, p.stderr)

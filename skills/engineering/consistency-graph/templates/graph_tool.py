@@ -34,7 +34,7 @@ def repo_root(start):
 
 ROOT = os.environ.get("GRAPH_ROOT") or repo_root(os.path.dirname(os.path.abspath(__file__)))
 RESERVED = {"id", "sources"}
-NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")  # a label or link type Cypher takes without quotes
+NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")  # a label or link type; the seed backtick-quotes it, so reserved words are safe
 SCALAR = (str, int, float, bool)
 
 
@@ -60,7 +60,9 @@ def outside_fences(text):
 
 
 def same(a, b):
-    """Equal in type and value, so True and 1, or 1 and 1.0, differ."""
+    """Equal in type and value, element by element in a list, so True and 1, or [1] and [1.0], differ."""
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(same(x, y) for x, y in zip(a, b))
     return type(a) is type(b) and a == b
 
 
@@ -199,15 +201,15 @@ def cypher_seed(graph):
         return "null" if v is None else json.dumps(v, ensure_ascii=False)
     out = []
     for label in sorted({n["label"] for n in graph.nodes.values()}):
-        out.append(f"CREATE CONSTRAINT {label.lower()}_id IF NOT EXISTS FOR (n:{label}) REQUIRE n.id IS UNIQUE;")
+        out.append(f"CREATE CONSTRAINT `{label.lower()}_id` IF NOT EXISTS FOR (n:`{label}`) REQUIRE n.id IS UNIQUE;")
     for ident, n in sorted(graph.nodes.items()):
         props = {"id": ident, **n["props"], "sources": sorted(n["sources"])}
         body = ", ".join(f"`{k}`: {lit(v)}" for k, v in props.items())
-        out.append(f"CREATE (:{n['label']} {{{body}}});")
+        out.append(f"CREATE (:`{n['label']}` {{{body}}});")
     for (src, kind, dst), sources in sorted(graph.edges.items()):
         if src in graph.nodes and dst in graph.nodes:
             out.append(f"MATCH (a {{id: {lit(src)}}}), (b {{id: {lit(dst)}}}) "
-                       f"CREATE (a)-[:{kind} {{sources: {lit(sorted(sources))}}}]->(b);")
+                       f"CREATE (a)-[:`{kind}` {{sources: {lit(sorted(sources))}}}]->(b);")
     return "\n".join(out) + "\n"
 
 
