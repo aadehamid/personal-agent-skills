@@ -268,9 +268,10 @@ else:
     for key in ("id", "session", "agent", "text"):
         text(ep, key, "episode")
     learned = time(ep, "at", "episode")
-    # Memory records what agents have learned, so nothing is learned in the
-    # future and nothing becomes true after it was learned. Save a plan as a
-    # current fact ("The move is planned for 1 March").
+    # Memory records what agents have learned, so at is not in the future,
+    # beyond five minutes allowed for clock skew between machines, and nothing
+    # becomes true after it was learned. Save a plan as a current fact ("The
+    # move is planned for 1 March").
     if learned and learned > datetime.now(timezone.utc) + timedelta(minutes=5):
         errors.append("episode.at: in the future; use the time you learned it")
     if not (isinstance(ep.get("kind"), str) and ep["kind"] in KINDS):

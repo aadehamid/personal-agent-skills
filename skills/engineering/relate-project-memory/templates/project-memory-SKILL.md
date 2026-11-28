@@ -50,7 +50,7 @@ JSON
 
 - `agent` names the tool that wrote it (`claude-code`, `codex`, `cursor`, `gemini`, `kimi`, `pi`).
 - `kind` is `decision`, `preference`, `correction`, `finding`, `handoff` or `tool_call`.
-- `at` is the time you learned it and `validFrom` (optional, defaults to `at`) is when it became true. Both are datetimes with a zone, such as `2026-11-27T10:00:00Z`. Neither may be later than now: memory holds what agents learned, so save a plan as a current fact, such as "The move to us-east-1 is planned for 1 March."
+- `at` is the time you learned it and `validFrom` (optional, defaults to `at`) is when it became true. Both are datetimes with a zone, such as `2026-11-27T10:00:00Z`. `at` may not be more than five minutes later than now, which allows for clock skew between machines, and `validFrom` may not be later than `at`: memory holds what agents learned, so save a plan as a current fact, such as "The move to us-east-1 is planned for 1 March."
 - Ids are stable and unique: date, agent and a short slug. Re-running the same episode changes nothing.
 - Entity keys are lowercase and stable, such as `owner`, `release-1` or `file:scripts/check.sh`.
 - Each fact is one self-contained sentence that names its source document when one exists.

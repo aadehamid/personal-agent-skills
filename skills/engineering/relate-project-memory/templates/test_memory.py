@@ -79,7 +79,9 @@ class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.db = os.path.join(self.tmp.name, "memory")
-        self.env = dict(git_env(), PROJECT_MEMORY_DB=self.db, TMPDIR=self.tmp.name)
+        # RELATE_AGENT_MODE=1 turns on relate's agent-mode row cap wherever the
+        # tests run, so the tests that guard against it bite in CI too.
+        self.env = dict(git_env(), PROJECT_MEMORY_DB=self.db, TMPDIR=self.tmp.name, RELATE_AGENT_MODE="1")
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -386,6 +388,44 @@ class WithRelate(Base):
                 p = self.run_memory(*args)
                 self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
                 self.assertIn("usage:", p.stderr)
+
+    def test_time_rule_boundaries(self):
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+        iso = lambda t: t.strftime("%Y-%m-%dT%H:%M:%SZ")
+        cases = {
+            "validFrom equal to at": (episode("e1", "2026-11-20T10:00:00Z", "pi",
+                                              [fact("f1", "Same.", validFrom="2026-11-20T10:00:00Z")]), True),
+            "at four and a half minutes ahead": (episode("e2", iso(now + timedelta(minutes=4, seconds=30)), "pi",
+                                                         [fact("f2", "Clock skew.", slot="skew/ok")]), True),
+            "at five and a half minutes ahead": (episode("e3", iso(now + timedelta(minutes=5, seconds=30)), "pi",
+                                             [fact("f3", "Too far.", slot="skew/no")]), "episode.at: in the future"),
+            "validFrom one second after at": (episode("e4", "2026-11-20T10:00:00Z", "pi",
+                                                      [fact("f4", "Later.", slot="later/no", validFrom="2026-11-20T10:00:01Z")]),
+                                              "facts[0].validFrom: after episode.at"),
+        }
+        for name, (payload, expected) in cases.items():
+            with self.subTest(name):
+                p = self.run_memory("remember", "-", stdin=json.dumps(payload))
+                self.assertNotIn("Traceback", p.stderr)
+                if expected is True:
+                    self.assertEqual(p.returncode, 0, p.stderr)
+                else:
+                    self.assertEqual(p.returncode, 1, p.stderr)
+                    self.assertIn(expected, p.stderr)
+
+    def test_a_save_that_supersedes_many_slots_prints_every_row(self):
+        # remember prints one row per replaced slot; relate's agent-mode cap of
+        # 100 rows must not cut that output.
+        n = 120
+        first = episode("e1", "2026-11-20T10:00:00Z", "pi",
+                        [fact(f"a{i}", f"Old {i}.", slot=f"bulk/s{i}") for i in range(n)])
+        second = episode("e2", "2026-11-21T10:00:00Z", "pi",
+                         [fact(f"b{i}", f"New {i}.", slot=f"bulk/s{i}") for i in range(n)])
+        self.remember(first)
+        p = self.remember(second)
+        self.assertEqual(sum(1 for line in p.stdout.splitlines() if '"replaced"' in line), n)
+        self.assertNotIn("rowCap", p.stdout)
 
     def test_string_parameters_stay_strings(self):
         self.remember(episode("e1", "2026-11-27T10:00:00Z", "cursor",
