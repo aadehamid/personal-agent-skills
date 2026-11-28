@@ -16,7 +16,7 @@ This README is for people. Agents read `SKILL.md` and the files it points to.
 | `templates/memory.sh` | installed | The memory command: `remember`, `recall`, `about`, `history`, `asof`, `slots`, `brief`, `check`, `init`, `path`. |
 | `templates/memory/schema.cypher` | installed | Constraints and indexes for `Entity`, `Episode` and `Fact`. |
 | `templates/memory/remember.cypher` | installed | Writes one episode in a transaction, with the id guards and supersession. |
-| `templates/test_memory.py` | installed | 45 tests of `memory.sh`. Eight of them run without Relate, so CI runs them too. |
+| `templates/test_memory.py` | installed | 43 tests of `memory.sh`. Eight of them run without Relate, so CI runs them too. |
 | `templates/project-memory-SKILL.md` | installed once | The project's own `project-memory` skill, with an `ADAPT` marker for the project's boundaries. |
 | `SOURCES.md` | you | Where the design came from. |
 | `README.md` | you | This file. |
@@ -29,4 +29,4 @@ Each machine needs `relate` (`curl -sSfL https://relatedb.ai/install.sh | bash`)
 
 - Built from three setups on 2026-11-27: Pearland Petroleum Corporation (ADR-0058), tar-twin-frozen-worklist-demo (D17, PRs #17 and #18), and this skill's templates, which add the follow-ups Pi raised on tar-twin PR #17: a closed fact's range never ends before it starts, and slots and keys must be lowercase.
 - `asof` comes from the cookbook recipe "Know what an agent believed, and when" (<https://relatedb.ai/cookbook/bitemporal-decisions/index.md>).
-- Open: the Dropbox conflict scan matches only the English `conflicted copy` file name. There is no vector recall, because the agents share no embedding model. A postponed plan leaves a gap in `asof` until the agent saves the current value again; the project skill says so, and a test pins the behavior.
+- Open: the Dropbox conflict scan matches only the English `conflicted copy` file name. There is no vector recall, because the agents share no embedding model. Memory holds no future-dated facts: an agent saves a plan as a current fact, so `asof` answers from what agents had learned.

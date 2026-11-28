@@ -206,7 +206,7 @@ init() {
 validate() {
   python3 - "$1" <<'PY'
 import hashlib, json, re, sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 if sys.version_info < (3, 11):
     sys.exit("memory: needs python3 3.11 or later; this one is " + sys.version.split()[0])
 path = sys.argv[1]
@@ -255,16 +255,24 @@ def time(obj, key, where, required=True):
         valid = False
     if not valid:
         errors.append(f"{where}.{key}: not a UTC or offset datetime such as 2026-11-27T10:00:00Z")
+        return None
+    return parsed
 
 if not isinstance(m, dict):
     sys.exit("memory: invalid episode:\n  top level: not an object")
 ep = m.get("episode")
+learned = None
 if not isinstance(ep, dict):
     errors.append("episode: missing object")
 else:
     for key in ("id", "session", "agent", "text"):
         text(ep, key, "episode")
-    time(ep, "at", "episode")
+    learned = time(ep, "at", "episode")
+    # Memory records what agents have learned, so nothing is learned in the
+    # future and nothing becomes true after it was learned. Save a plan as a
+    # current fact ("The move is planned for 1 March").
+    if learned and learned > datetime.now(timezone.utc) + timedelta(minutes=5):
+        errors.append("episode.at: in the future; use the time you learned it")
     if not (isinstance(ep.get("kind"), str) and ep["kind"] in KINDS):
         errors.append(f"episode.kind: one of {', '.join(sorted(KINDS))}")
 mentions = m.setdefault("mentions", [])
@@ -292,7 +300,9 @@ for i, f in enumerate(facts):
     slot = text(f, "slot", where)
     if slot is not None and not SLOT.fullmatch(slot):
         errors.append(f"{where}.slot: lowercase <entity>/<aspect>, such as memory/setup")
-    time(f, "validFrom", where, required=False)
+    starts = time(f, "validFrom", where, required=False)
+    if starts and learned and starts > learned:
+        errors.append(f"{where}.validFrom: after episode.at; save a plan as a current fact instead")
     about = f.get("about")
     if not (isinstance(about, list) and about):
         errors.append(f"{where}.about: needs a non-empty list of entity keys")
