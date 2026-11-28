@@ -9,7 +9,7 @@ PROJECT_MEMORY_DB, except the path tests, which run a copy of the script in a
 temporary git repository. No test touches the real memory.
 
 WithoutRelate runs everywhere, CI included: help, store paths, episode
-validation and the missing-relate exit. WithRelate needs the relate binary and
+validation, the choice of Python and the missing-relate exit. WithRelate needs the relate binary and
 skips where it is not installed.
 """
 import json
@@ -17,6 +17,7 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -189,6 +190,42 @@ class WithoutRelate(Base):
                 self.assertIn("is not readable JSON", p.stderr)
                 self.assertNotIn("Traceback", p.stderr)
                 self.assertFalse(os.path.exists(self.db))
+
+    def bin_dir(self, python3_stub=True, python=None, tools=("bash", "cat", "mktemp", "dirname", "rm")):
+        # A PATH of only these: a python3 that fails the way a Windows Store
+        # stub does, a python that is this interpreter, and the tools the
+        # script needs before it validates an episode.
+        path = os.path.join(self.tmp.name, "bin")
+        os.makedirs(path)
+        if python3_stub:
+            with open(os.path.join(path, "python3"), "w") as fh:
+                fh.write("#!/bin/sh\necho 'Python was not found' >&2\nexit 9\n")
+            os.chmod(os.path.join(path, "python3"), 0o755)
+        if python:
+            os.symlink(python, os.path.join(path, "python"))
+        for tool in tools:
+            os.symlink(shutil.which(tool, path="/usr/bin:/bin") or shutil.which(tool), os.path.join(path, tool))
+        return path
+
+    def test_a_failing_python3_falls_back_to_python(self):
+        env = dict(self.env, PATH=self.bin_dir(python=sys.executable))
+        p = self.run_memory("remember", "-", stdin=json.dumps(episode("e1", "2026-11-27T10:00:00Z", "pi", [])), env=env)
+        self.assertEqual(p.returncode, 1, p.stderr)
+        self.assertIn("facts: needs at least one fact", p.stderr)
+        self.assertNotIn("Python was not found", p.stderr)
+
+    def test_memory_python_is_tried_first(self):
+        env = dict(self.env, PATH=self.bin_dir(), MEMORY_PYTHON=sys.executable)
+        p = self.run_memory("remember", "-", stdin=json.dumps(episode("e1", "2026-11-27T10:00:00Z", "pi", [])), env=env)
+        self.assertEqual(p.returncode, 1, p.stderr)
+        self.assertIn("facts: needs at least one fact", p.stderr)
+
+    def test_no_usable_python_exits_3(self):
+        env = dict(self.env, PATH=self.bin_dir())
+        p = self.run_memory("remember", "-", stdin=json.dumps(episode("e1", "2026-11-27T10:00:00Z", "pi", [])), env=env)
+        self.assertEqual(p.returncode, 3, p.stderr)
+        self.assertIn("needs Python 3.11 or later", p.stderr)
+        self.assertFalse(os.path.exists(self.db))
 
 
 @unittest.skipUnless(shutil.which("relate"), "relate is not installed")
