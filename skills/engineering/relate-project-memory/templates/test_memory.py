@@ -153,7 +153,7 @@ class WithoutRelate(Base):
             "episode.at: not a UTC": episode("e1", "yesterday", "pi", [good]),
             "facts[0].validFrom: not a UTC": episode("e1", at, "pi", [fact("f1", "A fact.", validFrom="2026-11-27")]),
             "facts[0].validFrom: not a UTC ": episode("e1", at, "pi", [fact("f1", "A fact.", validFrom="2026-13-45T10:00:00Z")]),
-            "facts[0].validFrom: not a UTC  ": episode("e1", at, "pi", [fact("f1", "A fact.", validFrom="2026-11-27T10:00:00.1234567890Z")]),
+            "facts[0].validFrom: not a UTC  ": episode("e1", at, "pi", [fact("f1", "A fact.", validFrom="2026-11-27T10:00:00.0000001Z")]),
             "episode.at: not a UTC ": episode("e1", "2026-11-27T10:00:00+99:99", "pi", [good]),
             "episode.at: not a UTC  ": episode("e1", "2026-11-27T10:00:00+18:30", "pi", [good]),
             "episode.at: not a UTC   ": episode("e1", "٢٠٢٦-11-27T10:00:00Z", "pi", [good]),
